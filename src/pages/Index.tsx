@@ -1,13 +1,18 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { Helmet } from "react-helmet";
+import { BoutViewer } from "@/components/game/BoutViewer";
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
-    </div>
+    <>
+      <Helmet>
+        <title>Basho - Sumo Management Simulator</title>
+        <meta name="description" content="Experience the world of sumo wrestling. Train rikishi, manage your stable, and compete in authentic tournaments with 82 kimarite techniques." />
+      </Helmet>
+      
+      <main className="min-h-screen bg-background py-8">
+        <BoutViewer />
+      </main>
+    </>
   );
 };
 
