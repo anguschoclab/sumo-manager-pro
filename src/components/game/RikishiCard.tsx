@@ -1,7 +1,7 @@
 // Rikishi card component - displays wrestler info
 
 import { cn } from "@/lib/utils";
-import type { Rikishi } from "@/engine/types";
+import type { Rikishi, TacticalArchetype } from "@/engine/types";
 import { Badge } from "@/components/ui/badge";
 
 interface RikishiCardProps {
@@ -25,6 +25,14 @@ const styleLabels: Record<string, string> = {
   oshi: "Pusher",
   yotsu: "Grappler",
   hybrid: "Technical",
+};
+
+const archetypeLabels: Record<TacticalArchetype, { label: string; color: string }> = {
+  oshi_specialist: { label: "Oshi Specialist", color: "text-red-400 border-red-400/50" },
+  yotsu_specialist: { label: "Yotsu Specialist", color: "text-blue-400 border-blue-400/50" },
+  speedster: { label: "Speedster", color: "text-green-400 border-green-400/50" },
+  trickster: { label: "Trickster", color: "text-purple-400 border-purple-400/50" },
+  all_rounder: { label: "All-Rounder", color: "text-amber-400 border-amber-400/50" },
 };
 
 export function RikishiCard({ 
@@ -82,10 +90,16 @@ export function RikishiCard({
             <span>{rikishi.nationality}</span>
           </div>
 
-          {/* Style */}
-          <div className="flex items-center gap-2 mb-3">
+          {/* Style & Archetype */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             <Badge variant="outline" className="text-xs">
               {styleLabels[rikishi.style]}
+            </Badge>
+            <Badge 
+              variant="outline" 
+              className={cn("text-xs", archetypeLabels[rikishi.archetype].color)}
+            >
+              {archetypeLabels[rikishi.archetype].label}
             </Badge>
             {rikishi.momentum !== 0 && (
               <Badge 
@@ -110,8 +124,8 @@ export function RikishiCard({
       )}
 
       {compact && (
-        <div className="flex gap-2 text-xs text-muted-foreground">
-          <span>{styleLabels[rikishi.style]}</span>
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+          <span>{archetypeLabels[rikishi.archetype].label}</span>
           <span>•</span>
           <span>{rikishi.weight}kg</span>
         </div>

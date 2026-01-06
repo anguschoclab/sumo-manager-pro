@@ -1,8 +1,8 @@
 // Mock rikishi data for testing the bout engine
 
-import type { Rikishi } from "./types";
+import type { Rikishi, TacticalArchetype } from "./types";
 
-// Sample rikishi for testing
+// Sample rikishi with tactical archetypes
 export const SAMPLE_RIKISHI: Rikishi[] = [
   {
     id: "hakuryu",
@@ -23,6 +23,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     injured: false,
     injuryWeeksRemaining: 0,
     style: "yotsu",
+    archetype: "yotsu_specialist",
     division: "makuuchi",
     rank: "yokozuna",
     side: "east",
@@ -52,6 +53,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     injured: false,
     injuryWeeksRemaining: 0,
     style: "oshi",
+    archetype: "oshi_specialist",
     division: "makuuchi",
     rank: "ozeki",
     side: "west",
@@ -59,7 +61,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     careerLosses: 312,
     currentBashoWins: 0,
     currentBashoLosses: 0,
-    favoredKimarite: ["oshidashi", "tsukidashi", "hatakikomi"],
+    favoredKimarite: ["oshidashi", "tsukidashi", "oshitaoshi"],
     weakAgainstStyles: ["yotsu"]
   },
   {
@@ -81,6 +83,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     injured: false,
     injuryWeeksRemaining: 0,
     style: "hybrid",
+    archetype: "speedster",
     division: "makuuchi",
     rank: "sekiwake",
     side: "east",
@@ -88,7 +91,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     careerLosses: 178,
     currentBashoWins: 0,
     currentBashoLosses: 0,
-    favoredKimarite: ["hatakikomi", "sukuinage", "ketaguri"],
+    favoredKimarite: ["hatakikomi", "ketaguri", "okuridashi"],
     weakAgainstStyles: []
   },
   {
@@ -110,6 +113,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     injured: false,
     injuryWeeksRemaining: 0,
     style: "yotsu",
+    archetype: "all_rounder",
     division: "makuuchi",
     rank: "komusubi",
     side: "west",
@@ -139,6 +143,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     injured: false,
     injuryWeeksRemaining: 0,
     style: "yotsu",
+    archetype: "yotsu_specialist",
     division: "makuuchi",
     rank: "maegashira",
     rankNumber: 1,
@@ -169,6 +174,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     injured: false,
     injuryWeeksRemaining: 0,
     style: "hybrid",
+    archetype: "trickster",
     division: "makuuchi",
     rank: "maegashira",
     rankNumber: 8,
@@ -179,6 +185,67 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoLosses: 0,
     favoredKimarite: ["hatakikomi", "ketaguri", "katasukashi", "izori"],
     weakAgainstStyles: []
+  },
+  {
+    id: "asanoyama",
+    shikona: "Asanoyama",
+    realName: "Hiroki Ishibashi",
+    heyaId: "takasago",
+    nationality: "Japan",
+    height: 187,
+    weight: 160,
+    power: 80,
+    speed: 70,
+    balance: 84,
+    technique: 82,
+    aggression: 70,
+    experience: 72,
+    momentum: 3,
+    stamina: 100,
+    injured: false,
+    injuryWeeksRemaining: 0,
+    style: "yotsu",
+    archetype: "all_rounder",
+    division: "makuuchi",
+    rank: "maegashira",
+    rankNumber: 2,
+    side: "east",
+    careerWins: 398,
+    careerLosses: 267,
+    currentBashoWins: 0,
+    currentBashoLosses: 0,
+    favoredKimarite: ["yorikiri", "uwatenage", "sukuinage"],
+    weakAgainstStyles: []
+  },
+  {
+    id: "takakeisho",
+    shikona: "Takakeishō",
+    realName: "Takayuki Sato",
+    heyaId: "chiganoura",
+    nationality: "Japan",
+    height: 175,
+    weight: 170,
+    power: 90,
+    speed: 72,
+    balance: 78,
+    technique: 75,
+    aggression: 92,
+    experience: 80,
+    momentum: 6,
+    stamina: 95,
+    injured: false,
+    injuryWeeksRemaining: 0,
+    style: "oshi",
+    archetype: "oshi_specialist",
+    division: "makuuchi",
+    rank: "ozeki",
+    side: "east",
+    careerWins: 512,
+    careerLosses: 298,
+    currentBashoWins: 0,
+    currentBashoLosses: 0,
+    favoredKimarite: ["oshidashi", "tsukidashi", "hatakikomi"],
+    weakAgainstStyles: ["yotsu"]
   }
 ];
 
@@ -189,4 +256,9 @@ export function getRikishiById(id: string): Rikishi | undefined {
 export function getRandomRikishiPair(): [Rikishi, Rikishi] {
   const shuffled = [...SAMPLE_RIKISHI].sort(() => Math.random() - 0.5);
   return [shuffled[0], shuffled[1]];
+}
+
+// Get rikishi by archetype for testing
+export function getRikishiByArchetype(archetype: TacticalArchetype): Rikishi[] {
+  return SAMPLE_RIKISHI.filter(r => r.archetype === archetype);
 }
