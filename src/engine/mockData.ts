@@ -1,8 +1,14 @@
 // Mock rikishi data for testing the bout engine
 
-import type { Rikishi, TacticalArchetype } from "./types";
+import type { Rikishi, TacticalArchetype, RikishiEconomics } from "./types";
+import { initializeEconomics } from "./economics";
 
-// Sample rikishi with tactical archetypes
+// Helper to create economics with custom values
+function createEconomics(overrides: Partial<RikishiEconomics> = {}): RikishiEconomics {
+  return { ...initializeEconomics(), ...overrides };
+}
+
+// Sample rikishi with tactical archetypes and economics
 export const SAMPLE_RIKISHI: Rikishi[] = [
   {
     id: "hakuryu",
@@ -32,7 +38,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["yorikiri", "uwatenage", "shitatenage"],
-    weakAgainstStyles: []
+    weakAgainstStyles: [],
+    economics: createEconomics({
+      retirementFund: 180_000_000,
+      careerKenshoWon: 2450,
+      kinboshiCount: 0,
+      totalEarnings: 320_000_000,
+      popularity: 95
+    })
   },
   {
     id: "kaiou",
@@ -62,7 +75,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["oshidashi", "tsukidashi", "oshitaoshi"],
-    weakAgainstStyles: ["yotsu"]
+    weakAgainstStyles: ["yotsu"],
+    economics: createEconomics({
+      retirementFund: 85_000_000,
+      careerKenshoWon: 1120,
+      kinboshiCount: 0,
+      totalEarnings: 145_000_000,
+      popularity: 78
+    })
   },
   {
     id: "wakatora",
@@ -92,7 +112,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["hatakikomi", "ketaguri", "okuridashi"],
-    weakAgainstStyles: []
+    weakAgainstStyles: [],
+    economics: createEconomics({
+      retirementFund: 25_000_000,
+      careerKenshoWon: 380,
+      kinboshiCount: 2,
+      totalEarnings: 48_000_000,
+      popularity: 72
+    })
   },
   {
     id: "takanofuji",
@@ -122,7 +149,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["yorikiri", "kotenage", "sotogake"],
-    weakAgainstStyles: ["oshi"]
+    weakAgainstStyles: ["oshi"],
+    economics: createEconomics({
+      retirementFund: 35_000_000,
+      careerKenshoWon: 520,
+      kinboshiCount: 1,
+      totalEarnings: 62_000_000,
+      popularity: 58
+    })
   },
   {
     id: "tochinoshin",
@@ -153,7 +187,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["tsuridashi", "yorikiri", "uwatenage"],
-    weakAgainstStyles: []
+    weakAgainstStyles: [],
+    economics: createEconomics({
+      retirementFund: 55_000_000,
+      careerKenshoWon: 780,
+      kinboshiCount: 3,
+      totalEarnings: 95_000_000,
+      popularity: 82
+    })
   },
   {
     id: "enho",
@@ -184,7 +225,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["hatakikomi", "ketaguri", "katasukashi", "izori"],
-    weakAgainstStyles: []
+    weakAgainstStyles: [],
+    economics: createEconomics({
+      retirementFund: 18_000_000,
+      careerKenshoWon: 290,
+      kinboshiCount: 4,
+      totalEarnings: 32_000_000,
+      popularity: 88  // Fan favorite
+    })
   },
   {
     id: "asanoyama",
@@ -215,7 +263,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["yorikiri", "uwatenage", "sukuinage"],
-    weakAgainstStyles: []
+    weakAgainstStyles: [],
+    economics: createEconomics({
+      retirementFund: 28_000_000,
+      careerKenshoWon: 410,
+      kinboshiCount: 2,
+      totalEarnings: 52_000_000,
+      popularity: 65
+    })
   },
   {
     id: "takakeisho",
@@ -245,7 +300,14 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     currentBashoWins: 0,
     currentBashoLosses: 0,
     favoredKimarite: ["oshidashi", "tsukidashi", "hatakikomi"],
-    weakAgainstStyles: ["yotsu"]
+    weakAgainstStyles: ["yotsu"],
+    economics: createEconomics({
+      retirementFund: 72_000_000,
+      careerKenshoWon: 980,
+      kinboshiCount: 0,
+      totalEarnings: 125_000_000,
+      popularity: 75
+    })
   }
 ];
 

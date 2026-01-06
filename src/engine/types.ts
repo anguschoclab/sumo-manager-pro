@@ -76,6 +76,56 @@ export type Rank =
   | "jonidan"
   | "jonokuchi";
 
+// Rank position with side
+export interface RankPosition {
+  rank: Rank;
+  rankNumber?: number;  // e.g., Maegashira 3
+  side: "east" | "west";
+}
+
+// === BASHO (TOURNAMENT) SYSTEM ===
+
+// The six official basho names
+export type BashoName = "hatsu" | "haru" | "natsu" | "nagoya" | "aki" | "kyushu";
+
+// Season for narrative flavor
+export type Season = "winter" | "spring" | "summer" | "autumn";
+
+// Full basho information
+export interface BashoInfo {
+  name: BashoName;
+  nameJa: string;        // Japanese name
+  nameEn: string;        // English name
+  month: number;         // 1-12
+  location: string;      // City
+  venue: string;         // Arena name
+  venueJa: string;       // Japanese venue name
+  startDay: number;      // Approximate start day
+  season: Season;
+  description: string;   // Flavor text
+}
+
+// === ECONOMICS SYSTEM ===
+
+// Individual kensho win record
+export interface KenshoRecord {
+  bashoName: string;
+  day: number;
+  opponentId: string;
+  kenshoCount: number;
+  amount: number;
+}
+
+// Rikishi economics/finances
+export interface RikishiEconomics {
+  retirementFund: number;      // Accumulated retirement savings
+  careerKenshoWon: number;     // Total kensho banners won
+  kinboshiCount: number;       // Gold stars (maegashira beat yokozuna)
+  totalEarnings: number;       // Career total earnings
+  currentBashoEarnings: number; // This basho's earnings
+  popularity: number;          // 0-100, affects kensho attraction
+}
+
 export interface Rikishi {
   id: string;
   shikona: string;
@@ -118,6 +168,9 @@ export interface Rikishi {
   // Traits & specializations
   favoredKimarite: string[];  // IDs of preferred finishing moves
   weakAgainstStyles: Style[];
+  
+  // Economics (optional, added when needed)
+  economics?: RikishiEconomics;
 }
 
 export interface Heya {
@@ -163,7 +216,7 @@ export interface MatchSchedule {
 export interface BashoState {
   year: number;
   bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;  // 6 basho per year
-  bashoName: string;
+  bashoName: BashoName;
   day: number;  // 1-15
   matches: MatchSchedule[];
   standings: Map<string, { wins: number; losses: number }>;
@@ -173,6 +226,7 @@ export interface WorldState {
   seed: string;
   year: number;
   week: number;
+  currentBashoName?: BashoName;
   heyas: Map<string, Heya>;
   rikishi: Map<string, Rikishi>;
   currentBasho?: BashoState;
@@ -182,9 +236,16 @@ export interface WorldState {
 export interface BashoResult {
   year: number;
   bashoNumber: number;
+  bashoName: BashoName;
   yusho: string;  // winner rikishi ID
   junYusho: string[];
   ginoSho?: string;  // technique prize
   kantosho?: string; // fighting spirit
   shukunsho?: string; // outstanding performance
+  // Prize money awarded
+  prizes: {
+    yushoAmount: number;
+    junYushoAmount: number;
+    specialPrizes: number;
+  };
 }
