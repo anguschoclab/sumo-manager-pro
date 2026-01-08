@@ -50,7 +50,7 @@ export default function BashoPage() {
   return (
     <>
       <Helmet>
-        <title>{bashoInfo.nameEn} Day {basho.day} - Stable Lords</title>
+        <title>{`${bashoInfo?.nameEn || 'Tournament'} Day ${basho.day} - Stable Lords`}</title>
       </Helmet>
 
       <div className="p-6 max-w-7xl mx-auto space-y-6">
