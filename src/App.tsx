@@ -11,6 +11,9 @@ import MainMenu from "./pages/MainMenu";
 import Dashboard from "./pages/Dashboard";
 import BashoPage from "./pages/BashoPage";
 import BanzukePage from "./pages/BanzukePage";
+import StablePage from "./pages/StablePage";
+import RikishiPage from "./pages/RikishiPage";
+import HistoryPage from "./pages/HistoryPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -29,10 +32,11 @@ function AppRoutes() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/basho" element={<BashoPage />} />
         <Route path="/banzuke" element={<BanzukePage />} />
-        <Route path="/stable" element={<Dashboard />} />
+        <Route path="/stable" element={<StablePage />} />
+        <Route path="/rikishi/:id" element={<RikishiPage />} />
+        <Route path="/history" element={<HistoryPage />} />
         <Route path="/economy" element={<Dashboard />} />
         <Route path="/governance" element={<Dashboard />} />
-        <Route path="/history" element={<Dashboard />} />
         <Route path="/menu" element={<MainMenu />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
