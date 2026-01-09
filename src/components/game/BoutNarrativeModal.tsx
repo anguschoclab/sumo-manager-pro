@@ -1,11 +1,13 @@
 // Bout Narrative Modal - Shows dramatic play-by-play
+// Per PBP System v2.0: "Bouts are presented as one flowing narrative"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { generateNarrative } from "@/engine/narrative";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import type { Rikishi, BoutResult, BashoName } from "@/engine/types";
-import { Trophy, Swords } from "lucide-react";
+import { Trophy } from "lucide-react";
 
 interface BoutNarrativeModalProps {
   open: boolean;
@@ -30,70 +32,64 @@ export function BoutNarrativeModal({
 }: BoutNarrativeModalProps) {
   const narrative = generateNarrative(east, west, result, bashoName, day);
   const winner = result.winner === "east" ? east : west;
-  const loser = result.winner === "east" ? west : east;
+
+  // Identify special lines for styling
+  const isExclamation = (line: string) => line.includes("!");
+  const isDialogue = (line: string) => line.startsWith('"') || line.includes("—");
+  const isClosing = (idx: number) => idx === narrative.length - 1;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl paper">
-        <DialogHeader>
-          <DialogTitle className="font-display text-xl flex items-center gap-2">
-            <Swords className="h-5 w-5" />
-            {isPlayerBout && <Badge variant="default" className="text-xs">Your Stable</Badge>}
-            Bout Narrative
-          </DialogTitle>
+        <DialogHeader className="space-y-3">
+          {isPlayerBout && (
+            <Badge variant="default" className="w-fit text-xs">Your Stable</Badge>
+          )}
+          <div className="flex items-center justify-between">
+            {/* East wrestler */}
+            <div className={`text-center flex-1 ${result.winner === "east" ? "" : "opacity-60"}`}>
+              <div className="text-xs text-east font-medium mb-1">東 East</div>
+              <div className="font-display text-xl">{east.shikona}</div>
+              <div className="text-xs text-muted-foreground">
+                {RANK_HIERARCHY[east.rank]?.nameJa}
+                {east.rankNumber && ` ${east.rankNumber}`}
+              </div>
+              {result.winner === "east" && (
+                <Trophy className="h-4 w-4 mx-auto mt-2 text-yellow-500" />
+              )}
+            </div>
+
+            <div className="text-2xl text-muted-foreground/50 font-display px-4">対</div>
+
+            {/* West wrestler */}
+            <div className={`text-center flex-1 ${result.winner === "west" ? "" : "opacity-60"}`}>
+              <div className="text-xs text-west font-medium mb-1">西 West</div>
+              <div className="font-display text-xl">{west.shikona}</div>
+              <div className="text-xs text-muted-foreground">
+                {RANK_HIERARCHY[west.rank]?.nameJa}
+                {west.rankNumber && ` ${west.rankNumber}`}
+              </div>
+              {result.winner === "west" && (
+                <Trophy className="h-4 w-4 mx-auto mt-2 text-yellow-500" />
+              )}
+            </div>
+          </div>
         </DialogHeader>
 
-        {/* Matchup Header */}
-        <div className="flex items-center justify-between p-4 bg-secondary/30 rounded-lg">
-          <div className={`text-center flex-1 ${result.winner === "east" ? "font-bold" : "opacity-70"}`}>
-            <div className="text-xs text-east mb-1">東 East</div>
-            <div className="font-display text-lg">{east.shikona}</div>
-            <div className="text-xs text-muted-foreground">
-              {RANK_HIERARCHY[east.rank]?.nameJa}
-            </div>
-            {result.winner === "east" && (
-              <Trophy className="h-4 w-4 mx-auto mt-1 text-yellow-500" />
-            )}
-          </div>
+        <Separator />
 
-          <div className="text-2xl text-muted-foreground font-display">vs</div>
-
-          <div className={`text-center flex-1 ${result.winner === "west" ? "font-bold" : "opacity-70"}`}>
-            <div className="text-xs text-west mb-1">西 West</div>
-            <div className="font-display text-lg">{west.shikona}</div>
-            <div className="text-xs text-muted-foreground">
-              {RANK_HIERARCHY[west.rank]?.nameJa}
-            </div>
-            {result.winner === "west" && (
-              <Trophy className="h-4 w-4 mx-auto mt-1 text-yellow-500" />
-            )}
-          </div>
-        </div>
-
-        {/* Kimarite Badge */}
-        <div className="flex justify-center gap-2">
-          <Badge variant="outline" className="text-sm px-3 py-1">
-            {result.kimariteName}
-          </Badge>
-          {result.upset && (
-            <Badge variant="destructive" className="text-sm">
-              Upset!
-            </Badge>
-          )}
-        </div>
-
-        {/* Narrative */}
-        <ScrollArea className="h-[300px] pr-4">
-          <div className="space-y-3 py-2">
+        {/* Narrative - flowing story format */}
+        <ScrollArea className="h-[320px]">
+          <div className="space-y-2 py-2 pr-4">
             {narrative.map((line, idx) => (
               <p
                 key={idx}
-                className={`text-sm leading-relaxed ${
-                  idx === narrative.length - 1 
-                    ? "font-semibold text-foreground" 
-                    : "text-muted-foreground"
-                } ${
-                  line.includes("!") ? "text-foreground" : ""
+                className={`leading-relaxed transition-colors ${
+                  isClosing(idx)
+                    ? "text-base font-display font-medium text-foreground mt-4 pt-3 border-t border-border/50 italic" 
+                    : isExclamation(line)
+                    ? "text-[15px] text-foreground font-medium"
+                    : "text-[15px] text-muted-foreground"
                 }`}
               >
                 {line}
@@ -102,15 +98,18 @@ export function BoutNarrativeModal({
           </div>
         </ScrollArea>
 
-        {/* Result Summary */}
-        <div className="border-t pt-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            <span className="font-display font-semibold text-foreground">{winner.shikona}</span>
-            {" "}defeats{" "}
-            <span className="text-foreground">{loser.shikona}</span>
-            {" "}by{" "}
-            <span className="font-medium">{result.kimariteName}</span>
-          </p>
+        <Separator />
+
+        {/* Result summary */}
+        <div className="flex items-center justify-between text-sm">
+          <Badge variant="outline" className="font-display">
+            {result.kimariteName}
+          </Badge>
+          {result.upset && (
+            <Badge variant="destructive">
+              金星 Upset!
+            </Badge>
+          )}
         </div>
       </DialogContent>
     </Dialog>
