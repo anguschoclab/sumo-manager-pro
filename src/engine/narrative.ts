@@ -1,9 +1,11 @@
 // Play-by-Play Narrative Generator
 // Based on PBP System v2.0 Definitive Canon
+// "The bout is resolved by the engine. It is remembered by the hall."
 
 import seedrandom from "seedrandom";
 import type { BoutResult, BoutLogEntry, Rikishi, BashoName } from "./types";
 import { BASHO_CALENDAR } from "./calendar";
+import { RANK_HIERARCHY } from "./banzuke";
 
 interface NarrativeContext {
   rng: seedrandom.PRNG;
@@ -11,139 +13,362 @@ interface NarrativeContext {
   west: Rikishi;
   result: BoutResult;
   venue: string;
+  venueName: string;
   day: number;
   voiceStyle: "formal" | "dramatic" | "understated";
+  crowdStyle: "restrained" | "responsive" | "intimate";
+  isHighStakes: boolean;
+  boutSeed: string;
 }
 
-// Venue profiles for regional tone
-const VENUE_PROFILES: Record<string, { tone: string; crowdStyle: string }> = {
-  "Ryōgoku Kokugikan, Tokyo": { tone: "authoritative", crowdStyle: "restrained" },
-  "EDION Arena Osaka": { tone: "warm", crowdStyle: "responsive" },
-  "Aichi Prefectural Gymnasium": { tone: "warm", crowdStyle: "responsive" },
-  "Fukuoka Kokusai Center": { tone: "lively", crowdStyle: "intimate" },
+// Venue profiles for regional tone (Section 4.1)
+const VENUE_PROFILES: Record<string, { 
+  shortName: string;
+  tone: string; 
+  crowdStyle: "restrained" | "responsive" | "intimate";
+  crowdPersonality: string;
+}> = {
+  "Ryōgoku Kokugikan, Tokyo": { 
+    shortName: "Ryōgoku",
+    tone: "authoritative", 
+    crowdStyle: "restrained",
+    crowdPersonality: "The old guard watches with knowing eyes"
+  },
+  "EDION Arena Osaka": { 
+    shortName: "Osaka",
+    tone: "warm", 
+    crowdStyle: "responsive",
+    crowdPersonality: "The Osaka crowd wears their hearts openly"
+  },
+  "Aichi Prefectural Gymnasium": { 
+    shortName: "Nagoya",
+    tone: "warm", 
+    crowdStyle: "responsive",
+    crowdPersonality: "Nagoya fans know their sumo"
+  },
+  "Fukuoka Kokusai Center": { 
+    shortName: "Fukuoka",
+    tone: "lively", 
+    crowdStyle: "intimate",
+    crowdPersonality: "This crowd remembers everyone who has ever stepped on their dohyo"
+  },
 };
 
-// Voice style based on day and context
+// Voice style based on day and context (Section 3.1)
 function getVoiceStyle(day: number, isHighStakes: boolean): "formal" | "dramatic" | "understated" {
   if (day >= 13 || isHighStakes) return "dramatic";
   if (day <= 5) return "understated";
   return "formal";
 }
 
-// Tachiai narration templates
-const TACHIAI_TEMPLATES = {
-  formal: [
-    "The gyoji calls them forward. Both crouch at the shikiri-sen.",
-    "They meet at the center. The fan drops—tachiai.",
-    "A measured charge from both wrestlers."
-  ],
-  dramatic: [
-    "The tension breaks! The fan drops—TACHIAI!",
-    "A thunderous collision echoes through the hall!",
-    "They explode from the crouch! The crowd gasps!"
-  ],
-  understated: [
-    "They step to the line. The bout begins quietly.",
-    "A controlled start from both competitors.",
-    "The tachiai is clean, efficient."
-  ]
-};
+// Opening lines - setting the scene
+function generateOpening(ctx: NarrativeContext): string[] {
+  const { day, venueName, voiceStyle, crowdStyle, east, west, isHighStakes } = ctx;
+  const lines: string[] = [];
+  
+  const eastRank = RANK_HIERARCHY[east.rank];
+  const westRank = RANK_HIERARCHY[west.rank];
+  
+  // Day and venue atmosphere
+  if (voiceStyle === "dramatic") {
+    if (day >= 14) {
+      lines.push(`Day ${day === 15 ? "Fifteen—senshuraku" : "Fourteen"} here in ${venueName}, and the crowd is already alive.`);
+    } else {
+      lines.push(`Day ${day} here in ${venueName}, and the crowd is already alive.`);
+    }
+  } else if (voiceStyle === "understated") {
+    lines.push(`Day ${day} in ${venueName}. The early basho rhythm continues.`);
+  } else {
+    lines.push(`Day ${day} at ${venueName}.`);
+  }
+  
+  // Wrestler entrances based on crowd style and stakes
+  if (crowdStyle === "intimate") {
+    lines.push(`${east.shikona} steps onto the dohyo—greeted warmly by this hall.`);
+    lines.push(`${west.shikona} follows, expression tight.`);
+  } else if (crowdStyle === "responsive") {
+    if (isHighStakes) {
+      lines.push(`${east.shikona} approaches the dohyo. The hall stirs.`);
+      lines.push(`${west.shikona} rises. A ripple of anticipation.`);
+    } else {
+      lines.push(`${east.shikona} takes his position.`);
+      lines.push(`${west.shikona} settles across the ring.`);
+    }
+  } else {
+    // Restrained Tokyo style
+    if (eastRank.tier <= 2 || westRank.tier <= 2) {
+      lines.push(`${east.shikona} ascends. The hall knows what this rank demands.`);
+      lines.push(`${west.shikona} waits. History watches.`);
+    } else {
+      lines.push(`${east.shikona} and ${west.shikona} take their marks.`);
+    }
+  }
+  
+  return lines;
+}
 
-// Clinch narration templates
-const CLINCH_TEMPLATES = {
-  "belt-dominant": [
-    "{winner} finds the belt immediately—deep grip!",
-    "A powerful mawashi grip from {winner}.",
-    "{winner} secures dominant position on the belt."
-  ],
-  "push-dominant": [
-    "No belt—this will be a pushing battle.",
-    "{winner} keeps distance, hands at the chest.",
-    "They settle into an oshi-zumo exchange."
-  ],
-  "migi-yotsu": [
-    "Right-hand inside for both—migi-yotsu.",
-    "They lock up in migi-yotsu position.",
-    "Classic right-hand grip established."
-  ],
-  "hidari-yotsu": [
-    "Left-hand inside—hidari-yotsu.",
-    "They settle into a left-handed grip battle.",
-    "Hidari-yotsu—the traditional stance."
-  ],
-  "no-grip": [
-    "Both struggle for position, neither commits.",
-    "A tense standoff, no clear grip established.",
-    "They circle, searching for an opening."
-  ]
-};
+// Shikiri and tachiai - the ritual and clash
+function generateTachiai(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
+  const { voiceStyle, east, west, rng } = ctx;
+  const lines: string[] = [];
+  
+  const winnerSide = entry.data?.winner as string;
+  const winnerName = winnerSide === "east" ? east.shikona : west.shikona;
+  const loserName = winnerSide === "east" ? west.shikona : east.shikona;
+  const margin = entry.data?.margin as number || 0;
+  
+  // Always reference the gyoji (ritual anchor per 2.3)
+  lines.push("The gyoji calls them forward.");
+  
+  // The crouch and charge
+  if (voiceStyle === "dramatic") {
+    lines.push("They crouch at the shikiri-sen… no hesitation.");
+    lines.push("The fan drops—*tachiai!*");
+    
+    if (margin > 10) {
+      lines.push("A violent collision! The sound echoes!");
+      lines.push(`${winnerName} drives forward—the crowd responds!`);
+    } else if (margin > 5) {
+      lines.push("They crash together! Neither gives!");
+      lines.push(`${winnerName} finds the better of it—just.`);
+    } else {
+      lines.push("A measured clash—evenly matched!");
+    }
+  } else if (voiceStyle === "understated") {
+    lines.push("They settle. A moment. The fan drops.");
+    if (margin > 10) {
+      lines.push(`${winnerName} wins the tachiai decisively.`);
+    } else {
+      lines.push("A clean charge from both. Neither surprised.");
+    }
+  } else {
+    // Formal
+    lines.push("They meet at the line. The fan drops—tachiai.");
+    if (margin > 8) {
+      lines.push(`${winnerName} takes control from the start.`);
+    } else {
+      lines.push("The initial clash is even. The bout begins.");
+    }
+  }
+  
+  return lines;
+}
 
-// Momentum narration
-const MOMENTUM_PHRASES = {
-  formal: [
-    "The struggle continues at the center.",
-    "{name} presses forward methodically.",
-    "Neither wrestler yields ground easily."
-  ],
-  dramatic: [
-    "The crowd senses the tide shifting!",
-    "{name} surges with desperate power!",
-    "At the straw! The voices rise!"
-  ],
-  understated: [
-    "A patient exchange of pressure.",
-    "Subtle adjustments from both.",
-    "The bout extends, fatigue setting in."
-  ],
-  recovery: [
-    "{name} finds new footing!",
-    "A remarkable recovery from {name}!",
-    "{name} refuses to yield!"
-  ],
-  lateral: [
-    "{name} slides to the side!",
-    "Lateral movement from {name}!",
-    "{name} angles for advantage!"
-  ],
-  rear: [
-    "{name} gets behind—dangerous position!",
-    "The back is exposed! {name} capitalizes!",
-    "{name} circles to the rear!"
-  ]
-};
+// Clinch and grip battle
+function generateClinch(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
+  const { voiceStyle, east, west, rng } = ctx;
+  const lines: string[] = [];
+  
+  const stance = entry.data?.stance as string || "no-grip";
+  const advantage = entry.data?.advantage as string;
+  const advantagedName = advantage === "east" ? east.shikona : advantage === "west" ? west.shikona : null;
+  
+  switch (stance) {
+    case "belt-dominant":
+      if (advantagedName) {
+        if (voiceStyle === "dramatic") {
+          lines.push(`A murmur spreads—${advantagedName} has found the belt!`);
+        } else {
+          lines.push(`${advantagedName} secures the mawashi. Deep grip.`);
+        }
+      } else {
+        lines.push("Both find the belt. A yotsu battle now.");
+      }
+      break;
+      
+    case "push-dominant":
+      if (voiceStyle === "dramatic") {
+        lines.push("No belt work here—pure oshi-zumo!");
+        if (advantagedName) {
+          lines.push(`${advantagedName} presses, hands driving at the chest!`);
+        }
+      } else {
+        lines.push("They settle into a pushing exchange.");
+      }
+      break;
+      
+    case "migi-yotsu":
+      lines.push("Migi-yotsu—right hand inside for both.");
+      if (advantagedName) {
+        lines.push(`${advantagedName} has the better angle.`);
+      }
+      break;
+      
+    case "hidari-yotsu":
+      lines.push("Hidari-yotsu position. Left hands in.");
+      break;
+      
+    default:
+      if (voiceStyle === "dramatic") {
+        lines.push("They struggle for position—neither can settle!");
+      } else {
+        lines.push("No clear grip established yet.");
+      }
+  }
+  
+  return lines;
+}
 
-// Finish narration
-const FINISH_TEMPLATES = {
-  formal: [
-    "{winner} executes {kimarite}. The bout is decided.",
-    "By {kimarite}, {winner} prevails.",
-    "{winner} finishes cleanly with {kimarite}."
-  ],
-  dramatic: [
-    "{winner} SURGES! {kimarite}! It is OVER!",
-    "AT THE EDGE—{kimarite}! {winner} WINS!",
-    "The crowd ERUPTS! {kimarite} from {winner}!"
-  ],
-  understated: [
-    "{winner} applies {kimarite}. Quietly decisive.",
-    "The finish comes by {kimarite}.",
-    "{winner} completes the bout with {kimarite}."
-  ],
-  counter: [
-    "{winner} COUNTERS! {kimarite}! A reversal!",
-    "What a turnaround! {winner} with {kimarite}!",
-    "The tables turn—{kimarite} from {winner}!"
-  ]
-};
+// Momentum shifts - the battle in the ring
+function generateMomentum(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
+  const { voiceStyle, east, west, result, rng, crowdStyle } = ctx;
+  const lines: string[] = [];
+  
+  const recovery = entry.data?.recovery as boolean;
+  const position = entry.data?.position as string;
+  const leadingSide = entry.data?.leader as string;
+  const leadingName = leadingSide === "east" ? east.shikona : leadingSide === "west" ? west.shikona : null;
+  const trailingSide = leadingSide === "east" ? "west" : "east";
+  const trailingName = trailingSide === "east" ? east.shikona : west.shikona;
+  
+  // Position descriptions (per 2.2 - emphasize position center→edge)
+  if (position === "edge" || position === "straw") {
+    if (voiceStyle === "dramatic") {
+      lines.push("They drift toward the edge—voices rising!");
+    } else if (voiceStyle === "formal") {
+      lines.push("The bout moves to the tawara.");
+    } else {
+      lines.push("Near the straw now.");
+    }
+  } else if (position === "lateral") {
+    const mover = east.speed > west.speed ? east.shikona : west.shikona;
+    lines.push(`${mover} angles sideways—seeking advantage!`);
+  } else if (position === "rear") {
+    const winnerName = result.winner === "east" ? east.shikona : west.shikona;
+    if (voiceStyle === "dramatic") {
+      lines.push(`${winnerName} circles behind! Dangerous position!`);
+    } else {
+      lines.push(`${winnerName} finds the back.`);
+    }
+  }
+  
+  // Recovery moments (per 2.2 - balance stable→compromised)
+  if (recovery) {
+    if (voiceStyle === "dramatic") {
+      lines.push(`${trailingName} gives ground but stays balanced!`);
+      if (crowdStyle === "intimate" || crowdStyle === "responsive") {
+        lines.push("The crowd holds its breath!");
+      }
+    } else {
+      lines.push(`${trailingName} absorbs the pressure. Still alive.`);
+    }
+    return lines;
+  }
+  
+  // General momentum (per 2.2 - intent: pressing, waiting, adjusting)
+  if (leadingName && rng() > 0.4) {
+    if (voiceStyle === "dramatic") {
+      const phrases = [
+        `${leadingName} presses forward!`,
+        `${leadingName} surges—feeling it now!`,
+        `The pressure from ${leadingName} is relentless!`
+      ];
+      lines.push(pick(rng, phrases));
+    } else if (voiceStyle === "formal") {
+      lines.push(`${leadingName} maintains forward pressure.`);
+    } else {
+      lines.push(`${leadingName} presses. Patient.`);
+    }
+  }
+  
+  return lines;
+}
 
-// Crowd reactions
-const CROWD_REACTIONS = {
-  restrained: ["A murmur of appreciation.", "Polite applause fills the hall.", "The crowd nods in respect."],
-  responsive: ["The hall responds with energy!", "Cheers sweep through the crowd!", "The fans show their approval!"],
-  intimate: ["This crowd remembers them well.", "A warm reception from Fukuoka!", "The hall comes alive!"]
-};
+// Turning point - the decisive moment
+function generateTurningPoint(ctx: NarrativeContext): string[] {
+  const { voiceStyle, east, west, result, rng } = ctx;
+  const lines: string[] = [];
+  
+  const loserName = result.winner === "east" ? west.shikona : east.shikona;
+  
+  // Per 2.2 - turning points: hesitation, grip, reset failure
+  if (voiceStyle === "dramatic") {
+    const turningPoints = [
+      `${loserName} hesitates—just a moment!`,
+      `A grip slips! The balance shifts!`,
+      `${loserName} tries to reset—too late!`,
+      `The legs give! There's nothing left!`,
+      `One step too far—the opening appears!`
+    ];
+    lines.push(pick(rng, turningPoints));
+  } else if (voiceStyle === "formal") {
+    lines.push("The decisive moment arrives.");
+  }
+  
+  return lines;
+}
 
-// Generate full narrative for a bout
+// The finish
+function generateFinish(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
+  const { voiceStyle, east, west, crowdStyle, rng } = ctx;
+  const lines: string[] = [];
+  
+  const winnerSide = entry.data?.winner as string;
+  const winnerName = winnerSide === "east" ? east.shikona : west.shikona;
+  const kimariteName = entry.data?.kimariteName as string || ctx.result.kimariteName;
+  const isCounter = entry.data?.isCounter as boolean;
+  
+  // Build to the finish
+  if (voiceStyle === "dramatic") {
+    lines.push(`${winnerName} surges!`);
+    lines.push("At the straw—out!");
+    
+    // Crowd eruption (per Section 5.2)
+    if (crowdStyle === "intimate") {
+      lines.push("The hall erupts!");
+    } else if (crowdStyle === "responsive") {
+      lines.push("The crowd roars its approval!");
+    } else {
+      lines.push("A wave of applause fills Ryōgoku.");
+    }
+  } else if (voiceStyle === "understated") {
+    if (isCounter) {
+      lines.push(`${winnerName} finds the counter. It is done.`);
+    } else {
+      lines.push(`${winnerName} completes the work. Quietly decisive.`);
+    }
+    lines.push("Polite applause.");
+  } else {
+    // Formal
+    if (isCounter) {
+      lines.push(`A reversal! ${winnerName} with the counter!`);
+    } else {
+      lines.push(`${winnerName} executes cleanly.`);
+    }
+    lines.push("The gyoji points east." );
+  }
+  
+  return lines;
+}
+
+// Closing summary
+function generateClosing(ctx: NarrativeContext): string[] {
+  const { voiceStyle, east, west, result, venueName, day } = ctx;
+  const lines: string[] = [];
+  
+  const winner = result.winner === "east" ? east : west;
+  const loser = result.winner === "east" ? west : east;
+  
+  // Evocative closing (like the sample bout)
+  if (voiceStyle === "dramatic") {
+    // Style-specific closing observations
+    const closings = [
+      `What a moment in ${venueName}! Patience, balance, and pressure carry ${winner.shikona} through.`,
+      `${winner.shikona} has done it! The hall will remember this one.`,
+      `Sumo at its finest. ${winner.shikona} prevails.`,
+      `Day ${day} delivers. ${winner.shikona} stands victorious.`
+    ];
+    lines.push(pick(ctx.rng, closings));
+  } else if (voiceStyle === "understated") {
+    lines.push(`${winner.shikona} moves to ${winner.currentBashoWins + 1} wins.`);
+  } else {
+    lines.push(`${winner.shikona} defeats ${loser.shikona} by ${result.kimariteName}.`);
+  }
+  
+  return lines;
+}
+
+// Main narrative generator
 export function generateNarrative(
   east: Rikishi,
   west: Rikishi,
@@ -155,13 +380,19 @@ export function generateNarrative(
   const venue = bashoInfo?.location || "Ryōgoku Kokugikan, Tokyo";
   const venueProfile = VENUE_PROFILES[venue] || VENUE_PROFILES["Ryōgoku Kokugikan, Tokyo"];
   
+  const eastRank = RANK_HIERARCHY[east.rank];
+  const westRank = RANK_HIERARCHY[west.rank];
+  
   const isHighStakes = 
-    east.rank === "yokozuna" || west.rank === "yokozuna" ||
-    east.rank === "ozeki" || west.rank === "ozeki";
+    eastRank.tier <= 2 || westRank.tier <= 2 || // Yokozuna or Ozeki
+    day >= 13 || // Late basho
+    result.upset; // Upsets are always high stakes
   
   const voiceStyle = getVoiceStyle(day, isHighStakes);
-  const seed = `narrative-${result.kimarite}-${Date.now()}`;
-  const rng = seedrandom(seed);
+  
+  // Deterministic seed per bout for reproducibility (Section 9)
+  const boutSeed = `${bashoName}-${day}-${east.id}-${west.id}-${result.kimarite}`;
+  const rng = seedrandom(boutSeed);
   
   const ctx: NarrativeContext = {
     rng,
@@ -169,110 +400,51 @@ export function generateNarrative(
     west,
     result,
     venue,
+    venueName: venueProfile.shortName,
     day,
-    voiceStyle
+    voiceStyle,
+    crowdStyle: venueProfile.crowdStyle,
+    isHighStakes,
+    boutSeed
   };
 
   const lines: string[] = [];
   
-  // Opening
-  lines.push(`Day ${day} at ${venue}.`);
-  lines.push(`${east.shikona} (East) faces ${west.shikona} (West).`);
+  // Opening scene
+  lines.push(...generateOpening(ctx));
   
-  // Process each log entry
+  // Process bout log entries
+  let hasClimax = false;
   for (const entry of result.log) {
-    const narratedLine = narratePhase(ctx, entry, venueProfile.crowdStyle);
-    if (narratedLine) {
-      lines.push(narratedLine);
+    switch (entry.phase) {
+      case "tachiai":
+        lines.push(...generateTachiai(ctx, entry));
+        break;
+      case "clinch":
+        lines.push(...generateClinch(ctx, entry));
+        break;
+      case "momentum":
+        const momentumLines = generateMomentum(ctx, entry);
+        // Don't add too many momentum lines
+        if (momentumLines.length > 0 && lines.length < 12) {
+          lines.push(...momentumLines);
+        }
+        break;
+      case "finish":
+        // Add turning point before finish
+        if (!hasClimax) {
+          lines.push(...generateTurningPoint(ctx));
+          hasClimax = true;
+        }
+        lines.push(...generateFinish(ctx, entry));
+        break;
     }
   }
   
   // Closing
-  const winner = result.winner === "east" ? east : west;
-  const crowdReaction = pick(rng, CROWD_REACTIONS[venueProfile.crowdStyle as keyof typeof CROWD_REACTIONS] || CROWD_REACTIONS.restrained);
-  lines.push(crowdReaction);
-  lines.push(`Winner: ${winner.shikona} by ${result.kimariteName}.`);
+  lines.push(...generateClosing(ctx));
   
   return lines;
-}
-
-function narratePhase(ctx: NarrativeContext, entry: BoutLogEntry, crowdStyle: string): string | null {
-  const { rng, east, west, voiceStyle } = ctx;
-  
-  switch (entry.phase) {
-    case "tachiai": {
-      const winnerName = entry.data?.winner === "east" ? east.shikona : west.shikona;
-      const template = pick(rng, TACHIAI_TEMPLATES[voiceStyle]);
-      const margin = entry.data?.margin as number || 0;
-      
-      if (margin > 10) {
-        return `${template} ${winnerName} dominates the initial charge!`;
-      } else if (margin > 5) {
-        return `${template} ${winnerName} takes the edge.`;
-      } else {
-        return `${template} An even clash—slight advantage to ${winnerName}.`;
-      }
-    }
-    
-    case "clinch": {
-      const stance = entry.data?.stance as string || "no-grip";
-      const templates = CLINCH_TEMPLATES[stance as keyof typeof CLINCH_TEMPLATES] || CLINCH_TEMPLATES["no-grip"];
-      const template = pick(rng, templates);
-      const advantage = entry.data?.advantage as string;
-      const advantagedName = advantage === "east" ? east.shikona : advantage === "west" ? west.shikona : "";
-      return template.replace("{winner}", advantagedName || "Neither wrestler");
-    }
-    
-    case "momentum": {
-      const recovery = entry.data?.recovery as boolean;
-      const position = entry.data?.position as string;
-      
-      if (position === "lateral") {
-        const speedier = east.speed > west.speed ? east.shikona : west.shikona;
-        const template = pick(rng, MOMENTUM_PHRASES.lateral);
-        return template.replace("{name}", speedier);
-      }
-      
-      if (position === "rear") {
-        const advantaged = ctx.result.winner === "east" ? east.shikona : west.shikona;
-        const template = pick(rng, MOMENTUM_PHRASES.rear);
-        return template.replace("{name}", advantaged);
-      }
-      
-      if (recovery) {
-        const description = entry.description || "";
-        const nameMatch = description.match(/^(\S+)/);
-        const name = nameMatch ? nameMatch[1] : "";
-        const template = pick(rng, MOMENTUM_PHRASES.recovery);
-        return template.replace("{name}", name);
-      }
-      
-      // Skip generic momentum ticks ~50% of the time to avoid repetition
-      if (rng() < 0.5) return null;
-      
-      const template = pick(rng, MOMENTUM_PHRASES[voiceStyle]);
-      const active = rng() < 0.5 ? east.shikona : west.shikona;
-      return template.replace("{name}", active);
-    }
-    
-    case "finish": {
-      const isCounter = entry.data?.isCounter as boolean;
-      const winnerName = entry.data?.winner === "east" ? east.shikona : west.shikona;
-      const kimariteName = entry.data?.kimariteName as string || "force-out";
-      
-      const templates = isCounter 
-        ? FINISH_TEMPLATES.counter 
-        : FINISH_TEMPLATES[voiceStyle];
-      
-      const template = pick(rng, templates);
-      return template
-        .replace("{winner}", winnerName)
-        .replace("{kimarite}", kimariteName);
-    }
-    
-    default:
-      return null;
-  }
 }
 
 function pick<T>(rng: seedrandom.PRNG, arr: T[]): T {
