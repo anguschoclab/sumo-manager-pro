@@ -1,28 +1,34 @@
-// Rikishi Profile Page - Individual wrestler details
+// Rikishi Profile Page - Individual wrestler details (Narrative-First per Master Context v1.4)
 import { Helmet } from "react-helmet";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
-import { ARCHETYPE_PROFILES } from "@/engine/types";
-import { getCareerPhase, PHASE_EFFECTS } from "@/engine/training";
 import { KIMARITE_REGISTRY } from "@/engine/kimarite";
+import { getCareerPhase } from "@/engine/training";
+import {
+  describeAttributeVerbose,
+  describeAggressionVerbose,
+  describeExperienceVerbose,
+  describeStaminaVerbose,
+  describeMomentumVerbose,
+  describeCareerPhaseVerbose,
+  describeArchetypeVerbose,
+  describeStyleVerbose,
+  describeInjuryVerbose
+} from "@/engine/narrativeDescriptions";
 import { 
   ArrowLeft,
   Ruler,
   Scale,
   Swords,
-  Trophy,
-  TrendingUp,
-  TrendingDown,
   Activity,
+  Flame,
   Zap,
   Shield,
-  Target,
-  Flame
+  Target
 } from "lucide-react";
 
 export default function RikishiPage() {
@@ -44,21 +50,19 @@ export default function RikishiPage() {
 
   const heya = world.heyas.get(rikishi.heyaId);
   const rankInfo = RANK_HIERARCHY[rikishi.rank];
-  const archetypeProfile = ARCHETYPE_PROFILES[rikishi.archetype];
   const careerPhase = getCareerPhase(rikishi.experience);
-  const phaseInfo = PHASE_EFFECTS[careerPhase];
 
   // Get favored kimarite names
   const favoredMoves = rikishi.favoredKimarite
     .map(id => KIMARITE_REGISTRY.find(k => k.id === id))
     .filter(Boolean);
 
-  // Stats for display
-  const stats = [
-    { label: "Power", value: rikishi.power, icon: Flame, color: "text-destructive" },
-    { label: "Speed", value: rikishi.speed, icon: Zap, color: "text-warning" },
-    { label: "Balance", value: rikishi.balance, icon: Shield, color: "text-success" },
-    { label: "Technique", value: rikishi.technique, icon: Target, color: "text-primary" },
+  // Attribute narratives with icons
+  const attributeNarratives = [
+    { label: "Power", icon: Flame, color: "text-destructive", narrative: describeAttributeVerbose("power", rikishi.power) },
+    { label: "Speed", icon: Zap, color: "text-warning", narrative: describeAttributeVerbose("speed", rikishi.speed) },
+    { label: "Balance", icon: Shield, color: "text-success", narrative: describeAttributeVerbose("balance", rikishi.balance) },
+    { label: "Technique", icon: Target, color: "text-primary", narrative: describeAttributeVerbose("technique", rikishi.technique) },
   ];
 
   const archetypeLabels: Record<string, { ja: string; en: string }> = {
@@ -117,53 +121,59 @@ export default function RikishiPage() {
             </div>
           </div>
           <div className="text-right">
+            {/* Win/Loss records are allowed per doc */}
             <div className="text-3xl font-mono font-bold">
               {rikishi.careerWins}-{rikishi.careerLosses}
             </div>
             <div className="text-sm text-muted-foreground">Career Record</div>
             {rikishi.momentum !== 0 && (
-              <div className={`flex items-center justify-end gap-1 mt-2 ${
+              <div className={`mt-2 text-sm ${
                 rikishi.momentum > 0 ? "text-success" : "text-destructive"
               }`}>
-                {rikishi.momentum > 0 ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
-                <span>{rikishi.momentum > 0 ? "Hot" : "Cold"} streak</span>
+                {describeMomentumVerbose(rikishi.momentum)}
               </div>
             )}
           </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* Stats */}
+          {/* Attributes - Narrative descriptions only */}
           <Card className="paper">
             <CardHeader>
-              <CardTitle>Attributes</CardTitle>
+              <CardTitle>Physical Profile</CardTitle>
+              <CardDescription>Observations from training and competition</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {stats.map(stat => (
-                <div key={stat.label}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="flex items-center gap-2 text-sm">
-                      <stat.icon className={`h-4 w-4 ${stat.color}`} />
-                      {stat.label}
-                    </span>
-                    <span className="font-mono">{stat.value}</span>
+              {attributeNarratives.map(attr => (
+                <div key={attr.label} className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <attr.icon className={`h-4 w-4 ${attr.color}`} />
+                    <span className="font-medium text-sm">{attr.label}</span>
                   </div>
-                  <Progress value={stat.value} className="h-2" />
+                  <p className="text-sm text-muted-foreground pl-6">
+                    {attr.narrative}
+                  </p>
                 </div>
               ))}
               
-              <div className="pt-4 border-t space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Aggression</span>
-                  <span className="font-mono">{rikishi.aggression}</span>
+              <div className="pt-4 border-t space-y-4">
+                <div className="space-y-1">
+                  <span className="text-sm font-medium">Temperament</span>
+                  <p className="text-sm text-muted-foreground">
+                    {describeAggressionVerbose(rikishi.aggression)}
+                  </p>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Experience</span>
-                  <span className="font-mono">{rikishi.experience}</span>
+                <div className="space-y-1">
+                  <span className="text-sm font-medium">Experience</span>
+                  <p className="text-sm text-muted-foreground">
+                    {describeExperienceVerbose(rikishi.experience)}
+                  </p>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Stamina</span>
-                  <span className="font-mono">{rikishi.stamina}</span>
+                <div className="space-y-1">
+                  <span className="text-sm font-medium">Conditioning</span>
+                  <p className="text-sm text-muted-foreground">
+                    {describeStaminaVerbose(rikishi.stamina)}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -189,28 +199,13 @@ export default function RikishiPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <div className="text-sm font-medium">Archetype Traits</div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Tachiai Bonus</span>
-                    <span className={archetypeProfile.tachiaiBonus > 0 ? "text-success" : archetypeProfile.tachiaiBonus < 0 ? "text-destructive" : ""}>
-                      {archetypeProfile.tachiaiBonus > 0 ? "+" : ""}{archetypeProfile.tachiaiBonus}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Grip Preference</span>
-                    <span>{archetypeProfile.gripPreference > 0 ? "Belt" : archetypeProfile.gripPreference < 0 ? "Push" : "Neutral"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Volatility</span>
-                    <span>{Math.round(archetypeProfile.volatility * 100)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Counter Bonus</span>
-                    <span>{archetypeProfile.counterBonus > 0 ? "+" : ""}{archetypeProfile.counterBonus}</span>
-                  </div>
-                </div>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  {describeStyleVerbose(rikishi.style)}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {describeArchetypeVerbose(rikishi.archetype)}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -241,7 +236,7 @@ export default function RikishiPage() {
             </CardContent>
           </Card>
 
-          {/* Career Phase */}
+          {/* Career Status */}
           <Card className="paper">
             <CardHeader>
               <CardTitle>Career Status</CardTitle>
@@ -249,22 +244,9 @@ export default function RikishiPage() {
             <CardContent className="space-y-4">
               <div className="p-4 rounded-lg bg-secondary/50">
                 <div className="text-lg font-display capitalize">{careerPhase} Phase</div>
-                <div className="text-sm text-muted-foreground">{phaseInfo.description}</div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-muted-foreground">Growth Rate</span>
-                  <div className={`font-mono ${phaseInfo.growthMod > 1 ? "text-success" : phaseInfo.growthMod < 1 ? "text-destructive" : ""}`}>
-                    {Math.round(phaseInfo.growthMod * 100)}%
-                  </div>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Injury Risk</span>
-                  <div className={`font-mono ${phaseInfo.injurySensitivity < 1 ? "text-success" : phaseInfo.injurySensitivity > 1 ? "text-destructive" : ""}`}>
-                    {Math.round(phaseInfo.injurySensitivity * 100)}%
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {describeCareerPhaseVerbose(careerPhase)}
+                </p>
               </div>
 
               {rikishi.injured && (
@@ -273,14 +255,15 @@ export default function RikishiPage() {
                     <Activity className="h-4 w-4" />
                     <span className="font-medium">Injured</span>
                   </div>
-                  <div className="text-sm text-muted-foreground mt-1">
-                    {rikishi.injuryWeeksRemaining} weeks remaining
-                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {describeInjuryVerbose(rikishi.injuryWeeksRemaining)}
+                  </p>
                 </div>
               )}
 
               <div className="pt-4 border-t">
                 <div className="text-sm font-medium mb-2">Current Basho</div>
+                {/* Win/Loss records are allowed per doc */}
                 <div className="text-2xl font-mono">
                   {rikishi.currentBashoWins}-{rikishi.currentBashoLosses}
                 </div>

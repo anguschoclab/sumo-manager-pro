@@ -1,32 +1,33 @@
-// Stable Management Page - Training, roster, and facilities
+// Stable Management Page - Training, roster, and facilities (Narrative-First per Master Context v1.4)
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import { 
   INTENSITY_EFFECTS, 
   FOCUS_EFFECTS, 
   RECOVERY_EFFECTS,
-  FOCUS_MODE_EFFECTS,
   getIntensityLabel,
   getFocusLabel,
-  getStyleBiasLabel,
   getRecoveryLabel,
   getFocusModeLabel,
   getCareerPhase,
   type TrainingIntensity,
   type TrainingFocus,
-  type StyleBias,
   type RecoveryEmphasis,
-  type FocusMode,
   type BeyaTrainingState,
   createDefaultTrainingState
 } from "@/engine/training";
+import {
+  describeReputationVerbose,
+  describeFacilityVerbose,
+  describeTrainingEffect,
+  describeMomentumVerbose
+} from "@/engine/narrativeDescriptions";
 import { 
   Users, 
   Dumbbell, 
@@ -35,7 +36,6 @@ import {
   TrendingDown,
   Heart,
   Zap,
-  Shield,
   Target,
   Building,
   ChefHat,
@@ -115,9 +115,10 @@ export default function StablePage() {
               {rikishiList.length} wrestlers • {sekitori.length} sekitori
             </p>
           </div>
-          <Badge variant="outline" className="text-lg px-4 py-2">
-            Reputation: {heya.reputation}
-          </Badge>
+          <div className="text-right">
+            <p className="text-sm text-muted-foreground">Standing</p>
+            <p className="text-sm font-medium">{describeReputationVerbose(heya.reputation)}</p>
+          </div>
         </div>
 
         <Tabs defaultValue="training" className="space-y-6">
@@ -161,15 +162,15 @@ export default function StablePage() {
                           <span className="font-display font-medium">
                             {label.ja} <span className="text-sm opacity-80">({label.en})</span>
                           </span>
-                          <div className="flex gap-2 text-xs">
-                            <span className={effect.growthMult > 1 ? "text-success" : effect.growthMult < 1 ? "text-destructive" : ""}>
-                              Growth: {Math.round(effect.growthMult * 100)}%
-                            </span>
-                            <span className={effect.injuryRisk > 1 ? "text-destructive" : effect.injuryRisk < 1 ? "text-success" : ""}>
-                              Risk: {Math.round(effect.injuryRisk * 100)}%
+                          <div className="flex gap-3 text-xs">
+                            <span className={effect.growthMult > 1 ? (isActive ? "" : "text-success") : effect.growthMult < 1 ? (isActive ? "" : "text-destructive") : ""}>
+                              Growth: {describeTrainingEffect(effect.growthMult)}
                             </span>
                           </div>
                         </div>
+                        <p className="text-xs mt-1 opacity-70">
+                          {effect.injuryRisk > 1.2 ? "Higher injury risk" : effect.injuryRisk < 0.9 ? "Lower injury risk" : "Standard injury risk"}
+                        </p>
                       </button>
                     );
                   })}
@@ -193,6 +194,17 @@ export default function StablePage() {
                     const effect = FOCUS_EFFECTS[focus];
                     const isActive = trainingState.profile.focus === focus;
                     
+                    // Determine emphasis description
+                    const emphases: string[] = [];
+                    if (effect.power > 1) emphases.push("power");
+                    if (effect.speed > 1) emphases.push("speed");
+                    if (effect.technique > 1) emphases.push("technique");
+                    if (effect.balance > 1) emphases.push("balance");
+                    
+                    const emphasisText = emphases.length > 0 
+                      ? `Emphasizes ${emphases.join(" and ")}`
+                      : "Balanced development";
+                    
                     return (
                       <button
                         key={focus}
@@ -203,22 +215,10 @@ export default function StablePage() {
                             : "bg-secondary/50 hover:bg-secondary"
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="font-display font-medium">
-                            {label.ja} <span className="text-sm opacity-80">({label.en})</span>
-                          </span>
-                          <div className="flex gap-3 text-xs">
-                            <span className={effect.power > 1 ? "text-success" : effect.power < 1 ? "text-destructive" : ""}>
-                              力{Math.round(effect.power * 100)}%
-                            </span>
-                            <span className={effect.speed > 1 ? "text-success" : effect.speed < 1 ? "text-destructive" : ""}>
-                              速{Math.round(effect.speed * 100)}%
-                            </span>
-                            <span className={effect.technique > 1 ? "text-success" : effect.technique < 1 ? "text-destructive" : ""}>
-                              技{Math.round(effect.technique * 100)}%
-                            </span>
-                          </div>
+                        <div className="font-display font-medium">
+                          {label.ja} <span className="text-sm opacity-80">({label.en})</span>
                         </div>
+                        <p className="text-xs mt-1 opacity-70">{emphasisText}</p>
                       </button>
                     );
                   })}
@@ -243,6 +243,11 @@ export default function StablePage() {
                       const effect = RECOVERY_EFFECTS[recovery];
                       const isActive = trainingState.profile.recovery === recovery;
                       
+                      // Narrative description
+                      let narrative = "Standard recovery protocols";
+                      if (effect.fatigueDecay > 1.2) narrative = "Prioritizes rest and rejuvenation";
+                      else if (effect.fatigueDecay < 0.9) narrative = "Minimal rest periods";
+                      
                       return (
                         <button
                           key={recovery}
@@ -257,14 +262,7 @@ export default function StablePage() {
                             {label.ja}
                           </div>
                           <div className="text-sm opacity-80">{label.en}</div>
-                          <div className="mt-2 text-xs">
-                            <div className={effect.fatigueDecay > 1 ? "text-success" : effect.fatigueDecay < 1 ? "text-destructive" : ""}>
-                              Fatigue Recovery: {Math.round(effect.fatigueDecay * 100)}%
-                            </div>
-                            <div className={effect.injuryRecovery > 1 ? "text-success" : effect.injuryRecovery < 1 ? "text-destructive" : ""}>
-                              Injury Healing: {Math.round(effect.injuryRecovery * 100)}%
-                            </div>
-                          </div>
+                          <p className="mt-2 text-xs opacity-70">{narrative}</p>
                         </button>
                       );
                     })}
@@ -304,17 +302,28 @@ export default function StablePage() {
                           </Badge>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="capitalize">{phase}</span>
+                          <span className="capitalize">{phase} phase</span>
                           {focus && (
                             <Badge variant="secondary" className="text-xs">
                               {getFocusModeLabel(focus.mode).en}
                             </Badge>
                           )}
                         </div>
-                        <div className="mt-2 flex gap-1">
-                          {rikishi.momentum > 0 && <TrendingUp className="h-3 w-3 text-success" />}
-                          {rikishi.momentum < 0 && <TrendingDown className="h-3 w-3 text-destructive" />}
-                          {rikishi.injured && <Activity className="h-3 w-3 text-destructive" />}
+                        <div className="mt-2 flex gap-1 items-center">
+                          {rikishi.momentum !== 0 && (
+                            <>
+                              {rikishi.momentum > 0 ? <TrendingUp className="h-3 w-3 text-success" /> : <TrendingDown className="h-3 w-3 text-destructive" />}
+                              <span className="text-xs text-muted-foreground">
+                                {rikishi.momentum > 0 ? "Rising form" : "Struggling"}
+                              </span>
+                            </>
+                          )}
+                          {rikishi.injured && (
+                            <>
+                              <Activity className="h-3 w-3 text-destructive" />
+                              <span className="text-xs text-destructive">Injured</span>
+                            </>
+                          )}
                         </div>
                       </div>
                     );
@@ -354,6 +363,7 @@ export default function StablePage() {
                           </div>
                         </div>
                         <div className="text-right">
+                          {/* Win/Loss records are allowed per doc */}
                           <div className="text-sm font-mono">
                             {rikishi.currentBashoWins}-{rikishi.currentBashoLosses}
                           </div>
@@ -361,10 +371,23 @@ export default function StablePage() {
                             Career: {rikishi.careerWins}-{rikishi.careerLosses}
                           </div>
                         </div>
-                        <div className="flex gap-2">
-                          {rikishi.momentum > 0 && <TrendingUp className="h-4 w-4 text-success" />}
-                          {rikishi.momentum < 0 && <TrendingDown className="h-4 w-4 text-destructive" />}
-                          {rikishi.injured && <Activity className="h-4 w-4 text-destructive" />}
+                        <div className="flex gap-2 items-center">
+                          {rikishi.momentum !== 0 && (
+                            rikishi.momentum > 0 ? (
+                              <span className="text-xs text-success flex items-center gap-1">
+                                <TrendingUp className="h-3 w-3" /> Hot
+                              </span>
+                            ) : (
+                              <span className="text-xs text-destructive flex items-center gap-1">
+                                <TrendingDown className="h-3 w-3" /> Cold
+                              </span>
+                            )
+                          )}
+                          {rikishi.injured && (
+                            <span className="text-xs text-destructive flex items-center gap-1">
+                              <Activity className="h-3 w-3" /> Injured
+                            </span>
+                          )}
                         </div>
                       </div>
                     );
@@ -385,15 +408,8 @@ export default function StablePage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Quality</span>
-                      <span>{heya.facilities.training}/100</span>
-                    </div>
-                    <Progress value={heya.facilities.training} />
-                  </div>
                   <p className="text-sm text-muted-foreground">
-                    Better facilities improve training effectiveness and reduce injury risk.
+                    {describeFacilityVerbose("training", heya.facilities.training)}
                   </p>
                 </CardContent>
               </Card>
@@ -406,15 +422,8 @@ export default function StablePage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Quality</span>
-                      <span>{heya.facilities.recovery}/100</span>
-                    </div>
-                    <Progress value={heya.facilities.recovery} />
-                  </div>
                   <p className="text-sm text-muted-foreground">
-                    Improved recovery facilities help wrestlers heal faster and manage fatigue.
+                    {describeFacilityVerbose("recovery", heya.facilities.recovery)}
                   </p>
                 </CardContent>
               </Card>
@@ -423,19 +432,12 @@ export default function StablePage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <ChefHat className="h-5 w-5" />
-                    Nutrition Program
+                    Kitchen & Nutrition
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span>Quality</span>
-                      <span>{heya.facilities.nutrition}/100</span>
-                    </div>
-                    <Progress value={heya.facilities.nutrition} />
-                  </div>
                   <p className="text-sm text-muted-foreground">
-                    Quality nutrition supports optimal weight management and stamina.
+                    {describeFacilityVerbose("nutrition", heya.facilities.nutrition)}
                   </p>
                 </CardContent>
               </Card>
@@ -443,23 +445,15 @@ export default function StablePage() {
 
             <Card className="paper">
               <CardHeader>
-                <CardTitle>Stable Finances</CardTitle>
+                <CardTitle>About Facilities</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="p-4 rounded-lg bg-secondary/50">
-                    <div className="text-sm text-muted-foreground">Available Funds</div>
-                    <div className="text-2xl font-bold font-display">
-                      ¥{(heya.funds / 1_000_000).toFixed(1)}M
-                    </div>
-                  </div>
-                  <div className="p-4 rounded-lg bg-secondary/50">
-                    <div className="text-sm text-muted-foreground">Monthly Expenses</div>
-                    <div className="text-2xl font-bold font-display">
-                      ¥{(sekitori.length * 1.5).toFixed(1)}M
-                    </div>
-                  </div>
-                </div>
+                <p className="text-sm text-muted-foreground">
+                  The quality of a stable's facilities directly impacts wrestler development. 
+                  Better training equipment produces faster growth. Superior recovery centers 
+                  speed healing and reduce fatigue. And excellent nutrition keeps wrestlers 
+                  healthy and at fighting weight throughout the grueling basho schedule.
+                </p>
               </CardContent>
             </Card>
           </TabsContent>
