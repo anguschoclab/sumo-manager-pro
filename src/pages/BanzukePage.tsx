@@ -5,8 +5,8 @@ import { useGame } from "@/contexts/GameContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
-import { RANK_NAMES, SIDE_NAMES, createScoutedView, getConfidenceLevel } from "@/engine/scouting";
-import { Star, Eye, EyeOff } from "lucide-react";
+import { RANK_NAMES, SIDE_NAMES, createScoutedView, describeScoutingLevel } from "@/engine/scouting";
+import { Star, Search } from "lucide-react";
 import type { Rank, Rikishi } from "@/engine/types";
 
 const DISPLAY_RANKS: Rank[] = ["yokozuna", "ozeki", "sekiwake", "komusubi", "maegashira", "juryo"];
@@ -41,17 +41,21 @@ export default function BanzukePage() {
     navigate(`/rikishi/${rikishiId}`);
   };
 
-  const getScoutingIndicator = (rikishi: Rikishi) => {
+  const getScoutingBadge = (rikishi: Rikishi) => {
     const isOwned = playerRikishiIds.has(rikishi.id);
     const scouted = createScoutedView(rikishi, playerHeyaId, isOwned ? 100 : 5);
-    const confidence = getConfidenceLevel(scouted, "combat");
+    const info = describeScoutingLevel(scouted.scoutingLevel);
     
-    if (isOwned) return null; // No indicator needed for own wrestlers
-    
-    if (confidence === "unknown" || confidence === "low") {
-      return <EyeOff className="h-3 w-3 text-muted-foreground/50" />;
+    if (isOwned) {
+      return <Badge variant="secondary" className="text-xs">Your Stable</Badge>;
     }
-    return <Eye className="h-3 w-3 text-muted-foreground" />;
+    
+    return (
+      <span className={`flex items-center gap-1 text-xs ${info.color}`} title={info.description}>
+        <Search className="h-3 w-3" />
+        {Math.round(scouted.scoutingLevel)}%
+      </span>
+    );
   };
 
   return (
@@ -109,7 +113,7 @@ export default function BanzukePage() {
                             )}
                           </div>
                           <div className="flex items-center gap-2">
-                            {getScoutingIndicator(r)}
+                            {getScoutingBadge(r)}
                             <span className="text-xs text-muted-foreground font-mono">
                               {r.careerWins}-{r.careerLosses}
                             </span>
@@ -145,7 +149,7 @@ export default function BanzukePage() {
                             )}
                           </div>
                           <div className="flex items-center gap-2">
-                            {getScoutingIndicator(r)}
+                            {getScoutingBadge(r)}
                             <span className="text-xs text-muted-foreground font-mono">
                               {r.careerWins}-{r.careerLosses}
                             </span>
@@ -163,18 +167,22 @@ export default function BanzukePage() {
         {/* Legend */}
         <Card className="paper">
           <CardContent className="pt-4">
-            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1">
-                <Star className="h-3 w-3 text-primary" fill="currentColor" />
-                <span>Your stable</span>
+            <div className="flex flex-wrap gap-6 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <Star className="h-3.5 w-3.5 text-primary" fill="currentColor" />
+                <span>Your stable (100% intel)</span>
               </div>
-              <div className="flex items-center gap-1">
-                <Eye className="h-3 w-3" />
-                <span>Scouted</span>
+              <div className="flex items-center gap-1.5">
+                <Search className="h-3.5 w-3.5 text-success" />
+                <span>70%+ Well scouted</span>
               </div>
-              <div className="flex items-center gap-1">
-                <EyeOff className="h-3 w-3 opacity-50" />
-                <span>Limited intel</span>
+              <div className="flex items-center gap-1.5">
+                <Search className="h-3.5 w-3.5 text-warning" />
+                <span>40-69% Moderate intel</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                <span>&lt;40% Limited data</span>
               </div>
             </div>
           </CardContent>

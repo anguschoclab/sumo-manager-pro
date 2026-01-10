@@ -1,10 +1,12 @@
-// Rikishi Profile Page - Individual wrestler details (Narrative-First per Master Context v1.4)
+// Rikishi Profile Page - Individual wrestler details with fog of war
+// Per Scouting Doc: "You never know the truth — only what the ring has allowed you to see."
 import { Helmet } from "react-helmet";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import { KIMARITE_REGISTRY } from "@/engine/kimarite";
 import { getCareerPhase } from "@/engine/training";
@@ -19,6 +21,15 @@ import {
   describeStyleVerbose,
   describeInjuryVerbose
 } from "@/engine/narrativeDescriptions";
+import {
+  RANK_NAMES,
+  STYLE_NAMES,
+  ARCHETYPE_NAMES,
+  createScoutedView,
+  getScoutedAttributes,
+  describeScoutingLevel,
+  getConfidenceLevel
+} from "@/engine/scouting";
 import { 
   ArrowLeft,
   Ruler,
@@ -28,14 +39,18 @@ import {
   Flame,
   Zap,
   Shield,
-  Target
+  Target,
+  Search,
+  Eye,
+  EyeOff,
+  HelpCircle
 } from "lucide-react";
 
 export default function RikishiPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const { state } = useGame();
-  const { world } = state;
+  const { world, playerHeyaId } = state;
 
   if (!world || !id) {
     navigate("/");
@@ -50,34 +65,36 @@ export default function RikishiPage() {
 
   const heya = world.heyas.get(rikishi.heyaId);
   const rankInfo = RANK_HIERARCHY[rikishi.rank];
+  const rankNames = RANK_NAMES[rikishi.rank];
   const careerPhase = getCareerPhase(rikishi.experience);
+  
+  // Scouting - own stable wrestlers are fully scouted
+  const isOwned = rikishi.heyaId === playerHeyaId;
+  const scouted = createScoutedView(rikishi, playerHeyaId, isOwned ? 100 : 8);
+  const scoutedAttrs = getScoutedAttributes(scouted);
+  const scoutingInfo = describeScoutingLevel(scouted.scoutingLevel);
+  const combatConfidence = getConfidenceLevel(scouted, "combat");
 
   // Get favored kimarite names
   const favoredMoves = rikishi.favoredKimarite
     .map(id => KIMARITE_REGISTRY.find(k => k.id === id))
     .filter(Boolean);
 
-  // Attribute narratives with icons
-  const attributeNarratives = [
+  // Attribute narratives with icons - respect fog of war
+  const attributeNarratives = isOwned ? [
     { label: "Power", icon: Flame, color: "text-destructive", narrative: describeAttributeVerbose("power", rikishi.power) },
     { label: "Speed", icon: Zap, color: "text-warning", narrative: describeAttributeVerbose("speed", rikishi.speed) },
     { label: "Balance", icon: Shield, color: "text-success", narrative: describeAttributeVerbose("balance", rikishi.balance) },
     { label: "Technique", icon: Target, color: "text-primary", narrative: describeAttributeVerbose("technique", rikishi.technique) },
+  ] : [
+    { label: "Power", icon: Flame, color: "text-destructive", narrative: scoutedAttrs.power.narrative },
+    { label: "Speed", icon: Zap, color: "text-warning", narrative: scoutedAttrs.speed.narrative },
+    { label: "Balance", icon: Shield, color: "text-success", narrative: scoutedAttrs.balance.narrative },
+    { label: "Technique", icon: Target, color: "text-primary", narrative: scoutedAttrs.technique.narrative },
   ];
 
-  const archetypeLabels: Record<string, { ja: string; en: string }> = {
-    oshi_specialist: { ja: "押し相撲", en: "Pusher/Thruster" },
-    yotsu_specialist: { ja: "四つ相撲", en: "Belt Fighter" },
-    speedster: { ja: "速攻", en: "Speedster" },
-    trickster: { ja: "技師", en: "Technician" },
-    all_rounder: { ja: "万能", en: "All-Rounder" }
-  };
-
-  const styleLabels: Record<string, { ja: string; en: string }> = {
-    oshi: { ja: "押し", en: "Pushing" },
-    yotsu: { ja: "四つ", en: "Belt" },
-    hybrid: { ja: "万能", en: "Hybrid" }
-  };
+  const archetypeInfo = ARCHETYPE_NAMES[rikishi.archetype] || { label: rikishi.archetype, labelJa: "", description: "" };
+  const styleInfo = STYLE_NAMES[rikishi.style] || { label: rikishi.style, labelJa: "", description: "" };
 
   return (
     <>
@@ -98,11 +115,14 @@ export default function RikishiPage() {
             <h1 className="font-display text-4xl font-bold">{rikishi.shikona}</h1>
             <div className="flex items-center gap-3 mt-2">
               <Badge className={`rank-${rikishi.rank}`}>
-                {rankInfo.nameJa}
+                {rankNames.ja}
                 {rikishi.rankNumber && ` ${rikishi.rankNumber}枚目`}
               </Badge>
+              <span className="text-sm text-muted-foreground">
+                {rankNames.en}{rikishi.rankNumber && ` ${rikishi.rankNumber}`}
+              </span>
               <span className="text-muted-foreground">
-                {rikishi.side === "east" ? "東" : "西"}
+                {rikishi.side === "east" ? "東 East" : "西 West"}
               </span>
               {heya && (
                 <span className="text-muted-foreground">• {heya.name}</span>
@@ -135,6 +155,37 @@ export default function RikishiPage() {
             )}
           </div>
         </div>
+
+        {/* Scouting Level Indicator */}
+        <Card className="paper">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Search className={`h-5 w-5 ${scoutingInfo.color}`} />
+                <div>
+                  <div className={`font-medium ${scoutingInfo.color}`}>
+                    {scoutingInfo.label}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {scoutingInfo.description}
+                  </div>
+                </div>
+              </div>
+              <div className="flex-1">
+                <Progress value={scouted.scoutingLevel} className="h-2" />
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-mono font-bold">
+                  {Math.round(scouted.scoutingLevel)}%
+                </div>
+                <div className="text-xs text-muted-foreground">Intel</div>
+              </div>
+              {isOwned && (
+                <Badge variant="default" className="ml-2">Your Stable</Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-6 lg:grid-cols-2">
           {/* Attributes - Narrative descriptions only */}
@@ -190,12 +241,12 @@ export default function RikishiPage() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 rounded-lg bg-secondary/50 text-center">
-                  <div className="text-2xl font-display">{styleLabels[rikishi.style].ja}</div>
-                  <div className="text-sm text-muted-foreground">{styleLabels[rikishi.style].en}</div>
+                  <div className="text-2xl font-display">{styleInfo.labelJa}</div>
+                  <div className="text-sm text-muted-foreground">{styleInfo.label}</div>
                 </div>
                 <div className="p-4 rounded-lg bg-secondary/50 text-center">
-                  <div className="text-2xl font-display">{archetypeLabels[rikishi.archetype].ja}</div>
-                  <div className="text-sm text-muted-foreground">{archetypeLabels[rikishi.archetype].en}</div>
+                  <div className="text-2xl font-display">{archetypeInfo.labelJa}</div>
+                  <div className="text-sm text-muted-foreground">{archetypeInfo.label}</div>
                 </div>
               </div>
 
