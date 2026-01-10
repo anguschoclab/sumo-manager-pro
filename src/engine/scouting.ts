@@ -1,6 +1,6 @@
-// Fog of War & Scouting System
-// Per Observability Contract: separates Engine Truth from Player Knowledge
-// Players see estimated values with confidence bands, never exact stats
+// Fog of War & Scouting System v1.0
+// Per Scouting Documentation: separates Engine Truth from Player Knowledge
+// "You never know the truth — only what the ring has allowed you to see."
 
 import type { Rikishi } from "./types";
 import { describeAttribute, describeAggression, describeExperience } from "./narrativeDescriptions";
@@ -8,13 +8,51 @@ import { describeAttribute, describeAggression, describeExperience } from "./nar
 // Confidence levels for scouted information
 export type ConfidenceLevel = "unknown" | "low" | "medium" | "high" | "certain";
 
+// Scouting investment levels per documentation
+export type ScoutingInvestment = "none" | "light" | "standard" | "deep";
+
 // What the player knows about a rikishi
 export interface ScoutedRikishi {
   rikishi: Rikishi;
   isOwned: boolean;           // Player's stable = full knowledge
-  timesObserved: number;      // Number of bouts watched
+  timesObserved: number;      // Number of bouts watched (passive observation)
   lastObserved: number;       // Week number when last seen
-  scoutingInvestment: "none" | "light" | "standard" | "deep";
+  scoutingInvestment: ScoutingInvestment;
+  // Computed scouting percentage (0-100)
+  scoutingLevel: number;
+}
+
+// Calculate scouting level (0-100) based on investment and observations
+export function calculateScoutingLevel(
+  isOwned: boolean,
+  observations: number,
+  investment: ScoutingInvestment
+): number {
+  // Own stable wrestlers = 100% scouted
+  if (isOwned) return 100;
+  
+  // Base from passive observation (max 30%)
+  const passiveBase = Math.min(30, observations * 2);
+  
+  // Bonus from investment level
+  const investmentBonus: Record<ScoutingInvestment, number> = {
+    none: 0,
+    light: 20,      // ±30-40% confidence → 20% boost
+    standard: 40,   // ±15-25% confidence → 40% boost  
+    deep: 60        // ±5-10% confidence → 60% boost
+  };
+  
+  const total = passiveBase + investmentBonus[investment];
+  return Math.min(100, Math.max(0, total));
+}
+
+// Get confidence level from scouting percentage
+export function getConfidenceFromLevel(scoutingLevel: number): ConfidenceLevel {
+  if (scoutingLevel >= 95) return "certain";
+  if (scoutingLevel >= 70) return "high";
+  if (scoutingLevel >= 40) return "medium";
+  if (scoutingLevel >= 15) return "low";
+  return "unknown";
 }
 
 // Confidence for different attribute types
@@ -22,51 +60,41 @@ export function getConfidenceLevel(
   scouted: ScoutedRikishi,
   attributeType: "physical" | "combat" | "style" | "hidden"
 ): ConfidenceLevel {
-  // Player's own rikishi = full knowledge
+  // Player's own rikishi = full knowledge (certain)
   if (scouted.isOwned) return "certain";
   
   // Physical attributes (height/weight) are always public
   if (attributeType === "physical") return "certain";
   
-  // Style is public after observation
-  if (attributeType === "style" && scouted.timesObserved > 0) return "high";
+  // Style is observable after a few bouts
+  if (attributeType === "style") {
+    if (scouted.timesObserved >= 3) return "high";
+    if (scouted.timesObserved >= 1) return "medium";
+    return "low";
+  }
   
-  // Hidden attributes (fatigue, injury risk) are never revealed
+  // Hidden attributes (fatigue, injury risk, morale) are NEVER visible
   if (attributeType === "hidden") return "unknown";
   
-  // Combat attributes depend on scouting investment and observations
-  const baseConfidence = getBaseConfidence(scouted);
-  return baseConfidence;
+  // Combat attributes use overall scouting level
+  return getConfidenceFromLevel(scouted.scoutingLevel);
 }
 
-function getBaseConfidence(scouted: ScoutedRikishi): ConfidenceLevel {
-  const observations = scouted.timesObserved;
-  const investment = scouted.scoutingInvestment;
-  
-  // Deep scouting = high confidence
-  if (investment === "deep") return observations >= 3 ? "high" : "medium";
-  if (investment === "standard") return observations >= 5 ? "medium" : "low";
-  if (investment === "light") return observations >= 10 ? "low" : "unknown";
-  
-  // No investment = public info only
-  return observations >= 15 ? "low" : "unknown";
-}
-
-// Apply uncertainty to displayed value
+// Apply uncertainty to displayed value (deterministic based on seed)
 export function getEstimatedValue(
   trueValue: number,
   confidence: ConfidenceLevel,
   seed: string
 ): number {
   if (confidence === "certain") return trueValue;
-  if (confidence === "unknown") return 50; // Show neutral when unknown
+  if (confidence === "unknown") return 50; // Neutral when unknown
   
-  // Add noise based on confidence
+  // Error ranges per documentation
   const maxError: Record<ConfidenceLevel, number> = {
     unknown: 40,
-    low: 25,
-    medium: 15,
-    high: 5,
+    low: 30,     // ±30-40% per doc
+    medium: 20,  // ±15-25% per doc
+    high: 8,     // ±5-10% per doc
     certain: 0
   };
   
@@ -85,10 +113,11 @@ export function getAttributeNarrative(
 ): { description: string; qualifier: string } {
   const estimatedLevel = describeAttribute(value);
   
+  // Per doc: use language like "appears strong"
   const qualifiers: Record<ConfidenceLevel, string> = {
     certain: "",
     high: "",
-    medium: "appears to be",
+    medium: "appears",
     low: "may be",
     unknown: "unknown"
   };
@@ -107,9 +136,9 @@ export function getAttributeNarrative(
 
 function getConfidenceText(confidence: ConfidenceLevel): string {
   switch (confidence) {
-    case "certain": return "";
+    case "certain": return "Full knowledge";
     case "high": return "Well-observed";
-    case "medium": return "Moderately observed";
+    case "medium": return "Moderately scouted";
     case "low": return "Limited observation";
     case "unknown": return "No reliable data";
   }
@@ -120,25 +149,35 @@ export function createScoutedView(
   rikishi: Rikishi,
   playerHeyaId: string | null,
   observationCount: number = 0,
-  investment: "none" | "light" | "standard" | "deep" = "none"
+  investment: ScoutingInvestment = "none"
 ): ScoutedRikishi {
+  const isOwned = rikishi.heyaId === playerHeyaId;
+  const scoutingLevel = calculateScoutingLevel(isOwned, observationCount, investment);
+  
   return {
     rikishi,
-    isOwned: rikishi.heyaId === playerHeyaId,
+    isOwned,
     timesObserved: observationCount,
     lastObserved: 0,
-    scoutingInvestment: investment
+    scoutingInvestment: investment,
+    scoutingLevel
   };
 }
 
 // Get display-ready attributes for a rikishi
+export interface ScoutedAttribute {
+  value: string;
+  confidence: ConfidenceLevel;
+  narrative: string;
+}
+
 export interface ScoutedAttributes {
-  power: { value: string; confidence: ConfidenceLevel; narrative: string };
-  speed: { value: string; confidence: ConfidenceLevel; narrative: string };
-  balance: { value: string; confidence: ConfidenceLevel; narrative: string };
-  technique: { value: string; confidence: ConfidenceLevel; narrative: string };
-  aggression: { value: string; confidence: ConfidenceLevel; narrative: string };
-  experience: { value: string; confidence: ConfidenceLevel; narrative: string };
+  power: ScoutedAttribute;
+  speed: ScoutedAttribute;
+  balance: ScoutedAttribute;
+  technique: ScoutedAttribute;
+  aggression: ScoutedAttribute;
+  experience: ScoutedAttribute;
 }
 
 export function getScoutedAttributes(
@@ -147,7 +186,7 @@ export function getScoutedAttributes(
 ): ScoutedAttributes {
   const { rikishi, isOwned } = scouted;
   
-  const getAttr = (attr: string, value: number, descFn: (v: number) => string) => {
+  const getAttr = (attr: string, value: number, descFn: (v: number) => string): ScoutedAttribute => {
     const confidence = getConfidenceLevel(scouted, "combat");
     
     if (isOwned || confidence === "certain") {
@@ -197,18 +236,55 @@ function simpleHash(str: string): number {
   return Math.abs(hash);
 }
 
-// English translations for Japanese terms
+// Get scouting level description for UI
+export function describeScoutingLevel(level: number): { 
+  label: string; 
+  description: string;
+  color: string;
+} {
+  if (level >= 95) return { 
+    label: "Complete", 
+    description: "Full knowledge of this wrestler",
+    color: "text-primary"
+  };
+  if (level >= 70) return { 
+    label: "Well Scouted", 
+    description: "Reliable assessment with minor uncertainty",
+    color: "text-success"
+  };
+  if (level >= 40) return { 
+    label: "Moderate Intel", 
+    description: "General picture but gaps remain",
+    color: "text-warning"
+  };
+  if (level >= 15) return { 
+    label: "Limited", 
+    description: "Basic observations only",
+    color: "text-orange-500"
+  };
+  return { 
+    label: "Unknown", 
+    description: "Insufficient data",
+    color: "text-muted-foreground"
+  };
+}
+
+// ============================================
+// BILINGUAL NAMES - Using proper sumo terminology
+// ============================================
+
+// English uses actual sumo rank names, not translations
 export const RANK_NAMES: Record<string, { ja: string; en: string }> = {
-  yokozuna: { ja: "横綱", en: "Grand Champion" },
-  ozeki: { ja: "大関", en: "Champion" },
-  sekiwake: { ja: "関脇", en: "Junior Champion" },
-  komusubi: { ja: "小結", en: "Junior Champion 2nd" },
-  maegashira: { ja: "前頭", en: "Top Division" },
-  juryo: { ja: "十両", en: "Second Division" },
-  makushita: { ja: "幕下", en: "Third Division" },
-  sandanme: { ja: "三段目", en: "Fourth Division" },
-  jonidan: { ja: "序二段", en: "Fifth Division" },
-  jonokuchi: { ja: "序ノ口", en: "Entry Division" }
+  yokozuna: { ja: "横綱", en: "Yokozuna" },
+  ozeki: { ja: "大関", en: "Ozeki" },
+  sekiwake: { ja: "関脇", en: "Sekiwake" },
+  komusubi: { ja: "小結", en: "Komusubi" },
+  maegashira: { ja: "前頭", en: "Maegashira" },
+  juryo: { ja: "十両", en: "Juryo" },
+  makushita: { ja: "幕下", en: "Makushita" },
+  sandanme: { ja: "三段目", en: "Sandanme" },
+  jonidan: { ja: "序二段", en: "Jonidan" },
+  jonokuchi: { ja: "序ノ口", en: "Jonokuchi" }
 };
 
 export const SIDE_NAMES = {
@@ -216,18 +292,18 @@ export const SIDE_NAMES = {
   west: { ja: "西", en: "West" }
 };
 
-export const ARCHETYPE_NAMES: Record<string, { label: string; description: string }> = {
-  oshi_specialist: { label: "Pusher-Thruster", description: "Overwhelms with forward pressure" },
-  yotsu_specialist: { label: "Belt Fighter", description: "Excels when grips are secured" },
-  speedster: { label: "Speedster", description: "Lightning quick, relies on timing" },
-  trickster: { label: "Technician", description: "Deep bag of tricks and surprise moves" },
-  all_rounder: { label: "All-Rounder", description: "Versatile and adaptable" }
+export const ARCHETYPE_NAMES: Record<string, { label: string; labelJa: string; description: string }> = {
+  oshi_specialist: { label: "Oshi Specialist", labelJa: "押し相撲", description: "Overwhelms with forward pressure" },
+  yotsu_specialist: { label: "Yotsu Specialist", labelJa: "四つ相撲", description: "Excels when grips are secured" },
+  speedster: { label: "Speedster", labelJa: "速攻型", description: "Lightning quick, relies on timing" },
+  trickster: { label: "Trickster", labelJa: "技師", description: "Deep bag of tricks and surprise moves" },
+  all_rounder: { label: "All-Rounder", labelJa: "万能型", description: "Versatile and adaptable" }
 };
 
-export const STYLE_NAMES: Record<string, { label: string; description: string }> = {
-  oshi: { label: "Oshi (Pusher)", description: "Prefers pushing and thrusting" },
-  yotsu: { label: "Yotsu (Belt)", description: "Seeks the belt, uses grips to control" },
-  hybrid: { label: "Hybrid", description: "Comfortable both pushing and on the belt" }
+export const STYLE_NAMES: Record<string, { label: string; labelJa: string; description: string }> = {
+  oshi: { label: "Oshi", labelJa: "押し", description: "Prefers pushing and thrusting" },
+  yotsu: { label: "Yotsu", labelJa: "四つ", description: "Seeks the belt, uses grips to control" },
+  hybrid: { label: "Hybrid", labelJa: "万能", description: "Comfortable both pushing and on the belt" }
 };
 
 // Format rank with both Japanese and English

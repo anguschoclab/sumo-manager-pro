@@ -1,25 +1,27 @@
 // Rikishi card component - displays wrestler info with fog of war
-// Per Observability Contract: show qualitative descriptors, not numbers
+// Per Scouting Doc: show qualitative descriptors, ranges, not numbers
 
 import { cn } from "@/lib/utils";
 import type { Rikishi, TacticalArchetype } from "@/engine/types";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { 
   RANK_NAMES, 
   ARCHETYPE_NAMES, 
   STYLE_NAMES,
   createScoutedView, 
   getScoutedAttributes,
+  describeScoutingLevel,
   type ConfidenceLevel 
 } from "@/engine/scouting";
-import { Eye, EyeOff, HelpCircle } from "lucide-react";
+import { Eye, EyeOff, HelpCircle, Search } from "lucide-react";
 
 interface RikishiCardProps {
   rikishi: Rikishi;
   side?: "east" | "west";
   isWinner?: boolean;
   compact?: boolean;
-  isOwned?: boolean;
+  playerHeyaId?: string | null;
   className?: string;
 }
 
@@ -28,9 +30,10 @@ export function RikishiCard({
   side, 
   isWinner,
   compact = false,
-  isOwned = false,
+  playerHeyaId = null,
   className 
 }: RikishiCardProps) {
+  const isOwned = rikishi.heyaId === playerHeyaId;
   const rankInfo = RANK_NAMES[rikishi.rank] || { ja: rikishi.rank, en: rikishi.rank };
   const rankWithNumber = rikishi.rankNumber 
     ? `${rankInfo.ja} ${rikishi.rankNumber}` 
@@ -40,11 +43,13 @@ export function RikishiCard({
     : rankInfo.en;
 
   // Get scouted view of attributes
-  const scouted = createScoutedView(rikishi, isOwned ? rikishi.heyaId : null, isOwned ? 100 : 5);
+  // Own wrestlers = 100% scouted, others = base observation level
+  const scouted = createScoutedView(rikishi, playerHeyaId, isOwned ? 100 : 5);
   const attributes = getScoutedAttributes(scouted);
+  const scoutingInfo = describeScoutingLevel(scouted.scoutingLevel);
 
-  const archetypeInfo = ARCHETYPE_NAMES[rikishi.archetype] || { label: rikishi.archetype, description: "" };
-  const styleInfo = STYLE_NAMES[rikishi.style] || { label: rikishi.style, description: "" };
+  const archetypeInfo = ARCHETYPE_NAMES[rikishi.archetype] || { label: rikishi.archetype, labelJa: "", description: "" };
+  const styleInfo = STYLE_NAMES[rikishi.style] || { label: rikishi.style, labelJa: "", description: "" };
 
   return (
     <div 
@@ -85,7 +90,7 @@ export function RikishiCard({
 
       {!compact && (
         <>
-          {/* Physical stats - always public */}
+          {/* Physical stats - always public per doc */}
           <div className="flex gap-4 mb-3 text-sm text-muted-foreground">
             <span>{rikishi.height}cm</span>
             <span>{rikishi.weight}kg</span>
@@ -95,7 +100,7 @@ export function RikishiCard({
           {/* Style & Archetype */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <Badge variant="outline" className="text-xs" title={styleInfo.description}>
-              {styleInfo.label}
+              {styleInfo.labelJa} {styleInfo.label}
             </Badge>
             <Badge 
               variant="outline" 
@@ -114,7 +119,7 @@ export function RikishiCard({
             )}
           </div>
 
-          {/* Scouted attributes - narrative descriptors, not numbers */}
+          {/* Scouted attributes - narrative descriptors, not numbers per doc */}
           <div className="grid grid-cols-2 gap-2 text-xs">
             <AttributeDisplay label="Power" attr={attributes.power} />
             <AttributeDisplay label="Speed" attr={attributes.speed} />
@@ -124,32 +129,50 @@ export function RikishiCard({
             <AttributeDisplay label="Experience" attr={attributes.experience} />
           </div>
 
-          {/* Scouting indicator */}
-          {!isOwned && (
-            <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-2 text-xs text-muted-foreground">
-              <ConfidenceIndicator confidence={attributes.power.confidence} />
-              <span>
-                {attributes.power.confidence === "unknown" 
-                  ? "Limited intelligence available" 
-                  : attributes.power.confidence === "low"
-                    ? "Basic scouting report"
-                    : attributes.power.confidence === "medium"
-                      ? "Moderately scouted"
-                      : "Well scouted"}
+          {/* Scouting Level Indicator */}
+          <div className="mt-3 pt-3 border-t border-border/50">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Search className={`h-3.5 w-3.5 ${scoutingInfo.color}`} />
+              <span className={`text-xs font-medium ${scoutingInfo.color}`}>
+                {scoutingInfo.label}
               </span>
+              {isOwned && (
+                <Badge variant="secondary" className="text-xs ml-auto">Your Stable</Badge>
+              )}
             </div>
-          )}
+            <Progress 
+              value={scouted.scoutingLevel} 
+              className="h-1.5"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {scoutingInfo.description}
+            </p>
+          </div>
         </>
       )}
 
       {compact && (
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>{archetypeInfo.label}</span>
           <span>•</span>
           <span>{rikishi.weight}kg</span>
+          {!isOwned && (
+            <ScoutingBadge level={scouted.scoutingLevel} />
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+// Compact scouting badge for list views
+function ScoutingBadge({ level }: { level: number }) {
+  const info = describeScoutingLevel(level);
+  return (
+    <span className={`flex items-center gap-1 ${info.color}`} title={info.description}>
+      <Search className="h-3 w-3" />
+      <span>{Math.round(level)}%</span>
+    </span>
   );
 }
 
@@ -161,13 +184,18 @@ function AttributeDisplay({
   attr: { value: string; confidence: ConfidenceLevel; narrative: string } 
 }) {
   const isUnknown = attr.confidence === "unknown";
+  const isUncertain = attr.confidence === "low" || attr.confidence === "medium";
   
   return (
-    <div className="flex items-center justify-between gap-2 p-1.5 rounded bg-secondary/30">
+    <div 
+      className="flex items-center justify-between gap-2 p-1.5 rounded bg-secondary/30"
+      title={attr.narrative}
+    >
       <span className="text-muted-foreground">{label}</span>
       <span className={cn(
         "font-medium",
-        isUnknown && "text-muted-foreground/50 italic"
+        isUnknown && "text-muted-foreground/50 italic",
+        isUncertain && "text-muted-foreground"
       )}>
         {isUnknown ? "?" : attr.value}
       </span>
