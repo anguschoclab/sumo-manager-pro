@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BASHO_CALENDAR, getDayName } from "@/engine/calendar";
-import { RANK_HIERARCHY } from "@/engine/banzuke";
+import { RANK_NAMES, SIDE_NAMES } from "@/engine/scouting";
 import { BoutNarrativeModal } from "@/components/game/BoutNarrativeModal";
 import { Play, FastForward, ChevronRight, Trophy, Star, Eye } from "lucide-react";
 import type { Rikishi, BoutResult, BashoName } from "@/engine/types";
@@ -180,7 +180,7 @@ export default function BashoPage() {
                         {match.east?.shikona}
                       </span>
                       <div className="text-xs text-muted-foreground">
-                        {match.east && RANK_HIERARCHY[match.east.rank]?.nameJa}
+                        {match.east && RANK_NAMES[match.east.rank]?.ja} {match.east && RANK_NAMES[match.east.rank]?.en}
                       </div>
                     </div>
                     
@@ -191,7 +191,7 @@ export default function BashoPage() {
                         {match.west?.shikona}
                       </span>
                       <div className="text-xs text-muted-foreground">
-                        {match.west && RANK_HIERARCHY[match.west.rank]?.nameJa}
+                        {match.west && RANK_NAMES[match.west.rank]?.ja} {match.west && RANK_NAMES[match.west.rank]?.en}
                       </div>
                     </div>
                     

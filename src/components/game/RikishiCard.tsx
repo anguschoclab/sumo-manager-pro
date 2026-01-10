@@ -1,51 +1,50 @@
-// Rikishi card component - displays wrestler info
+// Rikishi card component - displays wrestler info with fog of war
+// Per Observability Contract: show qualitative descriptors, not numbers
 
 import { cn } from "@/lib/utils";
 import type { Rikishi, TacticalArchetype } from "@/engine/types";
 import { Badge } from "@/components/ui/badge";
+import { 
+  RANK_NAMES, 
+  ARCHETYPE_NAMES, 
+  STYLE_NAMES,
+  createScoutedView, 
+  getScoutedAttributes,
+  type ConfidenceLevel 
+} from "@/engine/scouting";
+import { Eye, EyeOff, HelpCircle } from "lucide-react";
 
 interface RikishiCardProps {
   rikishi: Rikishi;
   side?: "east" | "west";
   isWinner?: boolean;
   compact?: boolean;
+  isOwned?: boolean;
   className?: string;
 }
-
-const rankLabels: Record<string, string> = {
-  yokozuna: "横綱",
-  ozeki: "大関",
-  sekiwake: "関脇",
-  komusubi: "小結",
-  maegashira: "前頭",
-  juryo: "十両",
-};
-
-const styleLabels: Record<string, string> = {
-  oshi: "Pusher",
-  yotsu: "Grappler",
-  hybrid: "Technical",
-};
-
-const archetypeLabels: Record<TacticalArchetype, { label: string; color: string }> = {
-  oshi_specialist: { label: "Oshi Specialist", color: "text-red-400 border-red-400/50" },
-  yotsu_specialist: { label: "Yotsu Specialist", color: "text-blue-400 border-blue-400/50" },
-  speedster: { label: "Speedster", color: "text-green-400 border-green-400/50" },
-  trickster: { label: "Trickster", color: "text-purple-400 border-purple-400/50" },
-  all_rounder: { label: "All-Rounder", color: "text-amber-400 border-amber-400/50" },
-};
 
 export function RikishiCard({ 
   rikishi, 
   side, 
   isWinner,
   compact = false,
+  isOwned = false,
   className 
 }: RikishiCardProps) {
-  const rankLabel = rankLabels[rikishi.rank] || rikishi.rank;
+  const rankInfo = RANK_NAMES[rikishi.rank] || { ja: rikishi.rank, en: rikishi.rank };
   const rankWithNumber = rikishi.rankNumber 
-    ? `${rankLabel} ${rikishi.rankNumber}` 
-    : rankLabel;
+    ? `${rankInfo.ja} ${rikishi.rankNumber}` 
+    : rankInfo.ja;
+  const rankEnWithNumber = rikishi.rankNumber
+    ? `${rankInfo.en} ${rikishi.rankNumber}`
+    : rankInfo.en;
+
+  // Get scouted view of attributes
+  const scouted = createScoutedView(rikishi, isOwned ? rikishi.heyaId : null, isOwned ? 100 : 5);
+  const attributes = getScoutedAttributes(scouted);
+
+  const archetypeInfo = ARCHETYPE_NAMES[rikishi.archetype] || { label: rikishi.archetype, description: "" };
+  const styleInfo = STYLE_NAMES[rikishi.style] || { label: rikishi.style, description: "" };
 
   return (
     <div 
@@ -68,22 +67,25 @@ export function RikishiCard({
           )}
         </div>
         
-        <Badge 
-          variant="secondary"
-          className={cn(
-            "font-display text-xs",
-            rikishi.rank === "yokozuna" && "rank-yokozuna text-foreground",
-            rikishi.rank === "ozeki" && "rank-ozeki text-foreground",
-            (rikishi.rank === "sekiwake" || rikishi.rank === "komusubi") && "rank-sekiwake text-foreground"
-          )}
-        >
-          {rankWithNumber}
-        </Badge>
+        <div className="text-right">
+          <Badge 
+            variant="secondary"
+            className={cn(
+              "font-display text-xs",
+              rikishi.rank === "yokozuna" && "rank-yokozuna text-foreground",
+              rikishi.rank === "ozeki" && "rank-ozeki text-foreground",
+              (rikishi.rank === "sekiwake" || rikishi.rank === "komusubi") && "rank-sekiwake text-foreground"
+            )}
+          >
+            {rankWithNumber}
+          </Badge>
+          <div className="text-xs text-muted-foreground mt-0.5">{rankEnWithNumber}</div>
+        </div>
       </div>
 
       {!compact && (
         <>
-          {/* Physical stats */}
+          {/* Physical stats - always public */}
           <div className="flex gap-4 mb-3 text-sm text-muted-foreground">
             <span>{rikishi.height}cm</span>
             <span>{rikishi.weight}kg</span>
@@ -92,40 +94,57 @@ export function RikishiCard({
 
           {/* Style & Archetype */}
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            <Badge variant="outline" className="text-xs">
-              {styleLabels[rikishi.style]}
+            <Badge variant="outline" className="text-xs" title={styleInfo.description}>
+              {styleInfo.label}
             </Badge>
             <Badge 
               variant="outline" 
-              className={cn("text-xs", archetypeLabels[rikishi.archetype].color)}
+              className="text-xs"
+              title={archetypeInfo.description}
             >
-              {archetypeLabels[rikishi.archetype].label}
+              {archetypeInfo.label}
             </Badge>
             {rikishi.momentum !== 0 && (
               <Badge 
                 variant={rikishi.momentum > 0 ? "default" : "destructive"}
                 className="text-xs"
               >
-                {rikishi.momentum > 0 ? "+" : ""}{rikishi.momentum} Form
+                {rikishi.momentum > 0 ? "Rising" : "Struggling"}
               </Badge>
             )}
           </div>
 
-          {/* Stats grid */}
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <StatBar label="PWR" value={rikishi.power} />
-            <StatBar label="SPD" value={rikishi.speed} />
-            <StatBar label="BAL" value={rikishi.balance} />
-            <StatBar label="TEC" value={rikishi.technique} />
-            <StatBar label="AGG" value={rikishi.aggression} />
-            <StatBar label="EXP" value={rikishi.experience} />
+          {/* Scouted attributes - narrative descriptors, not numbers */}
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <AttributeDisplay label="Power" attr={attributes.power} />
+            <AttributeDisplay label="Speed" attr={attributes.speed} />
+            <AttributeDisplay label="Balance" attr={attributes.balance} />
+            <AttributeDisplay label="Technique" attr={attributes.technique} />
+            <AttributeDisplay label="Aggression" attr={attributes.aggression} />
+            <AttributeDisplay label="Experience" attr={attributes.experience} />
           </div>
+
+          {/* Scouting indicator */}
+          {!isOwned && (
+            <div className="mt-3 pt-3 border-t border-border/50 flex items-center gap-2 text-xs text-muted-foreground">
+              <ConfidenceIndicator confidence={attributes.power.confidence} />
+              <span>
+                {attributes.power.confidence === "unknown" 
+                  ? "Limited intelligence available" 
+                  : attributes.power.confidence === "low"
+                    ? "Basic scouting report"
+                    : attributes.power.confidence === "medium"
+                      ? "Moderately scouted"
+                      : "Well scouted"}
+              </span>
+            </div>
+          )}
         </>
       )}
 
       {compact && (
         <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <span>{archetypeLabels[rikishi.archetype].label}</span>
+          <span>{archetypeInfo.label}</span>
           <span>•</span>
           <span>{rikishi.weight}kg</span>
         </div>
@@ -134,27 +153,38 @@ export function RikishiCard({
   );
 }
 
-function StatBar({ label, value }: { label: string; value: number }) {
-  const percentage = Math.min(100, Math.max(0, value));
+function AttributeDisplay({ 
+  label, 
+  attr 
+}: { 
+  label: string; 
+  attr: { value: string; confidence: ConfidenceLevel; narrative: string } 
+}) {
+  const isUnknown = attr.confidence === "unknown";
   
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium text-foreground">{value}</span>
-      </div>
-      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-        <div 
-          className={cn(
-            "h-full rounded-full transition-all duration-300",
-            value >= 90 && "bg-gold",
-            value >= 75 && value < 90 && "bg-primary",
-            value >= 50 && value < 75 && "bg-muted-foreground",
-            value < 50 && "bg-destructive"
-          )}
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
+    <div className="flex items-center justify-between gap-2 p-1.5 rounded bg-secondary/30">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn(
+        "font-medium",
+        isUnknown && "text-muted-foreground/50 italic"
+      )}>
+        {isUnknown ? "?" : attr.value}
+      </span>
     </div>
   );
+}
+
+function ConfidenceIndicator({ confidence }: { confidence: ConfidenceLevel }) {
+  switch (confidence) {
+    case "certain":
+    case "high":
+      return <Eye className="h-3 w-3 text-primary" />;
+    case "medium":
+      return <Eye className="h-3 w-3" />;
+    case "low":
+      return <EyeOff className="h-3 w-3 opacity-70" />;
+    default:
+      return <HelpCircle className="h-3 w-3 opacity-50" />;
+  }
 }
