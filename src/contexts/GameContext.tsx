@@ -41,6 +41,7 @@ export interface GameState {
 
 type GameAction =
   | { type: "CREATE_WORLD"; seed: string; playerHeyaId?: string }
+  | { type: "SET_PLAYER_HEYA"; heyaId: string }
   | { type: "SET_PHASE"; phase: GamePhase }
   | { type: "START_BASHO" }
   | { type: "ADVANCE_DAY" }
@@ -72,11 +73,31 @@ function gameReducer(state: GameState, action: GameAction): GameState {
   switch (action.type) {
     case "CREATE_WORLD": {
       const world = generateWorld({ seed: action.seed });
+      // Set player heya if provided, otherwise default to first heya
+      const playerHeyaId = action.playerHeyaId || Array.from(world.heyas.keys())[0];
+      // Mark player's heya as owned
+      const heya = world.heyas.get(playerHeyaId);
+      if (heya) {
+        heya.isPlayerOwned = true;
+      }
       return {
         ...state,
-        world,
-        playerHeyaId: action.playerHeyaId || Array.from(world.heyas.keys())[0],
+        world: { ...world, playerHeyaId },
+        playerHeyaId,
         phase: "interim",
+      };
+    }
+
+    case "SET_PLAYER_HEYA": {
+      if (!state.world) return state;
+      const heya = state.world.heyas.get(action.heyaId);
+      if (heya) {
+        heya.isPlayerOwned = true;
+      }
+      return {
+        ...state,
+        world: { ...state.world, playerHeyaId: action.heyaId },
+        playerHeyaId: action.heyaId,
       };
     }
 
