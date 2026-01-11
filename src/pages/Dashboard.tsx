@@ -1,5 +1,5 @@
 // Dashboard - Main hub between basho
-// Overview of stable, upcoming basho, and recent news
+// Narrative-first display per Master Context v2.2
 
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { BASHO_CALENDAR, getSeasonalFlavor } from "@/engine/calendar";
-import { RANK_HIERARCHY, formatRank } from "@/engine/banzuke";
+import { RANK_HIERARCHY } from "@/engine/banzuke";
+import type { StatureBand, PrestigeBand, RunwayBand, KoenkaiBand, FacilitiesBand } from "@/engine/types";
 import { 
   Swords, 
   Users, 
@@ -17,12 +18,60 @@ import {
   TrendingDown,
   Calendar,
   MapPin,
-  Wallet
+  Star,
+  Sparkles,
+  Building2,
+  AlertTriangle,
+  Shield,
+  Coins,
+  Users2
 } from "lucide-react";
+
+// Narrative descriptions for bands (UI never shows raw numbers per canon)
+const STATURE_DISPLAY: Record<StatureBand, { label: string; labelJa: string; color: string }> = {
+  legendary: { label: "Legendary", labelJa: "伝説", color: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
+  powerful: { label: "Powerful", labelJa: "強豪", color: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
+  established: { label: "Established", labelJa: "安定", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  rebuilding: { label: "Rebuilding", labelJa: "再建中", color: "bg-orange-500/20 text-orange-400 border-orange-500/30" },
+  fragile: { label: "Fragile", labelJa: "危機", color: "bg-red-500/20 text-red-400 border-red-500/30" },
+  new: { label: "New", labelJa: "新規", color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
+};
+
+const PRESTIGE_DISPLAY: Record<PrestigeBand, string> = {
+  elite: "Elite standing in the sumo world",
+  respected: "Widely respected institution",
+  modest: "Modest but solid reputation",
+  struggling: "Struggling to maintain relevance",
+  unknown: "Little known outside the community",
+};
+
+const RUNWAY_DISPLAY: Record<RunwayBand, { label: string; color: string }> = {
+  secure: { label: "Financially Secure", color: "text-success" },
+  comfortable: { label: "Comfortable Finances", color: "text-success" },
+  tight: { label: "Tight Budget", color: "text-warning" },
+  critical: { label: "Critical Finances", color: "text-destructive" },
+  desperate: { label: "Desperate Situation", color: "text-destructive" },
+};
+
+const KOENKAI_DISPLAY: Record<KoenkaiBand, string> = {
+  powerful: "Powerful supporter network",
+  strong: "Strong supporter base",
+  moderate: "Modest supporter group",
+  weak: "Few dedicated supporters",
+  none: "No established support network",
+};
+
+const FACILITIES_DISPLAY: Record<FacilitiesBand, string> = {
+  world_class: "World-class facilities",
+  excellent: "Excellent training environment",
+  adequate: "Adequate equipment and space",
+  basic: "Basic but functional",
+  minimal: "Minimal resources",
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { state, startBasho, setPhase } = useGame();
+  const { state, startBasho } = useGame();
   const { world } = state;
 
   if (!world) {
@@ -62,6 +111,10 @@ export default function Dashboard() {
     navigate("/basho");
   };
 
+  // Get display info for player heya
+  const statureInfo = playerHeya ? STATURE_DISPLAY[playerHeya.statureBand] : null;
+  const runwayInfo = playerHeya ? RUNWAY_DISPLAY[playerHeya.runwayBand] : null;
+
   return (
     <>
       <Helmet>
@@ -70,14 +123,70 @@ export default function Dashboard() {
 
       <div className="p-6 max-w-7xl mx-auto space-y-6">
         {/* Welcome Header */}
-        <div className="space-y-1">
-          <h1 className="font-display text-3xl font-bold">
-            {playerHeya?.name || "Your Stable"}
-          </h1>
-          <p className="text-muted-foreground">
-            {currentBasho && getSeasonalFlavor(currentBasho.season)}
-          </p>
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <h1 className="font-display text-3xl font-bold">
+                {playerHeya?.name || "Your Stable"}
+              </h1>
+              {statureInfo && (
+                <Badge className={`${statureInfo.color} border`}>
+                  {statureInfo.labelJa} ({statureInfo.label})
+                </Badge>
+              )}
+            </div>
+            <p className="text-muted-foreground">
+              {currentBasho && getSeasonalFlavor(currentBasho.season)}
+            </p>
+            {playerHeya?.descriptor && (
+              <p className="text-sm text-muted-foreground italic max-w-2xl">
+                {playerHeya.descriptor}
+              </p>
+            )}
+          </div>
+          
+          {/* Risk Indicators */}
+          {playerHeya?.riskIndicators && (
+            <div className="flex gap-2">
+              {playerHeya.riskIndicators.financial && (
+                <Badge variant="outline" className="bg-red-500/10 text-red-400 border-red-500/30">
+                  <AlertTriangle className="w-3 h-3 mr-1" />
+                  Financial Pressure
+                </Badge>
+              )}
+              {playerHeya.riskIndicators.governance && (
+                <Badge variant="outline" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30">
+                  <Shield className="w-3 h-3 mr-1" />
+                  Governance Watch
+                </Badge>
+              )}
+              {playerHeya.riskIndicators.rivalry && (
+                <Badge variant="outline" className="bg-purple-500/10 text-purple-400 border-purple-500/30">
+                  <Sparkles className="w-3 h-3 mr-1" />
+                  Active Rivalry
+                </Badge>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* FTUE Notice */}
+        {world.ftue?.isActive && (
+          <Card className="bg-blue-500/5 border-blue-500/20">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <Shield className="h-5 w-5 text-blue-400" />
+                <div>
+                  <p className="text-sm font-medium text-blue-400">First Tournament Protection Active</p>
+                  <p className="text-xs text-muted-foreground">
+                    During your first basho, severe governance actions and closures are suspended. 
+                    Use this time to learn the systems.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Main Actions */}
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -127,15 +236,16 @@ export default function Dashboard() {
             </Card>
           )}
 
-          {/* Stable Summary */}
+          {/* Stable Summary - Narrative Version */}
           <Card className="paper">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5" />
+                <Building2 className="h-5 w-5" />
                 Stable Overview
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Roster Summary */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="text-center p-3 rounded-lg bg-secondary/50">
                   <div className="text-2xl font-bold">{sekitori.length}</div>
@@ -143,13 +253,14 @@ export default function Dashboard() {
                 </div>
                 <div className="text-center p-3 rounded-lg bg-secondary/50">
                   <div className="text-2xl font-bold">{playerRikishi.length}</div>
-                  <div className="text-xs text-muted-foreground">Total</div>
+                  <div className="text-xs text-muted-foreground">Total Wrestlers</div>
                 </div>
               </div>
               
+              {/* Top Ranked */}
               {topRanked && (
                 <div className="pt-2 border-t">
-                  <div className="text-xs text-muted-foreground mb-1">Top Ranked</div>
+                  <div className="text-xs text-muted-foreground mb-1">Top Ranked Wrestler</div>
                   <div className="flex items-center justify-between">
                     <span className="font-display font-medium">{topRanked.shikona}</span>
                     <Badge className={`rank-${topRanked.rank}`}>
@@ -159,16 +270,33 @@ export default function Dashboard() {
                 </div>
               )}
 
+              {/* Narrative Status Bands */}
               {playerHeya && (
-                <div className="pt-2 border-t">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-1 text-muted-foreground">
-                      <Wallet className="h-3 w-3" />
-                      Funds
-                    </span>
-                    <span className="font-medium">
-                      ¥{(playerHeya.funds / 1_000_000).toFixed(1)}M
-                    </span>
+                <div className="pt-2 border-t space-y-2">
+                  {/* Prestige */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Star className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">{PRESTIGE_DISPLAY[playerHeya.prestigeBand]}</span>
+                  </div>
+                  
+                  {/* Financial Status */}
+                  {runwayInfo && (
+                    <div className="flex items-center gap-2 text-sm">
+                      <Coins className="h-4 w-4 text-muted-foreground" />
+                      <span className={runwayInfo.color}>{runwayInfo.label}</span>
+                    </div>
+                  )}
+                  
+                  {/* Koenkai */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Users2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">{KOENKAI_DISPLAY[playerHeya.koenkaiBand]}</span>
+                  </div>
+                  
+                  {/* Facilities */}
+                  <div className="flex items-center gap-2 text-sm">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-muted-foreground">{FACILITIES_DISPLAY[playerHeya.facilitiesBand]}</span>
                   </div>
                 </div>
               )}
@@ -193,7 +321,7 @@ export default function Dashboard() {
                 Your Sekitori
               </CardTitle>
               <CardDescription>
-                Salaried wrestlers in Makuuchi and Juryo divisions
+                Salaried wrestlers competing in the top divisions
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -216,13 +344,16 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-1 text-sm">
                       {rikishi.momentum > 0 ? (
-                        <TrendingUp className="h-4 w-4 text-success" />
+                        <span className="flex items-center gap-1 text-success text-xs">
+                          <TrendingUp className="h-4 w-4" />
+                          Rising
+                        </span>
                       ) : rikishi.momentum < 0 ? (
-                        <TrendingDown className="h-4 w-4 text-destructive" />
+                        <span className="flex items-center gap-1 text-destructive text-xs">
+                          <TrendingDown className="h-4 w-4" />
+                          Struggling
+                        </span>
                       ) : null}
-                      <span className="text-muted-foreground">
-                        {rikishi.careerWins}-{rikishi.careerLosses}
-                      </span>
                     </div>
                   </div>
                 ))}
@@ -250,7 +381,7 @@ export default function Dashboard() {
                     {lastYushoWinner.shikona}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {RANK_HIERARCHY[lastYushoWinner.rank].nameJa} • {lastYushoWinner.heyaId}
+                    {RANK_HIERARCHY[lastYushoWinner.rank].nameJa} • {world.heyas.get(lastYushoWinner.heyaId)?.name || lastYushoWinner.heyaId}
                   </div>
                 </div>
                 <Button variant="outline" onClick={() => navigate("/history")}>
