@@ -1,10 +1,11 @@
 // World Generation System - Deterministic seed-based world creation
-// Follows Foundations Contract v1.0
+// Follows Foundations Canon v2.0 and Master Context v2.2
 
 import seedrandom from "seedrandom";
 import type { 
   Rikishi, Heya, WorldState, BashoName, BashoState, 
-  Style, TacticalArchetype, Rank, Division 
+  Style, TacticalArchetype, Rank, Division,
+  StatureBand, PrestigeBand, FacilitiesBand, KoenkaiBand, RunwayBand, FTUEState
 } from "./types";
 import { BASHO_ORDER } from "./calendar";
 import { initializeEconomics } from "./economics";
@@ -25,19 +26,56 @@ const SHIKONA_PARTS = {
   ]
 };
 
+// Extended stable list for 40-48 beya per canon
 const HEYA_NAMES = [
-  { id: "miyagino", name: "Miyagino-beya", nameJa: "宮城野部屋" },
-  { id: "kasugano", name: "Kasugano-beya", nameJa: "春日野部屋" },
-  { id: "takasago", name: "Takasago-beya", nameJa: "高砂部屋" },
-  { id: "dewanoumi", name: "Dewanoumi-beya", nameJa: "出羽海部屋" },
-  { id: "tokitsukaze", name: "Tokitsukaze-beya", nameJa: "時津風部屋" },
-  { id: "nishonoseki", name: "Nishonoseki-beya", nameJa: "二所ノ関部屋" },
-  { id: "isegahama", name: "Isegahama-beya", nameJa: "伊勢ヶ濱部屋" },
-  { id: "kokonoe", name: "Kokonoe-beya", nameJa: "九重部屋" },
-  { id: "tatsunami", name: "Tatsunami-beya", nameJa: "立浪部屋" },
-  { id: "sadogatake", name: "Sadogatake-beya", nameJa: "佐渡ヶ嶽部屋" },
-  { id: "oitekaze", name: "Oitekaze-beya", nameJa: "追手風部屋" },
-  { id: "kataonami", name: "Kataonami-beya", nameJa: "片男波部屋" },
+  // Elite/Historic stables
+  { id: "miyagino", name: "Miyagino-beya", nameJa: "宮城野部屋", tier: "elite" },
+  { id: "kasugano", name: "Kasugano-beya", nameJa: "春日野部屋", tier: "elite" },
+  { id: "takasago", name: "Takasago-beya", nameJa: "高砂部屋", tier: "elite" },
+  { id: "dewanoumi", name: "Dewanoumi-beya", nameJa: "出羽海部屋", tier: "elite" },
+  { id: "nishonoseki", name: "Nishonoseki-beya", nameJa: "二所ノ関部屋", tier: "elite" },
+  // Powerful stables
+  { id: "tokitsukaze", name: "Tokitsukaze-beya", nameJa: "時津風部屋", tier: "powerful" },
+  { id: "isegahama", name: "Isegahama-beya", nameJa: "伊勢ヶ濱部屋", tier: "powerful" },
+  { id: "kokonoe", name: "Kokonoe-beya", nameJa: "九重部屋", tier: "powerful" },
+  { id: "tatsunami", name: "Tatsunami-beya", nameJa: "立浪部屋", tier: "powerful" },
+  { id: "sadogatake", name: "Sadogatake-beya", nameJa: "佐渡ヶ嶽部屋", tier: "powerful" },
+  { id: "oitekaze", name: "Oitekaze-beya", nameJa: "追手風部屋", tier: "powerful" },
+  { id: "kataonami", name: "Kataonami-beya", nameJa: "片男波部屋", tier: "powerful" },
+  // Established stables
+  { id: "oguruma", name: "Oguruma-beya", nameJa: "小車部屋", tier: "established" },
+  { id: "takadagawa", name: "Takadagawa-beya", nameJa: "高田川部屋", tier: "established" },
+  { id: "shikoroyama", name: "Shikoroyama-beya", nameJa: "錣山部屋", tier: "established" },
+  { id: "takanohana", name: "Takanohana-beya", nameJa: "貴乃花部屋", tier: "established" },
+  { id: "futagoyama", name: "Futagoyama-beya", nameJa: "二子山部屋", tier: "established" },
+  { id: "asahiyama", name: "Asahiyama-beya", nameJa: "朝日山部屋", tier: "established" },
+  { id: "hakkaku", name: "Hakkaku-beya", nameJa: "八角部屋", tier: "established" },
+  { id: "naruto", name: "Naruto-beya", nameJa: "鳴戸部屋", tier: "established" },
+  { id: "minato", name: "Minato-beya", nameJa: "湊部屋", tier: "established" },
+  { id: "arashio", name: "Arashio-beya", nameJa: "荒汐部屋", tier: "established" },
+  { id: "kise", name: "Kise-beya", nameJa: "木瀬部屋", tier: "established" },
+  { id: "michinoku", name: "Michinoku-beya", nameJa: "陸奥部屋", tier: "established" },
+  { id: "musashigawa", name: "Musashigawa-beya", nameJa: "武蔵川部屋", tier: "established" },
+  { id: "isenoumi", name: "Isenoumi-beya", nameJa: "伊勢ノ海部屋", tier: "established" },
+  { id: "onomatsu", name: "Onomatsu-beya", nameJa: "尾上部屋", tier: "established" },
+  { id: "nakamura", name: "Nakamura-beya", nameJa: "中村部屋", tier: "established" },
+  // Rebuilding stables
+  { id: "kagamiyama", name: "Kagamiyama-beya", nameJa: "鏡山部屋", tier: "rebuilding" },
+  { id: "tomozuna", name: "Tomozuna-beya", nameJa: "友綱部屋", tier: "rebuilding" },
+  { id: "otake", name: "Otake-beya", nameJa: "大嶽部屋", tier: "rebuilding" },
+  { id: "oshima", name: "Oshima-beya", nameJa: "大島部屋", tier: "rebuilding" },
+  { id: "chiganoura", name: "Chiganoura-beya", nameJa: "千賀ノ浦部屋", tier: "rebuilding" },
+  { id: "shikihide", name: "Shikihide-beya", nameJa: "式秀部屋", tier: "rebuilding" },
+  { id: "yamahibiki", name: "Yamahibiki-beya", nameJa: "山響部屋", tier: "rebuilding" },
+  // Fragile stables
+  { id: "azumazeki", name: "Azumazeki-beya", nameJa: "東関部屋", tier: "fragile" },
+  { id: "nihonyanagi", name: "Nihonyanagi-beya", nameJa: "二本柳部屋", tier: "fragile" },
+  { id: "irumagawa", name: "Irumagawa-beya", nameJa: "入間川部屋", tier: "fragile" },
+  { id: "nishiiwa", name: "Nishiiwa-beya", nameJa: "西岩部屋", tier: "fragile" },
+  { id: "tagonoura", name: "Tagonoura-beya", nameJa: "田子ノ浦部屋", tier: "fragile" },
+  { id: "onoe", name: "Onoe-beya", nameJa: "尾上部屋", tier: "fragile" },
+  { id: "asakayama", name: "Asakayama-beya", nameJa: "浅香山部屋", tier: "fragile" },
+  { id: "shunba", name: "Shunba-beya", nameJa: "峰崎部屋", tier: "fragile" },
 ];
 
 const NATIONALITIES = [
@@ -271,25 +309,166 @@ function determineWeaknesses(style: Style, rng: seedrandom.PRNG): Style[] {
 
 // === HEYA GENERATION ===
 
+// Derive bands from tier and internal values
+function deriveBands(
+  tier: string,
+  prestige: number,
+  funds: number,
+  facilities: { training: number; recovery: number; nutrition: number },
+  rng: seedrandom.PRNG
+): { 
+  statureBand: StatureBand; 
+  prestigeBand: PrestigeBand; 
+  facilitiesBand: FacilitiesBand;
+  koenkaiBand: KoenkaiBand;
+  runwayBand: RunwayBand;
+  riskIndicators: { financial: boolean; governance: boolean; rivalry: boolean };
+  descriptor: string;
+} {
+  // Stature based on tier
+  const statureMap: Record<string, StatureBand> = {
+    elite: "legendary",
+    powerful: "powerful", 
+    established: "established",
+    rebuilding: "rebuilding",
+    fragile: "fragile",
+  };
+  const statureBand = statureMap[tier] || "established";
+
+  // Prestige band from reputation value
+  const prestigeBand: PrestigeBand = 
+    prestige >= 80 ? "elite" :
+    prestige >= 60 ? "respected" :
+    prestige >= 40 ? "modest" :
+    prestige >= 20 ? "struggling" : "unknown";
+
+  // Facilities band from average
+  const avgFacility = (facilities.training + facilities.recovery + facilities.nutrition) / 3;
+  const facilitiesBand: FacilitiesBand =
+    avgFacility >= 85 ? "world_class" :
+    avgFacility >= 70 ? "excellent" :
+    avgFacility >= 50 ? "adequate" :
+    avgFacility >= 30 ? "basic" : "minimal";
+
+  // Koenkai based on tier with some variance
+  const koenkaiOptions: Record<string, KoenkaiBand[]> = {
+    elite: ["powerful", "strong"],
+    powerful: ["strong", "moderate"],
+    established: ["moderate", "weak"],
+    rebuilding: ["weak", "none"],
+    fragile: ["weak", "none"],
+  };
+  const options = koenkaiOptions[tier] || ["moderate"];
+  const koenkaiBand = options[Math.floor(rng() * options.length)];
+
+  // Runway based on funds (minimum 2 weeks per canon)
+  const runwayBand: RunwayBand =
+    funds >= 80_000_000 ? "secure" :
+    funds >= 50_000_000 ? "comfortable" :
+    funds >= 25_000_000 ? "tight" :
+    funds >= 10_000_000 ? "critical" : "desperate";
+
+  // Risk indicators
+  const riskIndicators = {
+    financial: runwayBand === "critical" || runwayBand === "desperate",
+    governance: tier === "fragile" || rng() < 0.1,
+    rivalry: rng() < 0.3, // 30% have active rivalries
+  };
+
+  // Descriptors by tier
+  const descriptors: Record<string, string[]> = {
+    elite: [
+      "A storied institution with championship pedigree.",
+      "The halls echo with decades of glory.",
+      "Where legends train and champions are forged.",
+    ],
+    powerful: [
+      "A rising force with hungry young talent.",
+      "Consistently competitive at the highest level.",
+      "Well-funded with excellent training facilities.",
+    ],
+    established: [
+      "A steady presence in professional sumo.",
+      "Respected traditions, modest but reliable.",
+      "Producing solid competitors for generations.",
+    ],
+    rebuilding: [
+      "Seeking to reclaim former glory.",
+      "Young roster with room for growth.",
+      "A patient oyakata building for the future.",
+    ],
+    fragile: [
+      "Fighting for survival in a changing world.",
+      "One crisis away from the edge.",
+      "Tradition struggles against modern pressures.",
+    ],
+  };
+  const tierDescriptors = descriptors[tier] || descriptors.established;
+  const descriptor = tierDescriptors[Math.floor(rng() * tierDescriptors.length)];
+
+  return { statureBand, prestigeBand, facilitiesBand, koenkaiBand, runwayBand, riskIndicators, descriptor };
+}
+
 function generateHeya(
   rng: seedrandom.PRNG,
   heyaInfo: typeof HEYA_NAMES[0],
   rikishiIds: string[]
 ): Heya {
-  const prestige = clamp(Math.round(gaussianRandom(rng, 50, 20)), 10, 100);
+  // Base prestige influenced by tier
+  const tierPrestigeBase: Record<string, number> = {
+    elite: 80,
+    powerful: 65,
+    established: 50,
+    rebuilding: 35,
+    fragile: 25,
+  };
+  const basePrestige = tierPrestigeBase[heyaInfo.tier] || 50;
+  const prestige = clamp(Math.round(gaussianRandom(rng, basePrestige, 10)), 10, 100);
+  
+  // Funds influenced by tier
+  const tierFundsBase: Record<string, number> = {
+    elite: 80_000_000,
+    powerful: 60_000_000,
+    established: 40_000_000,
+    rebuilding: 25_000_000,
+    fragile: 15_000_000,
+  };
+  const baseFunds = tierFundsBase[heyaInfo.tier] || 40_000_000;
+  const funds = Math.floor(baseFunds + (rng() - 0.5) * baseFunds * 0.5);
+  
+  // Facilities influenced by tier
+  const tierFacilityBase: Record<string, number> = {
+    elite: 80,
+    powerful: 65,
+    established: 50,
+    rebuilding: 35,
+    fragile: 25,
+  };
+  const baseFacility = tierFacilityBase[heyaInfo.tier] || 50;
+  const facilities = {
+    training: clamp(Math.round(gaussianRandom(rng, baseFacility, 10)), 20, 100),
+    recovery: clamp(Math.round(gaussianRandom(rng, baseFacility, 10)), 20, 100),
+    nutrition: clamp(Math.round(gaussianRandom(rng, baseFacility, 10)), 20, 100),
+  };
+
+  const bands = deriveBands(heyaInfo.tier, prestige, funds, facilities, rng);
   
   return {
     id: heyaInfo.id,
     name: heyaInfo.name,
+    nameJa: heyaInfo.nameJa,
     oyakataId: `oyakata-${heyaInfo.id}`,
     rikishiIds,
+    statureBand: bands.statureBand,
+    prestigeBand: bands.prestigeBand,
+    facilitiesBand: bands.facilitiesBand,
+    koenkaiBand: bands.koenkaiBand,
+    runwayBand: bands.runwayBand,
     reputation: prestige,
-    funds: Math.floor(10_000_000 + rng() * 90_000_000),
-    facilities: {
-      training: clamp(Math.round(gaussianRandom(rng, 50, 15)), 20, 100),
-      recovery: clamp(Math.round(gaussianRandom(rng, 50, 15)), 20, 100),
-      nutrition: clamp(Math.round(gaussianRandom(rng, 50, 15)), 20, 100)
-    }
+    funds,
+    facilities,
+    riskIndicators: bands.riskIndicators,
+    descriptor: bands.descriptor,
   };
 }
 
@@ -329,19 +508,30 @@ export function generateWorld(config: WorldGenConfig): WorldState {
   const year = config.startYear || 2024;
   const startBasho = config.startBasho || "hatsu";
   
-  // Generate heya
-  const heyaList = seededShuffle(HEYA_NAMES, rng).slice(0, 10);
+  // Generate 40-48 heya per canon (Foundations v2.0: Active beya: 40–48)
+  const targetStableCount = 40 + Math.floor(rng() * 9); // 40-48
+  const heyaList = seededShuffle(HEYA_NAMES, rng).slice(0, Math.min(targetStableCount, HEYA_NAMES.length));
   const heyas = new Map<string, Heya>();
   const allRikishi = new Map<string, Rikishi>();
   
   let rikishiCounter = 0;
   
   // Distribute rikishi across heya and ranks
+  // Higher ranked rikishi go to better stables more often
   for (const slot of BANZUKE_TEMPLATE) {
-    const rikishiPerHeya = Math.ceil(slot.count / heyaList.length);
     let remaining = slot.count;
     
-    for (const heyaInfo of heyaList) {
+    // Shuffle heyaList for distribution but weight by tier for upper ranks
+    const sortedHeya = slot.rank === "yokozuna" || slot.rank === "ozeki" || slot.rank === "sekiwake" || slot.rank === "komusubi"
+      ? heyaList.sort((a, b) => {
+          const tierOrder = { elite: 0, powerful: 1, established: 2, rebuilding: 3, fragile: 4 };
+          return (tierOrder[a.tier as keyof typeof tierOrder] || 2) - (tierOrder[b.tier as keyof typeof tierOrder] || 2);
+        })
+      : seededShuffle([...heyaList], rng);
+    
+    const rikishiPerHeya = Math.ceil(slot.count / sortedHeya.length);
+    
+    for (const heyaInfo of sortedHeya) {
       if (remaining <= 0) break;
       
       const count = Math.min(rikishiPerHeya, remaining);
@@ -372,6 +562,13 @@ export function generateWorld(config: WorldGenConfig): WorldState {
     heyas.set(heyaInfo.id, generateHeya(rng, heyaInfo, rikishiIds));
   }
   
+  // Initialize FTUE state per Foundations Canon v2.0
+  const ftue: FTUEState = {
+    isActive: true,
+    bashoCompleted: 0,
+    suppressedEvents: [],
+  };
+  
   return {
     seed: config.seed,
     year,
@@ -380,7 +577,8 @@ export function generateWorld(config: WorldGenConfig): WorldState {
     heyas,
     rikishi: allRikishi,
     currentBasho: undefined,
-    history: []
+    history: [],
+    ftue,
   };
 }
 

@@ -222,6 +222,75 @@ export interface BashoState {
   standings: Map<string, { wins: number; losses: number }>;
 }
 
+// === STABLE STATURE & FTUE ===
+
+// Stable stature bands (implicit difficulty)
+export type StatureBand = 
+  | "legendary"    // Title contender - Very Easy
+  | "powerful"     // Strong contender - Easy  
+  | "established"  // Stable competitor - Normal
+  | "rebuilding"   // Declining - Hard
+  | "fragile"      // At risk - Very Hard
+  | "new";         // No buffer - Extreme
+
+// Prestige bands for narrative display
+export type PrestigeBand = "elite" | "respected" | "modest" | "struggling" | "unknown";
+
+// Facilities bands
+export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" | "minimal";
+
+// Koenkai (supporter group) strength
+export type KoenkaiBand = "powerful" | "strong" | "moderate" | "weak" | "none";
+
+// Financial runway bands  
+export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
+
+// FTUE state tracking
+export interface FTUEState {
+  isActive: boolean;
+  bashoCompleted: number;
+  suppressedEvents: string[];  // Events delayed until FTUE ends
+}
+
+// Stable selection mode
+export type StableSelectionMode = "found_new" | "take_over" | "recommended";
+
+// Enhanced Heya with canon-compliant properties
+export interface Heya {
+  id: string;
+  name: string;
+  nameJa?: string;
+  oyakataId: string;
+  rikishiIds: string[];
+  
+  // Narrative bands (never raw numbers to player)
+  statureBand: StatureBand;
+  prestigeBand: PrestigeBand;
+  facilitiesBand: FacilitiesBand;
+  koenkaiBand: KoenkaiBand;
+  runwayBand: RunwayBand;
+  
+  // Internal values (hidden from player)
+  reputation: number;  // 0-100
+  funds: number;
+  facilities: {
+    training: number;  // 0-100
+    recovery: number;
+    nutrition: number;
+  };
+  
+  // Risk indicators for stable selection
+  riskIndicators: {
+    financial: boolean;
+    governance: boolean;
+    rivalry: boolean;
+  };
+  
+  // Descriptors for UI
+  descriptor?: string;  // One-line flavor text
+  isPlayerOwned?: boolean;
+}
+
 export interface WorldState {
   seed: string;
   year: number;
@@ -231,6 +300,12 @@ export interface WorldState {
   rikishi: Map<string, Rikishi>;
   currentBasho?: BashoState;
   history: BashoResult[];
+  
+  // FTUE tracking
+  ftue: FTUEState;
+  
+  // Player's stable
+  playerHeyaId?: string;
 }
 
 export interface BashoResult {
