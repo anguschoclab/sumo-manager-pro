@@ -723,3 +723,51 @@ function createMatchups(
   
   return seededShuffle(matches, rng);
 }
+
+// === NEW STABLE CREATION (FTUE) ===
+
+/**
+ * Creates a new stable for the player (extreme difficulty mode)
+ * Following Foundations Canon v2.0: New stables start with minimal resources
+ */
+export function createNewStable(
+  world: WorldState,
+  stableName: string,
+  stableNameJa?: string
+): Heya {
+  const id = `player-stable-${Date.now()}`;
+  
+  // New stables start with absolute minimum per canon
+  const newHeya: Heya = {
+    id,
+    name: `${stableName}-beya`,
+    nameJa: stableNameJa || `${stableName}部屋`,
+    oyakataId: `oyakata-${id}`,
+    rikishiIds: [], // No wrestlers to start
+    statureBand: "new",
+    prestigeBand: "unknown",
+    facilitiesBand: "minimal",
+    koenkaiBand: "none",
+    runwayBand: "critical", // 2 basho minimum guaranteed
+    reputation: 10,
+    funds: 12_000_000, // Minimum to survive ~2 basho
+    facilities: {
+      training: 20,
+      recovery: 15,
+      nutrition: 20,
+    },
+    riskIndicators: {
+      financial: true, // Always starts at risk
+      governance: false,
+      rivalry: false,
+    },
+    descriptor: "A brand new stable, starting from nothing. Everything must be built from scratch.",
+    isPlayerOwned: true,
+  };
+  
+  // Add to world
+  world.heyas.set(id, newHeya);
+  world.playerHeyaId = id;
+  
+  return newHeya;
+}

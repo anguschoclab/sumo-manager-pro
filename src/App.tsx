@@ -14,6 +14,7 @@ import BanzukePage from "./pages/BanzukePage";
 import StablePage from "./pages/StablePage";
 import RikishiPage from "./pages/RikishiPage";
 import HistoryPage from "./pages/HistoryPage";
+import EconomyPage from "./pages/EconomyPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -21,8 +22,8 @@ const queryClient = new QueryClient();
 function AppRoutes() {
   const { state } = useGame();
   
-  // Show main menu if no world exists
-  if (!state.world) {
+  // Show main menu if no world exists or no player heya is selected
+  if (!state.world || !state.world.playerHeyaId) {
     return <MainMenu />;
   }
 
@@ -35,7 +36,7 @@ function AppRoutes() {
         <Route path="/stable" element={<StablePage />} />
         <Route path="/rikishi/:id" element={<RikishiPage />} />
         <Route path="/history" element={<HistoryPage />} />
-        <Route path="/economy" element={<Dashboard />} />
+        <Route path="/economy" element={<EconomyPage />} />
         <Route path="/governance" element={<Dashboard />} />
         <Route path="/menu" element={<MainMenu />} />
         <Route path="*" element={<NotFound />} />

@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
+import { createNewStable } from "@/engine/worldgen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -159,6 +160,14 @@ export default function MainMenu() {
   const [newStableName, setNewStableName] = useState("");
   const [selectedHeyaId, setSelectedHeyaId] = useState<string | null>(null);
 
+  // Dispatch for founding new stable
+  const foundNewStable = (name: string) => {
+    if (state.world) {
+      const newHeya = createNewStable(state.world, name);
+      createWorld(state.world.seed, newHeya.id);
+    }
+  };
+
   // Auto-generate world on mount if none exists
   useEffect(() => {
     if (!state.world) {
@@ -216,15 +225,11 @@ export default function MainMenu() {
   const handleConfirmStable = () => {
     if (!state.world) return;
     
-    if (selectionMode === "found_new") {
-      // Create new stable - extreme difficulty
-      // For now, just pick a random fragile stable to simulate
-      const fragileStables = stables.filter(h => h.statureBand === "fragile");
-      const selected = fragileStables[0] || stables[0];
-      if (selected) {
-        createWorld(state.world.seed, selected.id);
-      }
+    if (selectionMode === "found_new" && newStableName.trim()) {
+      // Found a new stable
+      foundNewStable(newStableName.trim());
     } else if (selectedHeyaId) {
+      // Take over existing stable
       createWorld(state.world.seed, selectedHeyaId);
     }
     
