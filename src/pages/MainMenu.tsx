@@ -1,7 +1,7 @@
-// Main Menu - World creation and stable selection
+// Main Menu - Unified FTUE stable selection flow
 // Follows Foundations Canon v2.0: World Entry & Stable Selection
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   CircleDot, Dices, ArrowRight, Building2, Star, Sparkles,
-  AlertTriangle, TrendingDown, Shield, Plus
+  AlertTriangle, TrendingDown, Shield, Plus, RefreshCw
 } from "lucide-react";
 import type { Heya, StatureBand } from "@/engine/types";
 
@@ -68,6 +68,8 @@ const STATURE_CONFIG: Record<StatureBand, {
     icon: Plus,
   },
 };
+
+const HEYA_NAMES_COUNT = 45;
 
 interface StableCardProps {
   heya: Heya;
@@ -125,7 +127,7 @@ function StableCard({ heya, isSelected, onSelect, isRecommended }: StableCardPro
         
         {/* Risk indicators */}
         {(heya.riskIndicators.financial || heya.riskIndicators.governance || heya.riskIndicators.rivalry) && (
-          <div className="flex gap-1 pt-1">
+          <div className="flex gap-1 pt-1 flex-wrap">
             {heya.riskIndicators.financial && (
               <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/30">
                 💴 Financial Risk
@@ -152,23 +154,19 @@ export default function MainMenu() {
   const navigate = useNavigate();
   const { createWorld, state } = useGame();
   const [seed, setSeed] = useState("");
-  const [isCreating, setIsCreating] = useState(false);
+  const [showSeedInput, setShowSeedInput] = useState(false);
   const [selectionMode, setSelectionMode] = useState<"found_new" | "take_over" | "recommended">("recommended");
   const [newStableName, setNewStableName] = useState("");
   const [selectedHeyaId, setSelectedHeyaId] = useState<string | null>(null);
-  const [worldPreview, setWorldPreview] = useState<{ heyas: Heya[] } | null>(null);
 
-  // Generate world preview when seed changes
-  const handlePreviewWorld = () => {
-    const worldSeed = seed || `world-${Date.now()}`;
-    setSeed(worldSeed);
-    
-    // Create world to get stable list
-    createWorld(worldSeed);
-    
-    // After world is created, we can access the stables
-    setIsCreating(false);
-  };
+  // Auto-generate world on mount if none exists
+  useEffect(() => {
+    if (!state.world) {
+      const worldSeed = `world-${Date.now()}`;
+      setSeed(worldSeed);
+      createWorld(worldSeed);
+    }
+  }, []);
 
   // Get stables from world state
   const stables = useMemo(() => {
@@ -200,34 +198,18 @@ export default function MainMenu() {
     return groups;
   }, [stables]);
 
-  const handleRandomSeed = () => {
-    const randomSeed = `${Math.random().toString(36).substring(2, 8)}-${Date.now().toString(36)}`;
-    setSeed(randomSeed);
+  const handleRerollWorld = () => {
+    const newSeed = seed || `world-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    setSeed(newSeed);
+    setSelectedHeyaId(null);
+    createWorld(newSeed);
   };
 
-  const handleCreateWorld = () => {
-    if (!state.world) {
-      setIsCreating(true);
-      const worldSeed = seed || `world-${Date.now()}`;
-      createWorld(worldSeed);
-      return;
-    }
-    
-    // World exists, proceed to stable selection confirmation
-    if (selectionMode === "found_new") {
-      // For founding new stable, we need the name
-      if (!newStableName.trim()) {
-        return;
-      }
-      // TODO: Create new stable with the name
-      navigate("/");
-    } else {
-      // For take over or recommended, we need a selected stable
-      if (!selectedHeyaId) {
-        return;
-      }
-      // Set player heya and navigate
-      navigate("/");
+  const handleSetSeed = () => {
+    if (seed.trim()) {
+      setSelectedHeyaId(null);
+      createWorld(seed.trim());
+      setShowSeedInput(false);
     }
   };
 
@@ -240,125 +222,99 @@ export default function MainMenu() {
       const fragileStables = stables.filter(h => h.statureBand === "fragile");
       const selected = fragileStables[0] || stables[0];
       if (selected) {
-        // Update world with player heya
         createWorld(state.world.seed, selected.id);
       }
     } else if (selectedHeyaId) {
-      // Take over selected stable
       createWorld(state.world.seed, selectedHeyaId);
     }
     
     navigate("/");
   };
 
-  // If no world exists, show seed input
+  const canConfirm = selectionMode === "found_new" 
+    ? newStableName.trim().length > 0 
+    : selectedHeyaId !== null;
+
+  // Show loading state while world is being generated
   if (!state.world) {
     return (
-      <>
-        <Helmet>
-          <title>Stable Lords - Sumo Management Simulation</title>
-          <meta name="description" content="Take control of a sumo stable. Train rikishi, compete in tournaments, and build a legacy in the world of professional sumo." />
-        </Helmet>
-
-        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
-          {/* Hero Section */}
-          <div className="text-center mb-12 animate-fade-in">
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary shadow-lg">
-                <CircleDot className="h-10 w-10 text-primary-foreground" />
-              </div>
-            </div>
-            
-            <h1 className="font-display text-5xl font-bold tracking-tight mb-2">
-              Stable Lords
-            </h1>
-            <p className="font-display text-2xl text-muted-foreground mb-4">
-              相撲経営シミュレーション
-            </p>
-            <p className="text-muted-foreground max-w-md mx-auto">
-              Build your stable. Train your rikishi. Compete for glory on the dohyo.
-            </p>
-          </div>
-
-          {/* Create World Card */}
-          <Card className="w-full max-w-md animate-slide-up paper">
-            <CardHeader className="text-center">
-              <CardTitle className="font-display text-xl">Begin Your Journey</CardTitle>
-              <CardDescription>
-                Create a new world or enter a seed to recreate a specific world
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">World Seed (optional)</label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Enter seed or leave blank for random"
-                    value={seed}
-                    onChange={(e) => setSeed(e.target.value)}
-                    className="flex-1"
-                  />
-                  <Button 
-                    variant="outline" 
-                    size="icon"
-                    onClick={handleRandomSeed}
-                    title="Generate random seed"
-                  >
-                    <Dices className="h-4 w-4" />
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Same seed = same world. Share seeds to challenge friends!
-                </p>
-              </div>
-
-              <Button 
-                className="w-full gap-2" 
-                size="lg"
-                onClick={handleCreateWorld}
-                disabled={isCreating}
-              >
-                {isCreating ? (
-                  <>Creating World...</>
-                ) : (
-                  <>
-                    Generate World
-                    <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Footer Info */}
-          <div className="mt-12 text-center text-sm text-muted-foreground animate-fade-in">
-            <p className="mb-2">82 authentic kimarite • 6 annual tournaments • {HEYA_NAMES_COUNT}+ stables</p>
-            <p className="font-display text-xs">頂点を目指せ — Reach for the summit</p>
-          </div>
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary shadow-lg mb-6 animate-pulse">
+          <CircleDot className="h-10 w-10 text-primary-foreground" />
         </div>
-      </>
+        <p className="text-muted-foreground">Generating sumo world...</p>
+      </div>
     );
   }
 
-  // World exists - show stable selection
   return (
     <>
       <Helmet>
-        <title>Choose Your Stable - Stable Lords</title>
+        <title>Stable Lords - Sumo Management Simulation</title>
+        <meta name="description" content="Take control of a sumo stable. Train rikishi, compete in tournaments, and build a legacy in the world of professional sumo." />
       </Helmet>
 
       <div className="min-h-screen bg-background p-6">
         <div className="max-w-6xl mx-auto">
           {/* Header */}
           <div className="text-center mb-8">
-            <h1 className="font-display text-3xl font-bold mb-2">Choose Your Stable</h1>
-            <p className="text-muted-foreground">
-              The world awaits. Select how you will enter the sumo hierarchy.
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary shadow-lg">
+                <CircleDot className="h-8 w-8 text-primary-foreground" />
+              </div>
+            </div>
+            
+            <h1 className="font-display text-4xl font-bold tracking-tight mb-2">
+              Stable Lords
+            </h1>
+            <p className="font-display text-xl text-muted-foreground mb-2">
+              相撲経営シミュレーション
             </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              World Seed: <code className="bg-muted px-2 py-0.5 rounded">{state.world.seed}</code>
-              {" • "}{stables.length} Active Stables
+            <p className="text-muted-foreground max-w-md mx-auto mb-4">
+              Build your stable. Train your rikishi. Compete for glory on the dohyo.
             </p>
+            
+            {/* World info & reroll */}
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">
+                World: <code className="bg-muted px-2 py-0.5 rounded">{state.world.seed.substring(0, 12)}...</code>
+              </span>
+              <span className="text-xs text-muted-foreground">•</span>
+              <span className="text-xs text-muted-foreground">{stables.length} Stables</span>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-7 text-xs gap-1"
+                onClick={handleRerollWorld}
+              >
+                <RefreshCw className="w-3 h-3" />
+                Reroll World
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-7 text-xs gap-1"
+                onClick={() => setShowSeedInput(!showSeedInput)}
+              >
+                <Dices className="w-3 h-3" />
+                {showSeedInput ? "Hide Seed" : "Enter Seed"}
+              </Button>
+            </div>
+            
+            {/* Seed input (collapsible) */}
+            {showSeedInput && (
+              <div className="mt-4 flex items-center justify-center gap-2 max-w-md mx-auto">
+                <Input
+                  placeholder="Enter world seed..."
+                  value={seed}
+                  onChange={(e) => setSeed(e.target.value)}
+                  className="text-sm"
+                />
+                <Button size="sm" onClick={handleSetSeed}>
+                  Apply
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Selection Mode Tabs */}
@@ -366,15 +322,15 @@ export default function MainMenu() {
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="recommended" className="gap-2">
                 <Star className="w-4 h-4" />
-                Recommended Start
+                Recommended
               </TabsTrigger>
               <TabsTrigger value="take_over" className="gap-2">
                 <Building2 className="w-4 h-4" />
-                Take Over Stable
+                Take Over
               </TabsTrigger>
               <TabsTrigger value="found_new" className="gap-2">
                 <Plus className="w-4 h-4" />
-                Found New Stable
+                Found New
               </TabsTrigger>
             </TabsList>
 
@@ -417,7 +373,7 @@ export default function MainMenu() {
                 <div className="space-y-6">
                   {(Object.keys(stablesByStature) as StatureBand[]).map((stature) => {
                     const stablesInGroup = stablesByStature[stature];
-                    if (stablesInGroup.length === 0) return null;
+                    if (stablesInGroup.length === 0 || stature === "new") return null;
                     
                     const config = STATURE_CONFIG[stature];
                     return (
@@ -473,66 +429,42 @@ export default function MainMenu() {
                       onChange={(e) => setNewStableName(e.target.value)}
                       className="flex-1"
                     />
-                    <Button 
-                      variant="outline" 
-                      onClick={() => {
-                        // Generate random stable name
-                        const prefixes = ["Taka", "Waka", "Asa", "Koto", "Tochi", "Haku", "Kai", "Teru"];
-                        const suffixes = ["yama", "umi", "kaze", "nami", "shima"];
-                        const name = prefixes[Math.floor(Math.random() * prefixes.length)] + 
-                                    suffixes[Math.floor(Math.random() * suffixes.length)];
-                        setNewStableName(name);
-                      }}
-                    >
-                      <Dices className="w-4 h-4" />
-                    </Button>
                   </div>
-                  
-                  <div className="text-sm text-muted-foreground space-y-1">
-                    <p>Your new stable will start with:</p>
-                    <ul className="list-disc list-inside space-y-1 ml-2">
-                      <li>Lowest prestige band</li>
-                      <li>Minimal facilities</li>
-                      <li>Weak or no supporter group (kōenkai)</li>
-                      <li>No sekitori (top division wrestlers)</li>
-                      <li>6-10 low-ranked recruits</li>
-                    </ul>
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Your stable will start with:
+                  </p>
+                  <ul className="text-xs text-muted-foreground list-disc list-inside space-y-1">
+                    <li>Minimal starting funds (very tight runway)</li>
+                    <li>No sekitori-ranked wrestlers</li>
+                    <li>Basic facilities only</li>
+                    <li>No kōenkai (supporter group)</li>
+                    <li>6 basho of FTUE protection</li>
+                  </ul>
                 </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
 
           {/* Confirm Button */}
-          <div className="mt-8 flex justify-center gap-4">
-            <Button
-              variant="outline"
-              onClick={() => {
-                // Reset and allow new world generation
-                setSelectedHeyaId(null);
-                setNewStableName("");
-              }}
-            >
-              Change Seed
-            </Button>
-            <Button
-              size="lg"
+          <div className="mt-8 flex justify-center">
+            <Button 
+              size="lg" 
               className="gap-2 min-w-[200px]"
               onClick={handleConfirmStable}
-              disabled={
-                (selectionMode === "found_new" && !newStableName.trim()) ||
-                ((selectionMode === "take_over" || selectionMode === "recommended") && !selectedHeyaId)
-              }
+              disabled={!canConfirm}
             >
-              {selectionMode === "found_new" ? "Found Stable" : "Take Control"}
+              {selectionMode === "found_new" ? "Found Stable" : "Begin Journey"}
               <ArrowRight className="w-4 h-4" />
             </Button>
+          </div>
+
+          {/* Footer */}
+          <div className="mt-12 text-center text-sm text-muted-foreground">
+            <p className="mb-2">82 authentic kimarite • 6 annual tournaments • {HEYA_NAMES_COUNT}+ stables</p>
+            <p className="font-display text-xs">頂点を目指せ — Reach for the summit</p>
           </div>
         </div>
       </div>
     </>
   );
 }
-
-// Export stable count for display
-const HEYA_NAMES_COUNT = 44;
