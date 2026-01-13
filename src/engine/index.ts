@@ -6,3 +6,5 @@ export * from "./mockData";
 export * from "./calendar";
 export * from "./banzuke";
 export * from "./economics";
+export * from "./shikona";
+export * from "./sponsors";

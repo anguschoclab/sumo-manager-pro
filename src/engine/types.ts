@@ -4,55 +4,99 @@ export type Style = "oshi" | "yotsu" | "hybrid";
 export type Stance = "migi-yotsu" | "hidari-yotsu" | "no-grip" | "belt-dominant" | "push-dominant";
 
 // Tactical Archetypes - define fighting approach and kimarite preferences
+// Per Constitution: Required Canon archetypes
 export type TacticalArchetype = 
-  | "oshi_specialist"   // Pusher/Thruster - high power, aggression, strong tachiai
-  | "yotsu_specialist"  // Belt Fighter - seeks grip, throws, methodical
-  | "speedster"         // Explosive/Evasive - lateral movement, trips, volatile
-  | "trickster"         // Chaos Merchant - henka, slap/pulls, surprise moves
-  | "all_rounder";      // Balanced - adapts to opponent, small synergy bonus
+  | "oshi_specialist"      // Pusher/Thruster - high power, aggression, strong tachiai
+  | "yotsu_specialist"     // Belt Fighter - seeks grip, throws, methodical
+  | "speedster"            // Explosive/Evasive - lateral movement, trips, volatile
+  | "trickster"            // Chaos Merchant - henka, slap/pulls, surprise moves
+  | "all_rounder"          // Balanced - adapts to opponent, small synergy bonus
+  | "hybrid_oshi_yotsu"    // Adaptive switch-hitter
+  | "counter_specialist";  // Reactive, not deceptive
+
+// Kimarite families for bias tables (per Constitution)
+export type KimariteFamily = 
+  | "OSHI" 
+  | "YOTSU" 
+  | "THROW" 
+  | "TRIP" 
+  | "PULLDOWN" 
+  | "REVERSAL" 
+  | "SPECIAL";
 
 // Archetype stat profiles for simulation
+// Per Constitution: TacticalArchetype × KimariteFamily Base Bias multipliers
 export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
   tachiaiBonus: number;      // Bonus to initial charge
   gripPreference: number;    // -1 = avoid grip, 0 = neutral, +1 = seek grip
   preferredClasses: string[]; // Kimarite classes this archetype excels at
   volatility: number;        // 0-1, higher = more variable outcomes
   counterBonus: number;      // Bonus to counter-attack probability
+  baseRisk: number;          // Base risk tolerance (0-1)
+  familyBias: Record<KimariteFamily, number>; // Multipliers per family
 }> = {
   oshi_specialist: {
     tachiaiBonus: 8,
     gripPreference: -0.5,
     preferredClasses: ["force_out", "push", "thrust"],
     volatility: 0.2,
-    counterBonus: 0
+    counterBonus: 0,
+    baseRisk: 0.60,
+    familyBias: { OSHI: 1.45, YOTSU: 0.85, THROW: 0.90, TRIP: 0.95, PULLDOWN: 0.80, REVERSAL: 0.90, SPECIAL: 0.75 }
   },
   yotsu_specialist: {
     tachiaiBonus: -3,
     gripPreference: 1,
     preferredClasses: ["throw", "lift", "twist"],
     volatility: 0.15,
-    counterBonus: 5
+    counterBonus: 5,
+    baseRisk: 0.45,
+    familyBias: { OSHI: 0.85, YOTSU: 1.40, THROW: 1.35, TRIP: 0.95, PULLDOWN: 0.80, REVERSAL: 1.05, SPECIAL: 0.80 }
   },
   speedster: {
     tachiaiBonus: 5,
     gripPreference: -0.3,
     preferredClasses: ["trip", "slap_pull", "evasion"],
     volatility: 0.5,
-    counterBonus: 8
+    counterBonus: 8,
+    baseRisk: 0.55,
+    familyBias: { OSHI: 0.95, YOTSU: 0.90, THROW: 0.95, TRIP: 1.45, PULLDOWN: 1.00, REVERSAL: 1.10, SPECIAL: 0.90 }
   },
   trickster: {
     tachiaiBonus: 0,
     gripPreference: 0,
     preferredClasses: ["slap_pull", "trip", "special"],
     volatility: 0.6,
-    counterBonus: 12
+    counterBonus: 12,
+    baseRisk: 0.65,
+    familyBias: { OSHI: 0.90, YOTSU: 0.85, THROW: 0.90, TRIP: 1.05, PULLDOWN: 1.45, REVERSAL: 1.25, SPECIAL: 1.10 }
   },
   all_rounder: {
     tachiaiBonus: 2,
     gripPreference: 0,
     preferredClasses: ["force_out", "throw", "push"],
     volatility: 0.25,
-    counterBonus: 3
+    counterBonus: 3,
+    baseRisk: 0.50,
+    familyBias: { OSHI: 1.00, YOTSU: 1.00, THROW: 1.00, TRIP: 1.00, PULLDOWN: 1.00, REVERSAL: 1.00, SPECIAL: 1.00 }
+  },
+  hybrid_oshi_yotsu: {
+    tachiaiBonus: 3,
+    gripPreference: 0.2,
+    preferredClasses: ["force_out", "throw", "push", "lift"],
+    volatility: 0.3,
+    counterBonus: 5,
+    baseRisk: 0.52,
+    familyBias: { OSHI: 1.20, YOTSU: 1.20, THROW: 1.10, TRIP: 0.95, PULLDOWN: 0.85, REVERSAL: 1.05, SPECIAL: 0.90 }
+  },
+  counter_specialist: {
+    tachiaiBonus: -2,
+    gripPreference: 0.3,
+    preferredClasses: ["reversal", "throw", "trip"],
+    volatility: 0.35,
+    counterBonus: 15,
+    baseRisk: 0.48,
+    familyBias: { OSHI: 0.90, YOTSU: 1.00, THROW: 1.10, TRIP: 1.10, PULLDOWN: 0.90, REVERSAL: 1.50, SPECIAL: 1.05 }
   }
 };
 

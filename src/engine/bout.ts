@@ -38,11 +38,13 @@ const createJitter = (rng: seedrandom.PRNG) => (pct = 0.05) =>
 function getArchetypeMatchup(archA: TacticalArchetype, archB: TacticalArchetype): { east: number; west: number } {
   // Rock-paper-scissors style advantages
   const matchups: Record<TacticalArchetype, TacticalArchetype[]> = {
-    oshi_specialist: ["yotsu_specialist"],     // Oshi beats Yotsu at tachiai
+    oshi_specialist: ["yotsu_specialist"],        // Oshi beats Yotsu at tachiai
     yotsu_specialist: ["speedster", "trickster"], // Yotsu beats evasive types
-    speedster: ["oshi_specialist"],            // Speedster dodges Oshi
-    trickster: ["oshi_specialist"],            // Trickster disrupts Oshi
-    all_rounder: []                            // No special advantages
+    speedster: ["oshi_specialist"],               // Speedster dodges Oshi
+    trickster: ["oshi_specialist"],               // Trickster disrupts Oshi
+    all_rounder: [],                              // No special advantages
+    hybrid_oshi_yotsu: ["speedster"],             // Hybrid adapts to speedsters
+    counter_specialist: ["oshi_specialist", "trickster"] // Counter beats aggressive types
   };
 
   const eastAdvantage = matchups[archA]?.includes(archB) ? 5 : 0;
