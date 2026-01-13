@@ -1,48 +1,95 @@
-// Core game types for Basho - Sumo Management Sim
+// Clean, corrected, drop-in core types for Basho
+// Goals:
+// - No duplicate interface names (Heya)
+// - No Map in persisted state (JSON-safe, deterministic)
+// - Strong RankPosition (numbered vs unnumbered enforced)
+// - Kimarite registry types integrated (KimariteId / KimariteClass / KimariteFamily)
+// - Banzuke snapshot + basho performance types to support canonical slot-based builder
+
+/** =========================
+ *  Utility
+ *  ========================= */
+
+export type Id = string;
+export type IdMap<T> = Record<string, T>;
+
+/** =========================
+ *  Combat / Style
+ *  ========================= */
 
 export type Style = "oshi" | "yotsu" | "hybrid";
-export type Stance = "migi-yotsu" | "hidari-yotsu" | "no-grip" | "belt-dominant" | "push-dominant";
 
-// Tactical Archetypes - define fighting approach and kimarite preferences
-// Per Constitution: Required Canon archetypes
-export type TacticalArchetype = 
-  | "oshi_specialist"      // Pusher/Thruster - high power, aggression, strong tachiai
-  | "yotsu_specialist"     // Belt Fighter - seeks grip, throws, methodical
-  | "speedster"            // Explosive/Evasive - lateral movement, trips, volatile
-  | "trickster"            // Chaos Merchant - henka, slap/pulls, surprise moves
-  | "all_rounder"          // Balanced - adapts to opponent, small synergy bonus
-  | "hybrid_oshi_yotsu"    // Adaptive switch-hitter
-  | "counter_specialist";  // Reactive, not deceptive
+export type Stance =
+  | "migi-yotsu"
+  | "hidari-yotsu"
+  | "no-grip"
+  | "belt-dominant"
+  | "push-dominant";
 
-// Kimarite families for bias tables (per Constitution)
-export type KimariteFamily = 
-  | "OSHI" 
-  | "YOTSU" 
-  | "THROW" 
-  | "TRIP" 
-  | "PULLDOWN" 
-  | "REVERSAL" 
+/** Tactical Archetypes (canon) */
+export type TacticalArchetype =
+  | "oshi_specialist"
+  | "yotsu_specialist"
+  | "speedster"
+  | "trickster"
+  | "all_rounder"
+  | "hybrid_oshi_yotsu"
+  | "counter_specialist";
+
+/** Kimarite families used for bias tables */
+export type KimariteFamily =
+  | "OSHI"
+  | "YOTSU"
+  | "THROW"
+  | "TRIP"
+  | "PULLDOWN"
+  | "REVERSAL"
   | "SPECIAL";
 
-// Archetype stat profiles for simulation
-// Per Constitution: TacticalArchetype × KimariteFamily Base Bias multipliers
-export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
-  tachiaiBonus: number;      // Bonus to initial charge
-  gripPreference: number;    // -1 = avoid grip, 0 = neutral, +1 = seek grip
-  preferredClasses: string[]; // Kimarite classes this archetype excels at
-  volatility: number;        // 0-1, higher = more variable outcomes
-  counterBonus: number;      // Bonus to counter-attack probability
-  baseRisk: number;          // Base risk tolerance (0-1)
-  familyBias: Record<KimariteFamily, number>; // Multipliers per family
-}> = {
+/** Kimarite classes used for matching + narrative */
+export type KimariteClass =
+  | "force_out"
+  | "push"
+  | "thrust"
+  | "throw"
+  | "trip"
+  | "twist"
+  | "slap_pull"
+  | "lift"
+  | "rear"
+  | "evasion"
+  | "special"
+  | "forfeit";
+
+/** Archetype stat profiles */
+export const ARCHETYPE_PROFILES: Record<
+  TacticalArchetype,
+  {
+    tachiaiBonus: number;
+    gripPreference: number; // -1..+1
+    preferredClasses: KimariteClass[];
+    volatility: number; // 0..1
+    counterBonus: number;
+    baseRisk: number; // 0..1
+    familyBias: Record<KimariteFamily, number>;
+  }
+> = {
   oshi_specialist: {
     tachiaiBonus: 8,
     gripPreference: -0.5,
     preferredClasses: ["force_out", "push", "thrust"],
     volatility: 0.2,
     counterBonus: 0,
-    baseRisk: 0.60,
-    familyBias: { OSHI: 1.45, YOTSU: 0.85, THROW: 0.90, TRIP: 0.95, PULLDOWN: 0.80, REVERSAL: 0.90, SPECIAL: 0.75 }
+    baseRisk: 0.6,
+    familyBias: {
+      OSHI: 1.45,
+      YOTSU: 0.85,
+      THROW: 0.9,
+      TRIP: 0.95,
+      PULLDOWN: 0.8,
+      REVERSAL: 0.9,
+      SPECIAL: 0.75,
+    },
   },
   yotsu_specialist: {
     tachiaiBonus: -3,
@@ -51,7 +98,15 @@ export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
     volatility: 0.15,
     counterBonus: 5,
     baseRisk: 0.45,
-    familyBias: { OSHI: 0.85, YOTSU: 1.40, THROW: 1.35, TRIP: 0.95, PULLDOWN: 0.80, REVERSAL: 1.05, SPECIAL: 0.80 }
+    familyBias: {
+      OSHI: 0.85,
+      YOTSU: 1.4,
+      THROW: 1.35,
+      TRIP: 0.95,
+      PULLDOWN: 0.8,
+      REVERSAL: 1.05,
+      SPECIAL: 0.8,
+    },
   },
   speedster: {
     tachiaiBonus: 5,
@@ -60,7 +115,15 @@ export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
     volatility: 0.5,
     counterBonus: 8,
     baseRisk: 0.55,
-    familyBias: { OSHI: 0.95, YOTSU: 0.90, THROW: 0.95, TRIP: 1.45, PULLDOWN: 1.00, REVERSAL: 1.10, SPECIAL: 0.90 }
+    familyBias: {
+      OSHI: 0.95,
+      YOTSU: 0.9,
+      THROW: 0.95,
+      TRIP: 1.45,
+      PULLDOWN: 1.0,
+      REVERSAL: 1.1,
+      SPECIAL: 0.9,
+    },
   },
   trickster: {
     tachiaiBonus: 0,
@@ -69,7 +132,15 @@ export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
     volatility: 0.6,
     counterBonus: 12,
     baseRisk: 0.65,
-    familyBias: { OSHI: 0.90, YOTSU: 0.85, THROW: 0.90, TRIP: 1.05, PULLDOWN: 1.45, REVERSAL: 1.25, SPECIAL: 1.10 }
+    familyBias: {
+      OSHI: 0.9,
+      YOTSU: 0.85,
+      THROW: 0.9,
+      TRIP: 1.05,
+      PULLDOWN: 1.45,
+      REVERSAL: 1.25,
+      SPECIAL: 1.1,
+    },
   },
   all_rounder: {
     tachiaiBonus: 2,
@@ -77,8 +148,16 @@ export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
     preferredClasses: ["force_out", "throw", "push"],
     volatility: 0.25,
     counterBonus: 3,
-    baseRisk: 0.50,
-    familyBias: { OSHI: 1.00, YOTSU: 1.00, THROW: 1.00, TRIP: 1.00, PULLDOWN: 1.00, REVERSAL: 1.00, SPECIAL: 1.00 }
+    baseRisk: 0.5,
+    familyBias: {
+      OSHI: 1.0,
+      YOTSU: 1.0,
+      THROW: 1.0,
+      TRIP: 1.0,
+      PULLDOWN: 1.0,
+      REVERSAL: 1.0,
+      SPECIAL: 1.0,
+    },
   },
   hybrid_oshi_yotsu: {
     tachiaiBonus: 3,
@@ -87,7 +166,15 @@ export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
     volatility: 0.3,
     counterBonus: 5,
     baseRisk: 0.52,
-    familyBias: { OSHI: 1.20, YOTSU: 1.20, THROW: 1.10, TRIP: 0.95, PULLDOWN: 0.85, REVERSAL: 1.05, SPECIAL: 0.90 }
+    familyBias: {
+      OSHI: 1.2,
+      YOTSU: 1.2,
+      THROW: 1.1,
+      TRIP: 0.95,
+      PULLDOWN: 0.85,
+      REVERSAL: 1.05,
+      SPECIAL: 0.9,
+    },
   },
   counter_specialist: {
     tachiaiBonus: -2,
@@ -96,23 +183,29 @@ export const ARCHETYPE_PROFILES: Record<TacticalArchetype, {
     volatility: 0.35,
     counterBonus: 15,
     baseRisk: 0.48,
-    familyBias: { OSHI: 0.90, YOTSU: 1.00, THROW: 1.10, TRIP: 1.10, PULLDOWN: 0.90, REVERSAL: 1.50, SPECIAL: 1.05 }
-  }
+    familyBias: {
+      OSHI: 0.9,
+      YOTSU: 1.0,
+      THROW: 1.1,
+      TRIP: 1.1,
+      PULLDOWN: 0.9,
+      REVERSAL: 1.5,
+      SPECIAL: 1.05,
+    },
+  },
 };
 
-export type Division = 
-  | "makuuchi" 
-  | "juryo" 
-  | "makushita" 
-  | "sandanme" 
-  | "jonidan" 
-  | "jonokuchi";
+/** =========================
+ *  Division / Rank / Banzuke
+ *  ========================= */
 
-export type Rank = 
-  | "yokozuna" 
-  | "ozeki" 
-  | "sekiwake" 
-  | "komusubi" 
+export type Division = "makuuchi" | "juryo" | "makushita" | "sandanme" | "jonidan" | "jonokuchi";
+
+export type Rank =
+  | "yokozuna"
+  | "ozeki"
+  | "sekiwake"
+  | "komusubi"
   | "maegashira"
   | "juryo"
   | "makushita"
@@ -120,128 +213,68 @@ export type Rank =
   | "jonidan"
   | "jonokuchi";
 
-// Rank position with side
-export interface RankPosition {
-  rank: Rank;
-  rankNumber?: number;  // e.g., Maegashira 3
-  side: "east" | "west";
+/** Enforce numbered vs unnumbered ranks at compile time */
+export type NumberedRank = "maegashira" | "juryo" | "makushita" | "sandanme" | "jonidan" | "jonokuchi";
+export type UnnumberedRank = "yokozuna" | "ozeki" | "sekiwake" | "komusubi";
+
+export type Side = "east" | "west";
+
+export type RankPosition =
+  | { rank: UnnumberedRank; side: Side; rankNumber?: never }
+  | { rank: NumberedRank; rankNumber: number; side: Side };
+
+/** Canon banzuke snapshot (ordered slots + assignments) */
+export interface BanzukeAssignment {
+  rikishiId: Id;
+  position: RankPosition;
 }
 
-// === BASHO (TOURNAMENT) SYSTEM ===
+export interface DivisionBanzukeSnapshot {
+  division: Division;
+  /** Canonical slot list (ordered): E/W alternation is represented here */
+  slots: RankPosition[];
+  /** Who occupies slots this basho */
+  assignments: BanzukeAssignment[];
+}
 
-// The six official basho names
+export interface BanzukeSnapshot {
+  year: number;
+  bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;
+  divisions: Record<Division, DivisionBanzukeSnapshot>;
+}
+
+/** Basho performance input for banzuke building (deterministic sorting) */
+export interface RikishiBashoPerformance {
+  rikishiId: Id;
+  division: Division; // division during the basho
+  priorRank: RankPosition;
+  wins: number;
+  losses: number;
+  absences?: number;
+  fusenWins?: number;
+  fusenLosses?: number;
+  /** Strength-of-schedule proxy; higher = harder opposition */
+  sos?: number;
+}
+
+/** =========================
+ *  Basho (Tournament)
+ *  ========================= */
+
 export type BashoName = "hatsu" | "haru" | "natsu" | "nagoya" | "aki" | "kyushu";
-
-// Season for narrative flavor
 export type Season = "winter" | "spring" | "summer" | "autumn";
 
-// Full basho information
 export interface BashoInfo {
   name: BashoName;
-  nameJa: string;        // Japanese name
-  nameEn: string;        // English name
-  month: number;         // 1-12
-  location: string;      // City
-  venue: string;         // Arena name
-  venueJa: string;       // Japanese venue name
-  startDay: number;      // Approximate start day
+  nameJa: string;
+  nameEn: string;
+  month: number; // 1..12
+  location: string;
+  venue: string;
+  venueJa: string;
+  startDay: number;
   season: Season;
-  description: string;   // Flavor text
-}
-
-// === ECONOMICS SYSTEM ===
-
-// Individual kensho win record
-export interface KenshoRecord {
-  bashoName: string;
-  day: number;
-  opponentId: string;
-  kenshoCount: number;
-  amount: number;
-}
-
-// Rikishi economics/finances
-export interface RikishiEconomics {
-  retirementFund: number;      // Accumulated retirement savings
-  careerKenshoWon: number;     // Total kensho banners won
-  kinboshiCount: number;       // Gold stars (maegashira beat yokozuna)
-  totalEarnings: number;       // Career total earnings
-  currentBashoEarnings: number; // This basho's earnings
-  popularity: number;          // 0-100, affects kensho attraction
-}
-
-export interface Rikishi {
-  id: string;
-  shikona: string;
-  realName?: string;
-  heyaId: string;
-  nationality: string;
-  
-  // Physical attributes
-  height: number;  // cm
-  weight: number;  // kg
-  
-  // Core stats (0-100)
-  power: number;
-  speed: number;
-  balance: number;
-  technique: number;
-  aggression: number;
-  experience: number;
-  
-  // Current form & condition
-  momentum: number;      // -10 to +10, recent form modifier
-  stamina: number;       // 0-100, current fatigue level
-  injured: boolean;
-  injuryWeeksRemaining: number;
-  
-  // Career
-  style: Style;
-  archetype: TacticalArchetype;  // Fighting approach
-  division: Division;
-  rank: Rank;
-  rankNumber?: number;   // e.g., Maegashira 3
-  side: "east" | "west";
-  
-  // Stats
-  careerWins: number;
-  careerLosses: number;
-  currentBashoWins: number;
-  currentBashoLosses: number;
-  
-  // Traits & specializations
-  favoredKimarite: string[];  // IDs of preferred finishing moves
-  weakAgainstStyles: Style[];
-  
-  // Economics (optional, added when needed)
-  economics?: RikishiEconomics;
-}
-
-export interface Heya {
-  id: string;
-  name: string;
-  oyakataId: string;
-  rikishiIds: string[];
-  reputation: number;  // 0-100
-  funds: number;
-  facilities: {
-    training: number;  // 0-100
-    recovery: number;
-    nutrition: number;
-  };
-}
-
-export interface BoutResult {
-  winner: "east" | "west";
-  winnerRikishiId: string;
-  loserRikishiId: string;
-  kimarite: string;
-  kimariteName: string;
-  stance: Stance;
-  tachiaiWinner: "east" | "west";
-  duration: number;  // abstract ticks
-  upset: boolean;
-  log: BoutLogEntry[];
+  description: string;
 }
 
 export interface BoutLogEntry {
@@ -250,121 +283,218 @@ export interface BoutLogEntry {
   data: Record<string, number | string | boolean>;
 }
 
+/** KimariteId stays string here; you can optionally refine it in kimarite.ts via `as const` registry */
+export type KimariteId = string;
+
+export interface BoutResult {
+  winner: Side;
+  winnerRikishiId: Id;
+  loserRikishiId: Id;
+  kimarite: KimariteId;
+  kimariteName: string;
+  stance: Stance;
+  tachiaiWinner: Side;
+  duration: number;
+  upset: boolean;
+  log: BoutLogEntry[];
+}
+
 export interface MatchSchedule {
   day: number;
-  eastRikishiId: string;
-  westRikishiId: string;
+  eastRikishiId: Id;
+  westRikishiId: Id;
   result?: BoutResult;
 }
 
+/** JSON-safe standings */
+export type StandingsTable = Record<Id, { wins: number; losses: number }>;
+
 export interface BashoState {
   year: number;
-  bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;  // 6 basho per year
+  bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;
   bashoName: BashoName;
-  day: number;  // 1-15
+  day: number; // 1..15 (sekitori)
   matches: MatchSchedule[];
-  standings: Map<string, { wins: number; losses: number }>;
+  standings: StandingsTable;
 }
 
-// === STABLE STATURE & FTUE ===
+/** =========================
+ *  Economics
+ *  ========================= */
 
-// Stable stature bands (implicit difficulty)
-export type StatureBand = 
-  | "legendary"    // Title contender - Very Easy
-  | "powerful"     // Strong contender - Easy  
-  | "established"  // Stable competitor - Normal
-  | "rebuilding"   // Declining - Hard
-  | "fragile"      // At risk - Very Hard
-  | "new";         // No buffer - Extreme
+export interface KenshoRecord {
+  bashoName: BashoName;
+  day: number;
+  opponentId: Id;
+  kenshoCount: number;
+  amount: number;
+}
 
-// Prestige bands for narrative display
+export interface RikishiEconomics {
+  retirementFund: number;
+  careerKenshoWon: number;
+  kinboshiCount: number;
+  totalEarnings: number;
+  currentBashoEarnings: number;
+  popularity: number; // 0..100
+}
+
+/** =========================
+ *  Rikishi / Heya / World
+ *  ========================= */
+
+export interface Rikishi {
+  id: Id;
+  shikona: string;
+  realName?: string;
+  heyaId: Id;
+  nationality: string;
+
+  height: number;
+  weight: number;
+
+  power: number;
+  speed: number;
+  balance: number;
+  technique: number;
+  aggression: number;
+  experience: number;
+
+  momentum: number; // -10..+10
+  stamina: number; // 0..100
+  injured: boolean;
+  injuryWeeksRemaining: number;
+
+  style: Style;
+  archetype: TacticalArchetype;
+
+  /** single source of truth for placement */
+  division: Division;
+  rankPos: RankPosition;
+
+  careerWins: number;
+  careerLosses: number;
+  currentBashoWins: number;
+  currentBashoLosses: number;
+
+  favoredKimarite: KimariteId[];
+  weakAgainstStyles: Style[];
+
+  economics?: RikishiEconomics;
+}
+
+/** Narrative bands */
+export type StatureBand = "legendary" | "powerful" | "established" | "rebuilding" | "fragile" | "new";
 export type PrestigeBand = "elite" | "respected" | "modest" | "struggling" | "unknown";
-
-// Facilities bands
 export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" | "minimal";
-
-// Koenkai (supporter group) strength
 export type KoenkaiBand = "powerful" | "strong" | "moderate" | "weak" | "none";
-
-// Financial runway bands  
 export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
 
-// FTUE state tracking
+/** FTUE */
 export interface FTUEState {
   isActive: boolean;
   bashoCompleted: number;
-  suppressedEvents: string[];  // Events delayed until FTUE ends
+  suppressedEvents: string[];
 }
 
-// Stable selection mode
 export type StableSelectionMode = "found_new" | "take_over" | "recommended";
 
-// Enhanced Heya with canon-compliant properties
+/** SINGLE heya definition (no duplicates) */
 export interface Heya {
-  id: string;
+  id: Id;
   name: string;
   nameJa?: string;
-  oyakataId: string;
-  rikishiIds: string[];
-  
-  // Narrative bands (never raw numbers to player)
+  oyakataId: Id;
+  rikishiIds: Id[];
+
   statureBand: StatureBand;
   prestigeBand: PrestigeBand;
   facilitiesBand: FacilitiesBand;
   koenkaiBand: KoenkaiBand;
   runwayBand: RunwayBand;
-  
-  // Internal values (hidden from player)
-  reputation: number;  // 0-100
+
+  reputation: number; // 0..100 (hidden)
   funds: number;
   facilities: {
-    training: number;  // 0-100
+    training: number;
     recovery: number;
     nutrition: number;
   };
-  
-  // Risk indicators for stable selection
+
   riskIndicators: {
     financial: boolean;
     governance: boolean;
     rivalry: boolean;
   };
-  
-  // Descriptors for UI
-  descriptor?: string;  // One-line flavor text
-  isPlayerOwned?: boolean;
-}
 
-export interface WorldState {
-  seed: string;
-  year: number;
-  week: number;
-  currentBashoName?: BashoName;
-  heyas: Map<string, Heya>;
-  rikishi: Map<string, Rikishi>;
-  currentBasho?: BashoState;
-  history: BashoResult[];
-  
-  // FTUE tracking
-  ftue: FTUEState;
-  
-  // Player's stable
-  playerHeyaId?: string;
+  descriptor?: string;
+  isPlayerOwned?: boolean;
 }
 
 export interface BashoResult {
   year: number;
-  bashoNumber: number;
+  bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;
   bashoName: BashoName;
-  yusho: string;  // winner rikishi ID
-  junYusho: string[];
-  ginoSho?: string;  // technique prize
-  kantosho?: string; // fighting spirit
-  shukunsho?: string; // outstanding performance
-  // Prize money awarded
+
+  /** Makuuuchi yusho by default; expand later for division-specific results if needed */
+  yusho: Id;
+  junYusho: Id[];
+
+  ginoSho?: Id;
+  kantosho?: Id;
+  shukunsho?: Id;
+
   prizes: {
     yushoAmount: number;
     junYushoAmount: number;
     specialPrizes: number;
   };
+
+  /** Pointer to the banzuke snapshot after this basho */
+  nextBanzuke?: BanzukeSnapshot;
+}
+
+/** JSON-safe world state */
+export interface WorldState {
+  seed: string;
+  year: number;
+  week: number;
+  currentBashoName?: BashoName;
+
+  heyas: IdMap<Heya>;
+  rikishi: IdMap<Rikishi>;
+
+  currentBasho?: BashoState;
+  history: BashoResult[];
+
+  ftue: FTUEState;
+  playerHeyaId?: Id;
+
+  /** last published banzuke (authoritative placement) */
+  currentBanzuke?: BanzukeSnapshot;
+}
+
+/** =========================
+ *  Save Format (planned)
+ *  =========================
+ * Keep this as your top-level persisted object.
+ * - `version` enables migrations
+ * - everything is JSON-native (no Map/Set)
+ * - snapshots are deterministic & replayable
+ */
+
+export type SaveVersion = "1.0.0";
+
+export interface SaveGame {
+  version: SaveVersion;
+  createdAtISO: string;
+  lastSavedAtISO: string;
+
+  /** Future-proof: store options affecting determinism */
+  ruleset: {
+    banzukeAlgorithm: "slot_fill_v1";
+    kimariteRegistryVersion: string; // e.g. "82_official_v1"
+  };
+
+  world: WorldState;
 }
