@@ -184,7 +184,7 @@ function generateRikishi(
   
   // Style and archetype based on stats
   const style = determineStyle(power, speed, technique, rng);
-  const archetype = determineArchetype(style, power, speed, technique, rng);
+  const archetype = determineArchetype(style, power, speed, technique, balance, rng);
   
   // Favored kimarite based on style
   const favoredKimarite = selectFavoredKimarite(style, archetype, rng);
@@ -270,12 +270,32 @@ function determineArchetype(
   power: number, 
   speed: number, 
   technique: number,
+  balance: number,
   rng: seedrandom.PRNG
 ): TacticalArchetype {
+  // Per Constitution: 7 canonical archetypes with distribution
+  
+  // Specialists based on dominant stats
   if (style === "oshi" && power > 75) return "oshi_specialist";
   if (style === "yotsu" && technique > 75) return "yotsu_specialist";
+  
+  // Speedster for very fast wrestlers
   if (speed > 80) return "speedster";
-  if (rng() < 0.15) return "trickster";
+  
+  // Hybrid for balanced oshi/yotsu capable
+  if (style === "hybrid" && power > 60 && technique > 60) {
+    if (rng() < 0.3) return "hybrid_oshi_yotsu";
+  }
+  
+  // Counter specialist for high balance + technique
+  if (balance > 75 && technique > 70 && rng() < 0.25) {
+    return "counter_specialist";
+  }
+  
+  // Trickster for volatile types
+  if (rng() < 0.12) return "trickster";
+  
+  // Default to all-rounder
   return "all_rounder";
 }
 
