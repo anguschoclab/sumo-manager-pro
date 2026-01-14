@@ -490,9 +490,9 @@ export function generateShikona(
   }
 
   // Final fallback: digits, last resort, larger space to avoid collisions
-  const house = getHouseStyle(config.heyaId);
-  const prefix = pickPrefixByCategoryBias(rng, house.prefixCategoryBias);
-  const suffix = pickSuffixByCategoryBias(rng, house.suffixCategoryBias);
+  const fallbackHouse = getHouseStyle(config.heyaId);
+  const prefix = pickPrefixByCategoryBias(rng, fallbackHouse.prefixCategoryBias);
+  const suffix = pickSuffixByCategoryBias(rng, fallbackHouse.suffixCategoryBias);
   const disambiguator = Math.floor(rng() * 1000);
   const fallback = `${prefix}${suffix}${disambiguator}`;
   usedNames.add(normalizeKey(fallback));

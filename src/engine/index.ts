@@ -8,3 +8,4 @@ export * from "./banzuke";
 export * from "./economics";
 export * from "./shikona";
 export * from "./sponsors";
+export * from "./leverageClass";

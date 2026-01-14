@@ -1,10 +1,12 @@
 // Deterministic Bout Simulation Engine
 // Based on Combat Engine V3 with Tactical Archetypes
+// Per Constitution: Phased resolution with leverage class and tier multipliers
 
 import seedrandom from "seedrandom";
 import type { Rikishi, Stance, Style, TacticalArchetype, BoutResult, BoutLogEntry } from "./types";
 import { ARCHETYPE_PROFILES } from "./types";
 import { KIMARITE_REGISTRY, type Kimarite, type KimariteClass } from "./kimarite";
+import { computeLeverageClass, getLeverageBias, type LeverageClass } from "./leverageClass";
 
 interface BoutState {
   clock: number;
@@ -14,6 +16,8 @@ interface BoutState {
   advantage: "east" | "west" | "none";
   tachiaiWinner: "east" | "west";
   position: "frontal" | "lateral" | "rear";
+  eastLeverageClass: LeverageClass;
+  westLeverageClass: LeverageClass;
   log: BoutLogEntry[];
 }
 
@@ -463,6 +467,8 @@ export function simulateBout(
     advantage: "none",
     tachiaiWinner: "east",
     position: "frontal",
+    eastLeverageClass: computeLeverageClass(eastRikishi.height, eastRikishi.weight),
+    westLeverageClass: computeLeverageClass(westRikishi.height, westRikishi.weight),
     log: []
   };
 
