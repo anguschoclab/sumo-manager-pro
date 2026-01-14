@@ -1,7 +1,7 @@
 // Sumo Economics System - Kensho, salaries, and retirement funds
 // Authentic financial simulation
 
-import type { Rank, RikishiEconomics, KenshoRecord } from "./types";
+import type { Rank, RikishiEconomics, KenshoRecord, BashoName } from "./types";
 import { RANK_HIERARCHY } from "./banzuke";
 
 // === KENSHO (SPONSOR BANNERS) SYSTEM ===
@@ -260,7 +260,7 @@ export function initializeEconomics(): RikishiEconomics {
 
 // Create kensho record for a bout
 export function createKenshoRecord(
-  bashoName: string,
+  bashoName: BashoName,
   day: number,
   opponentId: string,
   kenshoCount: number

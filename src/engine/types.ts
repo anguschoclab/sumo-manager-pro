@@ -12,6 +12,8 @@
 
 export type Id = string;
 export type IdMap<T> = Record<string, T>;
+/** Map-based IdMap for runtime - use Object.values() to iterate */
+export type IdMapRuntime<T> = Map<string, T>;
 
 /** =========================
  *  Combat / Style
@@ -46,8 +48,9 @@ export type KimariteFamily =
   | "REVERSAL"
   | "SPECIAL";
 
-/** Kimarite classes used for matching + narrative */
-export type KimariteClass =
+// Note: KimariteClass is re-exported from kimarite.ts - import from there for the full type
+// This is the subset needed for ARCHETYPE_PROFILES to avoid circular deps
+type KimariteClassLite =
   | "force_out"
   | "push"
   | "thrust"
@@ -67,7 +70,7 @@ export const ARCHETYPE_PROFILES: Record<
   {
     tachiaiBonus: number;
     gripPreference: number; // -1..+1
-    preferredClasses: KimariteClass[];
+    preferredClasses: KimariteClassLite[];
     volatility: number; // 0..1
     counterBonus: number;
     baseRisk: number; // 0..1
@@ -179,7 +182,7 @@ export const ARCHETYPE_PROFILES: Record<
   counter_specialist: {
     tachiaiBonus: -2,
     gripPreference: 0.3,
-    preferredClasses: ["reversal", "throw", "trip"],
+    preferredClasses: ["throw", "trip"],
     volatility: 0.35,
     counterBonus: 15,
     baseRisk: 0.48,
@@ -306,8 +309,9 @@ export interface MatchSchedule {
   result?: BoutResult;
 }
 
-/** JSON-safe standings */
+/** JSON-safe standings - use Map at runtime */
 export type StandingsTable = Record<Id, { wins: number; losses: number }>;
+export type StandingsTableRuntime = Map<Id, { wins: number; losses: number }>;
 
 export interface BashoState {
   year: number;
@@ -315,7 +319,7 @@ export interface BashoState {
   bashoName: BashoName;
   day: number; // 1..15 (sekitori)
   matches: MatchSchedule[];
-  standings: StandingsTable;
+  standings: StandingsTableRuntime;
 }
 
 /** =========================
@@ -368,9 +372,14 @@ export interface Rikishi {
   style: Style;
   archetype: TacticalArchetype;
 
-  /** single source of truth for placement */
+  /** Division placement */
   division: Division;
-  rankPos: RankPosition;
+  /** Rank within the division */
+  rank: Rank;
+  /** Rank number for numbered ranks (maegashira 1, juryo 5, etc.) */
+  rankNumber?: number;
+  /** East or West side of banzuke */
+  side: Side;
 
   careerWins: number;
   careerLosses: number;
@@ -454,15 +463,15 @@ export interface BashoResult {
   nextBanzuke?: BanzukeSnapshot;
 }
 
-/** JSON-safe world state */
+/** Runtime world state - uses Maps for efficient lookups */
 export interface WorldState {
   seed: string;
   year: number;
   week: number;
   currentBashoName?: BashoName;
 
-  heyas: IdMap<Heya>;
-  rikishi: IdMap<Rikishi>;
+  heyas: IdMapRuntime<Heya>;
+  rikishi: IdMapRuntime<Rikishi>;
 
   currentBasho?: BashoState;
   history: BashoResult[];
@@ -473,6 +482,7 @@ export interface WorldState {
   /** last published banzuke (authoritative placement) */
   currentBanzuke?: BanzukeSnapshot;
 }
+
 
 /** =========================
  *  Save Format (planned)
