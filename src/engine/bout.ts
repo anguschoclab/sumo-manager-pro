@@ -310,9 +310,21 @@ function resolveFinisher(ctx: SimulationContext): { winner: "east" | "west"; kim
     return true;
   });
 
+  // Tier multipliers per Constitution Section 3.2
+  // Common 1.00, Uncommon 0.55, Rare 0.20, Legendary 0.05
+  const TIER_MULTIPLIERS: Record<Kimarite["rarity"], number> = {
+    common: 1.00,
+    uncommon: 0.55,
+    rare: 0.20,
+    legendary: 0.05
+  };
+
   // Weight kimarite by multiple factors
   const weightedPool: { kimarite: Kimarite; weight: number }[] = validKimarite.map(k => {
     let weight = k.baseWeight;
+    
+    // Apply tier multiplier FIRST (per Constitution)
+    weight *= TIER_MULTIPLIERS[k.rarity];
     
     // Style affinity
     weight += k.styleAffinity[leader.style] * 0.6;
@@ -352,9 +364,6 @@ function resolveFinisher(ctx: SimulationContext): { winner: "east" | "west"; kim
     if (state.position === "lateral" && (k.kimariteClass === "trip" || k.kimariteClass === "evasion")) {
       weight *= 1.3;
     }
-
-    // Rarity penalty for legendary moves
-    if (k.rarity === "legendary") weight *= 0.5;
 
     return { kimarite: k, weight };
   });
