@@ -7,6 +7,7 @@ import { generateWorld, initializeBasho, generateDaySchedule, createNewStable } 
 import { simulateBout } from "@/engine/bout";
 import { BASHO_CALENDAR, getNextBasho } from "@/engine/calendar";
 import { isKachiKoshi, isMakeKoshi } from "@/engine/banzuke";
+import { saveGame, loadGame, autosave, hasAutosave, loadAutosave, getSaveSlotInfos, type SaveSlotInfo } from "@/engine/saveload";
 
 // === STATE TYPES ===
 
@@ -53,7 +54,8 @@ type GameAction =
   | { type: "SELECT_RIKISHI"; id: string | null }
   | { type: "SELECT_HEYA"; id: string | null }
   | { type: "SET_AUTO_PLAY"; value: boolean }
-  | { type: "UPDATE_WORLD"; world: WorldState };
+  | { type: "UPDATE_WORLD"; world: WorldState }
+  | { type: "LOAD_WORLD"; world: WorldState };
 
 // === INITIAL STATE ===
 
@@ -296,6 +298,15 @@ function gameReducer(state: GameState, action: GameAction): GameState {
       return { ...state, world: action.world };
     }
 
+    case "LOAD_WORLD": {
+      return {
+        ...state,
+        world: action.world,
+        playerHeyaId: action.world.playerHeyaId || null,
+        phase: action.world.playerHeyaId ? "interim" : "menu",
+      };
+    }
+
     default:
       return state;
   }
@@ -321,6 +332,14 @@ interface GameContextValue {
   simulateAllBouts: () => void;
   endDay: () => void;
   endBasho: () => void;
+  
+  // Save/Load
+  saveToSlot: (slotName: string) => boolean;
+  loadFromSlot: (slotName: string) => boolean;
+  quickSave: () => boolean;
+  loadFromAutosave: () => boolean;
+  hasAutosave: () => boolean;
+  getSaveSlots: () => SaveSlotInfo[];
   
   // Helpers
   getRikishi: (id: string) => Rikishi | undefined;
@@ -416,6 +435,39 @@ export function GameProvider({ children }: { children: ReactNode }) {
       .sort((a, b) => b.wins - a.wins || a.losses - b.losses);
   }, [state.world]);
 
+  // Save/Load functions
+  const saveToSlot = useCallback((slotName: string) => {
+    if (!state.world) return false;
+    return saveGame(state.world, slotName);
+  }, [state.world]);
+
+  const loadFromSlot = useCallback((slotName: string) => {
+    const world = loadGame(slotName);
+    if (world) {
+      dispatch({ type: "LOAD_WORLD", world });
+      return true;
+    }
+    return false;
+  }, []);
+
+  const quickSaveAction = useCallback(() => {
+    if (!state.world) return false;
+    autosave(state.world);
+    return true;
+  }, [state.world]);
+
+  const loadFromAutosave = useCallback(() => {
+    const world = loadAutosave();
+    if (world) {
+      dispatch({ type: "LOAD_WORLD", world });
+      return true;
+    }
+    return false;
+  }, []);
+
+  const hasAutosaveCheck = useCallback(() => hasAutosave(), []);
+  const getSaveSlots = useCallback(() => getSaveSlotInfos(), []);
+
   const value: GameContextValue = {
     state,
     createWorld,
@@ -428,6 +480,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
     simulateAllBouts,
     endDay,
     endBasho,
+    saveToSlot,
+    loadFromSlot,
+    quickSave: quickSaveAction,
+    loadFromAutosave,
+    hasAutosave: hasAutosaveCheck,
+    getSaveSlots,
     getRikishi,
     getHeya,
     getCurrentDayMatches,

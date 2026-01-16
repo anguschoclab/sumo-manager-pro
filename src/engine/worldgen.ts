@@ -189,10 +189,18 @@ function generateRikishi(
   // Favored kimarite based on style
   const favoredKimarite = selectFavoredKimarite(style, archetype, rng);
   
-  // Career record based on experience
-  const totalBouts = Math.floor(experience * 10 + rng() * 200);
-  const winRate = 0.45 + (rankMultiplier / 10) * 0.1 + rng() * 0.1;
-  const careerWins = Math.floor(totalBouts * winRate);
+  // Career record based on rank - realistic to position
+  const careerBasho = Math.floor(10 + rankMultiplier * 25 + rng() * 15);
+  const boutCount = config.division === "makuuchi" || config.division === "juryo" ? 15 : 7;
+  
+  // Win rate should reflect current rank realistically
+  // Higher ranks maintain ~55-60% lifetime, lower ranks ~48-52%
+  const baseWinRate = 0.48 + (rankMultiplier / 10) * 0.08;
+  const winRateVariance = 0.05;
+  const effectiveWinRate = baseWinRate + (rng() - 0.5) * winRateVariance;
+  
+  const totalBouts = Math.floor(careerBasho * boutCount);
+  const careerWins = Math.floor(totalBouts * effectiveWinRate);
   const careerLosses = totalBouts - careerWins;
   
   return {
