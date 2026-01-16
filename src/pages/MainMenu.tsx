@@ -12,11 +12,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { 
   CircleDot, Dices, ArrowRight, Building2, Star, Sparkles,
-  AlertTriangle, TrendingDown, Shield, Plus, RefreshCw
+  AlertTriangle, TrendingDown, Shield, Plus, RefreshCw,
+  Save, FolderOpen, Trash2, Upload, Clock
 } from "lucide-react";
-import type { Heya, StatureBand } from "@/engine/types";
+import type { Heya, StatureBand, BashoName } from "@/engine/types";
+import { BASHO_CALENDAR } from "@/engine/calendar";
+import { deleteSave, importSave, type SaveSlotInfo } from "@/engine/saveload";
 
 // Stature display configuration
 const STATURE_CONFIG: Record<StatureBand, { 
@@ -153,12 +157,82 @@ function StableCard({ heya, isSelected, onSelect, isRecommended }: StableCardPro
 
 export default function MainMenu() {
   const navigate = useNavigate();
-  const { createWorld, state } = useGame();
+  const { createWorld, state, loadFromSlot, loadFromAutosave, hasAutosave, getSaveSlots } = useGame();
   const [seed, setSeed] = useState("");
   const [showSeedInput, setShowSeedInput] = useState(false);
   const [selectionMode, setSelectionMode] = useState<"found_new" | "take_over" | "recommended">("recommended");
   const [newStableName, setNewStableName] = useState("");
   const [selectedHeyaId, setSelectedHeyaId] = useState<string | null>(null);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [saveSlots, setSaveSlots] = useState<SaveSlotInfo[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
+
+  // Check for existing saves on mount
+  useEffect(() => {
+    setSaveSlots(getSaveSlots());
+  }, [getSaveSlots]);
+
+  const canContinue = hasAutosave() || saveSlots.length > 0;
+
+  // Handle continue from autosave
+  const handleContinue = () => {
+    if (hasAutosave()) {
+      loadFromAutosave();
+      navigate("/");
+    } else if (saveSlots.length > 0) {
+      setShowLoadDialog(true);
+    }
+  };
+
+  // Handle load from slot
+  const handleLoadSlot = (slotName: string) => {
+    if (loadFromSlot(slotName)) {
+      setShowLoadDialog(false);
+      navigate("/");
+    }
+  };
+
+  // Handle delete save
+  const handleDeleteSlot = (slotName: string) => {
+    deleteSave(slotName);
+    setSaveSlots(getSaveSlots());
+  };
+
+  // Handle import save
+  const handleImportSave = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsImporting(true);
+    try {
+      const world = await importSave(file);
+      if (world) {
+        createWorld(world.seed, world.playerHeyaId);
+        navigate("/");
+      }
+    } finally {
+      setIsImporting(false);
+      e.target.value = "";
+    }
+  };
+
+  // Format date for display
+  const formatSaveDate = (isoDate: string) => {
+    const date = new Date(isoDate);
+    return date.toLocaleDateString(undefined, { 
+      month: "short", 
+      day: "numeric", 
+      hour: "2-digit", 
+      minute: "2-digit" 
+    });
+  };
+
+  // Get basho display name
+  const getBashoDisplay = (bashoName?: BashoName) => {
+    if (!bashoName) return "";
+    const info = BASHO_CALENDAR[bashoName];
+    return info ? `${info.nameEn}` : bashoName;
+  };
 
   // Dispatch for founding new stable
   const foundNewStable = (name: string) => {
@@ -278,6 +352,116 @@ export default function MainMenu() {
             <p className="text-muted-foreground max-w-md mx-auto mb-4">
               Build your stable. Train your rikishi. Compete for glory on the dohyo.
             </p>
+
+            {/* Continue / Load / Import buttons */}
+            <div className="flex items-center justify-center gap-3 mb-6">
+              {canContinue && (
+                <Button 
+                  size="lg" 
+                  variant="default"
+                  className="gap-2"
+                  onClick={handleContinue}
+                >
+                  <ArrowRight className="w-4 h-4" />
+                  Continue
+                </Button>
+              )}
+              
+              <Dialog open={showLoadDialog} onOpenChange={setShowLoadDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="lg" className="gap-2">
+                    <FolderOpen className="w-4 h-4" />
+                    Load Game
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <Save className="w-5 h-5" />
+                      Load Saved Game
+                    </DialogTitle>
+                    <DialogDescription>
+                      Choose a save slot to continue your journey.
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  <ScrollArea className="max-h-[400px]">
+                    <div className="space-y-2">
+                      {saveSlots.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">
+                          No saved games found.
+                        </p>
+                      ) : (
+                        saveSlots.map((slot) => (
+                          <Card key={slot.key} className="hover:bg-muted/50 transition-colors">
+                            <CardContent className="p-3 flex items-center justify-between">
+                              <div 
+                                className="flex-1 cursor-pointer"
+                                onClick={() => handleLoadSlot(slot.slotName)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="font-medium">
+                                    {slot.playerHeyaName || "Unknown Stable"}
+                                  </span>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {slot.slotName === "autosave" ? "Auto" : slot.slotName}
+                                  </Badge>
+                                </div>
+                                <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                                  <span>Year {slot.year}</span>
+                                  {slot.bashoName && (
+                                    <>
+                                      <span>•</span>
+                                      <span>{getBashoDisplay(slot.bashoName)}</span>
+                                    </>
+                                  )}
+                                  <span>•</span>
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="w-3 h-3" />
+                                    {formatSaveDate(slot.savedAt)}
+                                  </span>
+                                </div>
+                              </div>
+                              {slot.slotName !== "autosave" && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteSlot(slot.slotName);
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))
+                      )}
+                    </div>
+                  </ScrollArea>
+                  
+                  <DialogFooter className="flex-col sm:flex-row gap-2">
+                    <label className="cursor-pointer">
+                      <input
+                        type="file"
+                        accept=".json"
+                        className="hidden"
+                        onChange={handleImportSave}
+                        disabled={isImporting}
+                      />
+                      <Button variant="outline" className="gap-2 w-full sm:w-auto" asChild>
+                        <span>
+                          <Upload className="w-4 h-4" />
+                          {isImporting ? "Importing..." : "Import Save"}
+                        </span>
+                      </Button>
+                    </label>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
             
             {/* World info & reroll */}
             <div className="flex items-center justify-center gap-2 flex-wrap">
