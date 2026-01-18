@@ -5,52 +5,54 @@
 // =======================================================
 //
 // FIXES APPLIED:
-// - Stable, dependency-safe export ordering (types first, then pure constants, then systems).
-// - Avoids accidental circular import amplification by exporting higher-level modules later.
+// - Stable, dependency-safe export ordering (types first, then leaf utilities, then systems).
+// - Avoids circular import amplification by exporting higher-level modules later.
 // - Keeps dev-only exports last.
+// - Adds historyIndex export alongside almanac/saveload.
 //
-// NOTE:
-// If any module imports from `index.ts`, prefer importing from the leaf module instead.
-// `index.ts` should be an outward-facing barrel, not an internal dependency hub.
+// IMPORTANT:
+// - Internal engine modules should NOT import from index.ts (barrel). Import from leaf modules.
+// - Keep exports roughly in dependency order: types -> pure tables -> low-level systems -> world/sim -> UI/dev.
 
-// ---------- Core Types (always first) ----------
 export * from "./types";
 
-// ---------- Fundamental Mechanics (low-level, no world deps) ----------
+// ---------- Fundamental Mechanics (low-level, minimal deps) ----------
 export * from "./kimarite";
 export * from "./leverageClass";
 export * from "./bout";
 
-// ---------- World Structure & Time ----------
+// ---------- World Structure & Time (foundational systems) ----------
 export * from "./calendar";
 export * from "./banzuke";
 export * from "./economics";
+export * from "./training";
+export * from "./timeBoundary";
 
-// ---------- Narrative / Flavor ----------
+// ---------- Knowledge / Narrative / Flavor ----------
 export * from "./shikona";
-export * from "./sponsors";
+export * from "./scouting";
+export * from "./pbp";
+export * from "./media";
 
 // ---------- Persistence & History ----------
 export * from "./saveload";
 export * from "./almanac";
+export * from "./historyIndex";
 
-// ---------- Simulation Orchestration ----------
+// ---------- Matchmaking / Scheduling / Simulation Orchestration ----------
 export * from "./matchmaking";
 export * from "./schedule";
-export * from "./timeBoundary";
-export * from "./training";
-export * from "./scouting";
 export * from "./worldgen";
 export * from "./autoSim";
 
-// ---------- NPC / Systems ----------
-export * from "./npcAI";
+// ---------- NPC / Meta Systems ----------
 export * from "./oyakataPersonalities";
+export * from "./npcAI";
 export * from "./rivalries";
 export * from "./injuries";
 export * from "./events";
-export * from "./media";
-export * from "./pbp";
+
+// ---------- UI-facing Builders ----------
 export * from "./uiDigest";
 
 // ---------- Development / Testing (last) ----------
