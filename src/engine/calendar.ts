@@ -1,10 +1,14 @@
+// calendar.ts
 // Basho Calendar System - Six authentic tournaments per year
+//
 // Canon fixes applied:
 // - NO Math.random(): flavor selection is seeded/deterministic
-// - Removed “approximate” interim math: inter-basho is fixed at 6 weeks (canon)
-// - startDay is now computed as the 2nd Sunday of the basho month (deterministic calendar rule)
-//   (you can override per-basho if you want, but default is real-world style “2nd Sunday”)
-// - Venue updates: Nagoya venue name is modernized but supports legacy; keep your string if desired
+// - Inter-basho is fixed at 6 weeks (canon bridge)
+// - startDay is computed as the 2nd Sunday of the basho month (deterministic calendar rule)
+// - Safe flavor selection: never crashes if seed is undefined / empty
+//
+// NOTE:
+// If you want to override a specific basho start day, set `startDay` in BASHO_CALENDAR[name].
 
 import type { BashoName, BashoInfo } from "./types";
 
@@ -53,8 +57,7 @@ export const BASHO_CALENDAR: Record<BashoName, Omit<BashoInfo, "startDay"> & { s
     nameEn: "Nagoya Tournament",
     month: 7,
     location: "Nagoya",
-    // Modern venue is IG Arena (opening 2025–2026 era); but keep deterministic string.
-    // If your setting is “timeless”, you can keep the older gym name.
+    // If your setting is “timeless”, keep the older venue string; determinism doesn’t care.
     venue: "Aichi Prefectural Gymnasium",
     venueJa: "愛知県体育館",
     season: "summer",
@@ -106,7 +109,7 @@ export function getBashoIndex(name: BashoName): number {
 
 /**
  * Canon: inter-basho is a fixed 6-week bridge.
- * (The tournament itself is 15 days; the “between basho” phase is modeled as 6 weeks in the time canon.)
+ * (Tournament is 15 days; between basho phase is modeled as 6 weeks.)
  */
 export function getInterimWeeks(_from: BashoName, _to: BashoName): number {
   return 6;
@@ -153,14 +156,15 @@ export const SEASONAL_FLAVOR: Record<BashoInfo["season"], string[]> = {
 
 /**
  * Deterministic seasonal flavor selection.
- * Caller passes a seed (recommended: `${world.seed}-flavor-${year}-${bashoName}-${day}`).
+ * Caller should pass a seed (recommended: `${world.seed}-flavor-${year}-${bashoName}-${day}`).
+ * SAFE: if seed is missing/undefined, we still return a deterministic option (index 0).
  */
-export function getSeasonalFlavor(season: BashoInfo["season"], seed: string): string {
-  const options = SEASONAL_FLAVOR[season];
-  if (!options || options.length === 0) return "";
-  // Simple deterministic hash-to-index (no Math.random)
+export function getSeasonalFlavor(season: BashoInfo["season"], seed?: string): string {
+  const options = SEASONAL_FLAVOR?.[season] ?? [];
+  if (options.length === 0) return "";
+
   const idx = deterministicIndex(seed, options.length);
-  return options[idx];
+  return options[idx] ?? "";
 }
 
 // Tournament day names (for display)
@@ -185,15 +189,24 @@ export function isKeyDay(day: number): boolean {
 
 // === Helpers ===
 
-function deterministicIndex(seed: string, length: number): number {
+/**
+ * Safe deterministic index generator.
+ * - Accepts undefined seed (treats as empty string)
+ * - Accepts any length (guards 0)
+ */
+function deterministicIndex(seed: string | undefined, length: number): number {
+  const s = typeof seed === "string" ? seed : "";
+  const len = Number.isFinite(length) ? Math.floor(length) : 0;
+  if (len <= 0) return 0;
+
   // FNV-1a-ish tiny hash (deterministic, fast)
   let h = 2166136261;
-  for (let i = 0; i < seed.length; i++) {
-    h ^= seed.charCodeAt(i);
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
-  // >>> 0 to unsigned
-  return (h >>> 0) % Math.max(1, length);
+
+  return (h >>> 0) % len;
 }
 
 /**
