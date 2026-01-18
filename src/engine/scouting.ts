@@ -105,9 +105,13 @@ export function getConfidenceFromLevel(level: number): ConfidenceLevel {
 export function getConfidenceLevel(scouted: ScoutedRikishi, attributeType: AttributeType): ConfidenceLevel {
   if (scouted.isOwned) return "certain";
 
+  // Physicals are always visible
   if (attributeType === "physical") return "certain";
+
+  // "hidden" attributes are never visible through scouting
   if (attributeType === "hidden") return "unknown";
 
+  // Style/archetype can be inferred from bouts even if scoutingLevel is low
   if (attributeType === "style") {
     if (scouted.timesObserved >= 3) return "high";
     if (scouted.timesObserved >= 1) return "medium";
@@ -141,9 +145,9 @@ export function getEstimatedValue(
 
   // Error bands (percent points in 0..100 space; mapped to range)
   const maxErrorPct: Record<Exclude<ConfidenceLevel, "certain" | "unknown">, number> = {
-    low: 35,    // doc: ±30–40
+    low: 35, // doc: ±30–40
     medium: 20, // doc: ±15–25
-    high: 9     // doc: ±5–10
+    high: 9 // doc: ±5–10
   };
 
   const rng = seedrandom(seed);
@@ -182,7 +186,7 @@ export function getAttributeNarrative(
   return { description, qualifier: getConfidenceText(confidence) };
 }
 
-function getConfidenceText(confidence: ConfidenceLevel): string {
+export function getConfidenceText(confidence: ConfidenceLevel): string {
   switch (confidence) {
     case "certain":
       return "Full knowledge";
@@ -205,18 +209,21 @@ export function createPublicInfo(r: Rikishi): PublicRikishiInfo {
   return {
     id: r.id,
     shikona: r.shikona,
-    heyaId: r.heyaId,
-    rank: r.rank,
+    heyaId: (r as any).heyaId,
+    rank: (r as any).rank,
     rankNumber: (r as any).rankNumber,
     side: (r as any).side,
-    height: r.height,
-    weight: r.weight,
+    height: (r as any).height,
+    weight: (r as any).weight,
     currentBashoWins: (r as any).currentBashoWins,
-    currentBashoLosses: (r as any).currentBashoLosses
+    currentBashoLosses: (r as any).currentBashoLosses,
+    // Optional, depending on your fog rules:
+    // style: (r as any).style,
+    // archetype: (r as any).archetype,
   };
 }
 
-function buildTruthSnapshot(r: Rikishi): ScoutedAttributeTruthSnapshot {
+export function buildTruthSnapshot(r: Rikishi): ScoutedAttributeTruthSnapshot {
   return {
     power: safeNum((r as any).power, 0),
     speed: safeNum((r as any).speed, 0),
@@ -234,11 +241,11 @@ export function createScoutedView(
   investment: ScoutingInvestment = "none",
   currentWeek: number = 0
 ): ScoutedRikishi {
-  const isOwned = rikishi.heyaId === playerHeyaId;
+  const isOwned = (rikishi as any).heyaId === playerHeyaId;
   const scoutingLevel = calculateScoutingLevel(isOwned, observationCount, investment);
 
   return {
-    rikishiId: rikishi.id,
+    rikishiId: (rikishi as any).id,
     publicInfo: createPublicInfo(rikishi),
     isOwned,
     timesObserved: Math.max(0, observationCount),
@@ -261,6 +268,11 @@ export function recordObservation(scouted: ScoutedRikishi, currentWeek: number):
     lastObservedWeek: currentWeek,
     scoutingLevel
   };
+}
+
+/** Update cached snapshot if you want scouting objects to reflect evolving “truth”. */
+export function refreshTruthSnapshot(scouted: ScoutedRikishi, truth: Rikishi): ScoutedRikishi {
+  return { ...scouted, attributes: buildTruthSnapshot(truth), publicInfo: createPublicInfo(truth) };
 }
 
 /**
@@ -312,19 +324,11 @@ export interface ScoutedAttributes {
  *
  * If truth/seed are omitted, we fall back to scouted.attributes and a deterministic local seed.
  */
-export function getScoutedAttributes(
-  scouted: ScoutedRikishi,
-  truth?: Rikishi,
-  seed?: string
-): ScoutedAttributes {
+export function getScoutedAttributes(scouted: ScoutedRikishi, truth?: Rikishi, seed?: string): ScoutedAttributes {
   const isOwned = scouted.isOwned;
 
   // Prefer explicit truth; otherwise use cached snapshot.
-  const snapshot: ScoutedAttributeTruthSnapshot | null = truth
-    ? buildTruthSnapshot(truth)
-    : scouted?.attributes
-    ? scouted.attributes
-    : null;
+  const snapshot: ScoutedAttributeTruthSnapshot | null = truth ? buildTruthSnapshot(truth) : scouted?.attributes ?? null;
 
   // Deterministic seed fallback (still stable; better if you pass world.seed)
   const baseSeed =
