@@ -34,5 +34,24 @@ export * from "./sponsors";
 export * from "./saveload";
 export * from "./almanac";
 
+// ---------- Simulation Orchestration ----------
+export * from "./matchmaking";
+export * from "./schedule";
+export * from "./timeBoundary";
+export * from "./training";
+export * from "./scouting";
+export * from "./worldgen";
+export * from "./autoSim";
+
+// ---------- NPC / Systems ----------
+export * from "./npcAI";
+export * from "./oyakataPersonalities";
+export * from "./rivalries";
+export * from "./injuries";
+export * from "./events";
+export * from "./media";
+export * from "./pbp";
+export * from "./uiDigest";
+
 // ---------- Development / Testing (last) ----------
 export * from "./mockData";
