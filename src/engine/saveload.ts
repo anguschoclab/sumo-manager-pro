@@ -1,53 +1,66 @@
-// Save/Load System - Persistence Canon Implementation
+// saveload.ts
+// Save/Load System — Persistence Canon Implementation
 // Follows Constitution §9: Save Philosophy and Save File Structure
+//
+// FIXES APPLIED (canon + correctness):
+// - Renamed Stable Lords key prefix + filenames -> Basho (project rename).
+// - Removed unused imports; tightened types.
+// - Added explicit JSON-safe world schema + validation helpers.
+// - Added deterministic "createdAtISO" preservation (createdAt stays original on overwrite).
+// - Added optional migrations scaffold (versioned, non-lossy).
+// - Added safe localStorage guards (SSR / private mode).
+// - Save slot discovery excludes autosave from numbered slots by default.
+// - SAVE_SLOT_COUNT enforced in quickSave with true "oldest save" overwrite, not always slot_1.
+// - exportSave filename corrected to `basho_...`.
+// - Map serialization preserved; ordering stabilized by sorting keys.
+// - getSaveSlotInfos reads venue/playerHeya safely (heyas is a Record in save).
 
-import type { 
-  WorldState, Heya, Rikishi, BashoState, SaveGame, SaveVersion,
-  BashoResult, FTUEState, BanzukeSnapshot, BashoName, Id
+import type {
+  WorldState,
+  Heya,
+  Rikishi,
+  BashoState,
+  SaveVersion,
+  BashoResult,
+  FTUEState,
+  BanzukeSnapshot,
+  BashoName,
+  Id
 } from "./types";
 
 // === SAVE VERSION ===
 export const CURRENT_SAVE_VERSION: SaveVersion = "1.0.0";
-const SAVE_KEY_PREFIX = "stablelords_save_";
-const AUTOSAVE_KEY = `${SAVE_KEY_PREFIX}autosave`;
+
+// Canon: project is Basho
+const SAVE_KEY_PREFIX = "basho_save_";
+const AUTOSAVE_SLOT_NAME = "autosave";
+const AUTOSAVE_KEY = `${SAVE_KEY_PREFIX}${AUTOSAVE_SLOT_NAME}`;
 const SAVE_SLOT_COUNT = 5;
+
+// === STORAGE GUARDS ===
+function hasLocalStorage(): boolean {
+  try {
+    return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+  } catch {
+    return false;
+  }
+}
 
 // === SERIALIZATION HELPERS ===
 
-/** Convert Map to plain object for JSON serialization */
+/** Convert Map to plain object for JSON serialization (stable key ordering). */
 function mapToObject<T>(map: Map<string, T>): Record<string, T> {
   const obj: Record<string, T> = {};
-  for (const [key, value] of map.entries()) {
-    obj[key] = value;
-  }
+  const keys = Array.from(map.keys()).sort();
+  for (const key of keys) obj[key] = map.get(key)!;
   return obj;
 }
 
 /** Convert plain object back to Map */
 function objectToMap<T>(obj: Record<string, T>): Map<string, T> {
   const map = new Map<string, T>();
-  for (const key in obj) {
-    if (Object.prototype.hasOwnProperty.call(obj, key)) {
-      map.set(key, obj[key]);
-    }
-  }
+  for (const key of Object.keys(obj)) map.set(key, obj[key]);
   return map;
-}
-
-/** Serialize BashoState (convert standings Map) */
-function serializeBashoState(basho: BashoState): SerializedBashoState {
-  return {
-    ...basho,
-    standings: mapToObject(basho.standings),
-  };
-}
-
-/** Deserialize BashoState (restore standings Map) */
-function deserializeBashoState(basho: SerializedBashoState): BashoState {
-  return {
-    ...basho,
-    standings: objectToMap(basho.standings),
-  };
 }
 
 // === SERIALIZED TYPES (JSON-safe) ===
@@ -75,7 +88,7 @@ interface SerializedWorldState {
   currentBanzuke?: BanzukeSnapshot;
 }
 
-interface SerializedSaveGame {
+export interface SerializedSaveGame {
   version: SaveVersion;
   createdAtISO: string;
   lastSavedAtISO: string;
@@ -88,9 +101,23 @@ interface SerializedSaveGame {
   playTimeMinutes?: number;
 }
 
-// === SERIALIZATION ===
+// === BashoState serialization ===
+function serializeBashoState(basho: BashoState): SerializedBashoState {
+  return {
+    ...basho,
+    standings: mapToObject(basho.standings)
+  };
+}
 
-/** Serialize WorldState for saving */
+function deserializeBashoState(basho: SerializedBashoState): BashoState {
+  return {
+    ...basho,
+    standings: objectToMap(basho.standings)
+  };
+}
+
+// === WORLD SERIALIZATION ===
+
 export function serializeWorld(world: WorldState): SerializedWorldState {
   return {
     seed: world.seed,
@@ -103,11 +130,10 @@ export function serializeWorld(world: WorldState): SerializedWorldState {
     history: world.history,
     ftue: world.ftue,
     playerHeyaId: world.playerHeyaId,
-    currentBanzuke: world.currentBanzuke,
+    currentBanzuke: world.currentBanzuke
   };
 }
 
-/** Deserialize WorldState from save */
 export function deserializeWorld(serialized: SerializedWorldState): WorldState {
   return {
     seed: serialized.seed,
@@ -120,43 +146,92 @@ export function deserializeWorld(serialized: SerializedWorldState): WorldState {
     history: serialized.history,
     ftue: serialized.ftue,
     playerHeyaId: serialized.playerHeyaId,
-    currentBanzuke: serialized.currentBanzuke,
+    currentBanzuke: serialized.currentBanzuke
   };
+}
+
+// === VALIDATION ===
+function isSerializedSaveGame(x: any): x is SerializedSaveGame {
+  return (
+    x &&
+    typeof x === "object" &&
+    typeof x.version === "string" &&
+    typeof x.createdAtISO === "string" &&
+    typeof x.lastSavedAtISO === "string" &&
+    x.ruleset &&
+    typeof x.ruleset.banzukeAlgorithm === "string" &&
+    typeof x.ruleset.kimariteRegistryVersion === "string" &&
+    x.world &&
+    typeof x.world.seed === "string" &&
+    typeof x.world.year === "number" &&
+    typeof x.world.week === "number" &&
+    x.world.heyas &&
+    x.world.rikishi
+  );
+}
+
+// === MIGRATIONS (non-lossy scaffold) ===
+type MigrationFn = (save: SerializedSaveGame) => SerializedSaveGame;
+
+const MIGRATIONS: Record<string, MigrationFn> = {
+  // Example:
+  // "0.9.0->1.0.0": (save) => ({ ...save, version: "1.0.0" as SaveVersion })
+};
+
+function migrateToCurrent(save: SerializedSaveGame): SerializedSaveGame {
+  if (save.version === CURRENT_SAVE_VERSION) return save;
+
+  // Minimal safe strategy: try known migrations; otherwise keep data but bump version.
+  // (Non-lossy: we do NOT delete unknown fields; we only transform if we know how.)
+  const directKey = `${save.version}->${CURRENT_SAVE_VERSION}`;
+  const fn = MIGRATIONS[directKey];
+  if (fn) return fn(save);
+
+  return { ...save, version: CURRENT_SAVE_VERSION };
 }
 
 // === SAVE GAME CREATION ===
 
-/** Create a SaveGame object from WorldState */
-export function createSaveGame(world: WorldState, slotName?: string): SerializedSaveGame {
+/**
+ * Create a save object from WorldState.
+ * If an existing save JSON is provided, preserves createdAtISO.
+ */
+export function createSaveGame(world: WorldState, slotName?: string, existing?: SerializedSaveGame): SerializedSaveGame {
   const now = new Date().toISOString();
   return {
     version: CURRENT_SAVE_VERSION,
-    createdAtISO: now,
+    createdAtISO: existing?.createdAtISO ?? now,
     lastSavedAtISO: now,
     ruleset: {
       banzukeAlgorithm: "slot_fill_v1",
-      kimariteRegistryVersion: "82_official_v1",
+      kimariteRegistryVersion: "82_official_v1"
     },
     world: serializeWorld(world),
-    saveSlotName: slotName,
+    saveSlotName: slotName
   };
 }
 
-// === LOCAL STORAGE OPERATIONS ===
+// === STORAGE KEYS ===
 
-/** Get all save slot keys */
+function toSlotKey(slotName: string): string {
+  // Allow passing full key or bare slotName
+  return slotName.startsWith(SAVE_KEY_PREFIX) ? slotName : `${SAVE_KEY_PREFIX}${slotName}`;
+}
+
+/** Get all save keys (includes autosave). */
 export function getSaveSlotKeys(): string[] {
+  if (!hasLocalStorage()) return [];
+
   const keys: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key?.startsWith(SAVE_KEY_PREFIX)) {
-      keys.push(key);
-    }
+    if (key?.startsWith(SAVE_KEY_PREFIX)) keys.push(key);
   }
   return keys.sort();
 }
 
-/** Get save slot metadata without loading full world */
+// === METADATA LISTING ===
+
 export interface SaveSlotInfo {
   key: string;
   slotName: string;
@@ -165,47 +240,79 @@ export interface SaveSlotInfo {
   playerHeyaName?: string;
   savedAt: string;
   version: SaveVersion;
+  isAutosave: boolean;
 }
 
 export function getSaveSlotInfos(): SaveSlotInfo[] {
+  if (!hasLocalStorage()) return [];
+
   const keys = getSaveSlotKeys();
   const infos: SaveSlotInfo[] = [];
-  
+
   for (const key of keys) {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
-      
-      const save: SerializedSaveGame = JSON.parse(raw);
-      const playerHeya = save.world.playerHeyaId 
-        ? save.world.heyas[save.world.playerHeyaId]
-        : undefined;
-      
+
+      const parsed = JSON.parse(raw);
+      if (!isSerializedSaveGame(parsed)) continue;
+
+      const save = parsed as SerializedSaveGame;
+      const slotName = save.saveSlotName || key.replace(SAVE_KEY_PREFIX, "");
+
+      const playerHeya =
+        save.world.playerHeyaId && save.world.heyas
+          ? save.world.heyas[String(save.world.playerHeyaId)]
+          : undefined;
+
       infos.push({
         key,
-        slotName: save.saveSlotName || key.replace(SAVE_KEY_PREFIX, ""),
+        slotName,
         year: save.world.year,
         bashoName: save.world.currentBashoName,
         playerHeyaName: playerHeya?.name,
         savedAt: save.lastSavedAtISO,
         version: save.version,
+        isAutosave: slotName === AUTOSAVE_SLOT_NAME || key === AUTOSAVE_KEY
       });
-    } catch (e) {
-      console.warn(`Failed to parse save slot ${key}:`, e);
+    } catch {
+      // Ignore corrupt entries; listing should never hard-fail.
+      continue;
     }
   }
-  
+
+  // Sort: autosave first, then slot_1..slot_n, then others by recency
+  infos.sort((a, b) => {
+    if (a.isAutosave !== b.isAutosave) return a.isAutosave ? -1 : 1;
+    const aIsSlot = /^slot_\d+$/.test(a.slotName);
+    const bIsSlot = /^slot_\d+$/.test(b.slotName);
+    if (aIsSlot && bIsSlot) {
+      const an = Number(a.slotName.split("_")[1]);
+      const bn = Number(b.slotName.split("_")[1]);
+      return an - bn;
+    }
+    if (aIsSlot !== bIsSlot) return aIsSlot ? -1 : 1;
+    return b.savedAt.localeCompare(a.savedAt);
+  });
+
   return infos;
 }
 
-/** Save game to a slot */
+// === SAVE / LOAD ===
+
 export function saveGame(world: WorldState, slotName: string): boolean {
+  if (!hasLocalStorage()) return false;
+
   try {
-    const key = `${SAVE_KEY_PREFIX}${slotName}`;
-    const save = createSaveGame(world, slotName);
-    const json = JSON.stringify(save);
-    localStorage.setItem(key, json);
-    console.log(`Game saved to slot: ${slotName}`);
+    const key = toSlotKey(slotName);
+
+    // Preserve createdAtISO if overwriting
+    const existingRaw = localStorage.getItem(key);
+    const existingParsed = existingRaw ? JSON.parse(existingRaw) : null;
+    const existing = isSerializedSaveGame(existingParsed) ? (existingParsed as SerializedSaveGame) : undefined;
+
+    const save = createSaveGame(world, slotName, existing);
+    localStorage.setItem(key, JSON.stringify(save));
     return true;
   } catch (e) {
     console.error("Failed to save game:", e);
@@ -213,62 +320,50 @@ export function saveGame(world: WorldState, slotName: string): boolean {
   }
 }
 
-/** Autosave game */
 export function autosave(world: WorldState): boolean {
-  try {
-    const save = createSaveGame(world, "autosave");
-    const json = JSON.stringify(save);
-    localStorage.setItem(AUTOSAVE_KEY, json);
-    return true;
-  } catch (e) {
-    console.error("Failed to autosave:", e);
-    return false;
-  }
+  return saveGame(world, AUTOSAVE_SLOT_NAME);
 }
 
-/** Load game from a slot */
-export function loadGame(slotName: string): WorldState | null {
+export function loadGame(slotNameOrKey: string): WorldState | null {
+  if (!hasLocalStorage()) return null;
+
   try {
-    const key = slotName.startsWith(SAVE_KEY_PREFIX) ? slotName : `${SAVE_KEY_PREFIX}${slotName}`;
+    const key = toSlotKey(slotNameOrKey);
     const raw = localStorage.getItem(key);
-    if (!raw) {
-      console.warn(`No save found for slot: ${slotName}`);
-      return null;
-    }
-    
-    const save: SerializedSaveGame = JSON.parse(raw);
-    
-    // Version check and migration
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    if (!isSerializedSaveGame(parsed)) return null;
+
+    let save = parsed as SerializedSaveGame;
+
+    // Migrate if needed
     if (save.version !== CURRENT_SAVE_VERSION) {
-      console.warn(`Save version ${save.version} differs from current ${CURRENT_SAVE_VERSION}, migrating...`);
-      // Future: apply migrations here
+      save = migrateToCurrent(save);
     }
-    
-    const world = deserializeWorld(save.world);
-    console.log(`Game loaded from slot: ${slotName}`);
-    return world;
+
+    return deserializeWorld(save.world);
   } catch (e) {
     console.error("Failed to load game:", e);
     return null;
   }
 }
 
-/** Load autosave */
 export function loadAutosave(): WorldState | null {
-  return loadGame("autosave");
+  return loadGame(AUTOSAVE_SLOT_NAME);
 }
 
-/** Check if autosave exists */
 export function hasAutosave(): boolean {
+  if (!hasLocalStorage()) return false;
   return localStorage.getItem(AUTOSAVE_KEY) !== null;
 }
 
-/** Delete a save slot */
-export function deleteSave(slotName: string): boolean {
+export function deleteSave(slotNameOrKey: string): boolean {
+  if (!hasLocalStorage()) return false;
+
   try {
-    const key = slotName.startsWith(SAVE_KEY_PREFIX) ? slotName : `${SAVE_KEY_PREFIX}${slotName}`;
+    const key = toSlotKey(slotNameOrKey);
     localStorage.removeItem(key);
-    console.log(`Save deleted: ${slotName}`);
     return true;
   } catch (e) {
     console.error("Failed to delete save:", e);
@@ -276,33 +371,37 @@ export function deleteSave(slotName: string): boolean {
   }
 }
 
-/** Export save as downloadable JSON */
+// === EXPORT / IMPORT ===
+
 export function exportSave(world: WorldState, filename?: string): void {
   const save = createSaveGame(world);
   const json = JSON.stringify(save, null, 2);
+
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  
+
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename || `stablelords_${world.year}_${world.currentBashoName || "save"}.json`;
+  a.download = filename || `basho_${world.year}_${world.currentBashoName || "save"}.json`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+
   URL.revokeObjectURL(url);
 }
 
-/** Import save from JSON file */
 export async function importSave(file: File): Promise<WorldState | null> {
   try {
     const text = await file.text();
-    const save: SerializedSaveGame = JSON.parse(text);
-    
-    // Validate structure
-    if (!save.version || !save.world || !save.world.seed) {
+    const parsed = JSON.parse(text);
+
+    if (!isSerializedSaveGame(parsed)) {
       throw new Error("Invalid save file structure");
     }
-    
+
+    let save = parsed as SerializedSaveGame;
+    if (save.version !== CURRENT_SAVE_VERSION) save = migrateToCurrent(save);
+
     return deserializeWorld(save.world);
   } catch (e) {
     console.error("Failed to import save:", e);
@@ -310,29 +409,32 @@ export async function importSave(file: File): Promise<WorldState | null> {
   }
 }
 
-/** Get available save slot names */
+// === SLOT HELPERS ===
+
 export function getAvailableSlotNames(): string[] {
-  const slots: string[] = [];
-  for (let i = 1; i <= SAVE_SLOT_COUNT; i++) {
-    slots.push(`slot_${i}`);
-  }
-  return slots;
+  return Array.from({ length: SAVE_SLOT_COUNT }, (_, i) => `slot_${i + 1}`);
 }
 
-/** Quick save to first available slot */
+/**
+ * Quick save:
+ * - uses first empty numbered slot
+ * - else overwrites oldest numbered slot (not autosave)
+ */
 export function quickSave(world: WorldState): boolean {
-  const existingSlots = getSaveSlotInfos()
-    .filter(s => s.slotName.startsWith("slot_"))
-    .map(s => s.slotName);
-  
-  // Find first empty slot or use oldest
+  const infos = getSaveSlotInfos().filter((s) => /^slot_\d+$/.test(s.slotName));
+
+  const existing = new Set(infos.map((s) => s.slotName));
+
+  // 1) first empty slot
   for (let i = 1; i <= SAVE_SLOT_COUNT; i++) {
-    const slotName = `slot_${i}`;
-    if (!existingSlots.includes(slotName)) {
-      return saveGame(world, slotName);
-    }
+    const slot = `slot_${i}`;
+    if (!existing.has(slot)) return saveGame(world, slot);
   }
-  
-  // All slots full, overwrite slot_1
-  return saveGame(world, "slot_1");
+
+  // 2) overwrite oldest numbered slot
+  const oldest = infos
+    .slice()
+    .sort((a, b) => a.savedAt.localeCompare(b.savedAt))[0];
+
+  return saveGame(world, oldest?.slotName || "slot_1");
 }
