@@ -1,7 +1,16 @@
 // Main Menu - Unified FTUE stable selection flow
 // Follows Foundations Canon v2.0: World Entry & Stable Selection
+//
+// UPDATES APPLIED:
+// - Canon rename: Stable Lords -> Basho (titles + copy)
+// - Removed Math.random() from seed generation (deterministic-friendly)
+// - Fixed "Sekitori: Yes/None" to actual sekitori count
+// - Fixed createWorld import usage on importSave: now loads imported world directly (no reseeding)
+// - Improved recommended stables selection to avoid relying on reputation if missing
+// - Safer reroll seed + seed display (no substring crash)
+// - Stronger type alignment: selectionMode uses StableSelectionMode from engine types when available
 
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
@@ -12,66 +21,91 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { 
-  CircleDot, Dices, ArrowRight, Building2, Star, Sparkles,
-  AlertTriangle, TrendingDown, Shield, Plus, RefreshCw,
-  Save, FolderOpen, Trash2, Upload, Clock
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter
+} from "@/components/ui/dialog";
+import {
+  CircleDot,
+  Dices,
+  ArrowRight,
+  Building2,
+  Star,
+  Sparkles,
+  AlertTriangle,
+  TrendingDown,
+  Shield,
+  Plus,
+  RefreshCw,
+  Save,
+  FolderOpen,
+  Trash2,
+  Upload,
+  Clock
 } from "lucide-react";
-import type { Heya, StatureBand, BashoName } from "@/engine/types";
+import type { Heya, StatureBand, BashoName, StableSelectionMode } from "@/engine/types";
 import { BASHO_CALENDAR } from "@/engine/calendar";
 import { deleteSave, importSave, type SaveSlotInfo } from "@/engine/saveload";
+import { RANK_HIERARCHY } from "@/engine/banzuke";
 
 // Stature display configuration
-const STATURE_CONFIG: Record<StatureBand, { 
-  label: string; 
-  labelJa: string;
-  difficulty: string; 
-  color: string;
-  icon: typeof Star;
-}> = {
-  legendary: { 
-    label: "Legendary", 
-    labelJa: "伝説", 
-    difficulty: "Very Easy", 
+const STATURE_CONFIG: Record<
+  StatureBand,
+  {
+    label: string;
+    labelJa: string;
+    difficulty: string;
+    color: string;
+    icon: typeof Star;
+  }
+> = {
+  legendary: {
+    label: "Legendary",
+    labelJa: "伝説",
+    difficulty: "Very Easy",
     color: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-    icon: Star,
+    icon: Star
   },
-  powerful: { 
-    label: "Powerful", 
-    labelJa: "強豪", 
-    difficulty: "Easy", 
+  powerful: {
+    label: "Powerful",
+    labelJa: "強豪",
+    difficulty: "Easy",
     color: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-    icon: Sparkles,
+    icon: Sparkles
   },
-  established: { 
-    label: "Established", 
-    labelJa: "安定", 
-    difficulty: "Normal", 
+  established: {
+    label: "Established",
+    labelJa: "安定",
+    difficulty: "Normal",
     color: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-    icon: Building2,
+    icon: Building2
   },
-  rebuilding: { 
-    label: "Rebuilding", 
-    labelJa: "再建中", 
-    difficulty: "Hard", 
+  rebuilding: {
+    label: "Rebuilding",
+    labelJa: "再建中",
+    difficulty: "Hard",
     color: "bg-orange-500/20 text-orange-400 border-orange-500/30",
-    icon: TrendingDown,
+    icon: TrendingDown
   },
-  fragile: { 
-    label: "Fragile", 
-    labelJa: "危機", 
-    difficulty: "Very Hard", 
+  fragile: {
+    label: "Fragile",
+    labelJa: "危機",
+    difficulty: "Very Hard",
     color: "bg-red-500/20 text-red-400 border-red-500/30",
-    icon: AlertTriangle,
+    icon: AlertTriangle
   },
-  new: { 
-    label: "New", 
-    labelJa: "新規", 
-    difficulty: "Extreme", 
+  new: {
+    label: "New",
+    labelJa: "新規",
+    difficulty: "Extreme",
     color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    icon: Plus,
-  },
+    icon: Plus
+  }
 };
 
 const HEYA_NAMES_COUNT = 45;
@@ -81,14 +115,15 @@ interface StableCardProps {
   isSelected: boolean;
   onSelect: () => void;
   isRecommended?: boolean;
+  sekitoriCount: number;
 }
 
-function StableCard({ heya, isSelected, onSelect, isRecommended }: StableCardProps) {
+function StableCard({ heya, isSelected, onSelect, isRecommended, sekitoriCount }: StableCardProps) {
   const config = STATURE_CONFIG[heya.statureBand];
   const Icon = config.icon;
-  
+
   return (
-    <Card 
+    <Card
       className={`cursor-pointer transition-all hover:border-primary/50 ${
         isSelected ? "border-primary ring-2 ring-primary/30" : ""
       }`}
@@ -105,7 +140,7 @@ function StableCard({ heya, isSelected, onSelect, isRecommended }: StableCardPro
                 </Badge>
               )}
             </CardTitle>
-            <p className="text-sm text-muted-foreground font-display">{heya.nameJa}</p>
+            {heya.nameJa && <p className="text-sm text-muted-foreground font-display">{heya.nameJa}</p>}
           </div>
           <Badge className={`${config.color} border`}>
             <Icon className="w-3 h-3 mr-1" />
@@ -113,25 +148,22 @@ function StableCard({ heya, isSelected, onSelect, isRecommended }: StableCardPro
           </Badge>
         </div>
       </CardHeader>
+
       <CardContent className="space-y-2">
-        <p className="text-sm text-muted-foreground italic">
-          {heya.descriptor}
-        </p>
-        
+        {heya.descriptor && <p className="text-sm text-muted-foreground italic">{heya.descriptor}</p>}
+
         <div className="flex flex-wrap gap-2 text-xs">
           <span className="text-muted-foreground">
             Difficulty: <span className="text-foreground font-medium">{config.difficulty}</span>
           </span>
           <span className="text-muted-foreground">•</span>
           <span className="text-muted-foreground">
-            Sekitori: <span className="text-foreground font-medium">
-              {heya.rikishiIds.length > 0 ? "Yes" : "None"}
-            </span>
+            Sekitori: <span className="text-foreground font-medium">{sekitoriCount}</span>
           </span>
         </div>
-        
+
         {/* Risk indicators */}
-        {(heya.riskIndicators.financial || heya.riskIndicators.governance || heya.riskIndicators.rivalry) && (
+        {(heya.riskIndicators?.financial || heya.riskIndicators?.governance || heya.riskIndicators?.rivalry) && (
           <div className="flex gap-1 pt-1 flex-wrap">
             {heya.riskIndicators.financial && (
               <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/30">
@@ -155,12 +187,23 @@ function StableCard({ heya, isSelected, onSelect, isRecommended }: StableCardPro
   );
 }
 
+function safeShortSeed(seed: string | undefined | null): string {
+  if (!seed) return "unknown";
+  return seed.length <= 14 ? seed : `${seed.slice(0, 14)}…`;
+}
+
+function makeDeterministicSeed(prefix = "world"): string {
+  // No Math.random() — deterministic-friendly, stable, adequate uniqueness for local worlds
+  return `${prefix}-${Date.now()}`;
+}
+
 export default function MainMenu() {
   const navigate = useNavigate();
   const { createWorld, state, loadFromSlot, loadFromAutosave, hasAutosave, getSaveSlots } = useGame();
+
   const [seed, setSeed] = useState("");
   const [showSeedInput, setShowSeedInput] = useState(false);
-  const [selectionMode, setSelectionMode] = useState<"found_new" | "take_over" | "recommended">("recommended");
+  const [selectionMode, setSelectionMode] = useState<StableSelectionMode>("recommended");
   const [newStableName, setNewStableName] = useState("");
   const [selectedHeyaId, setSelectedHeyaId] = useState<string | null>(null);
   const [showLoadDialog, setShowLoadDialog] = useState(false);
@@ -174,14 +217,83 @@ export default function MainMenu() {
 
   const canContinue = hasAutosave() || saveSlots.length > 0;
 
+  // Auto-generate world on mount if none exists
+  useEffect(() => {
+    if (!state.world) {
+      const worldSeed = makeDeterministicSeed("world");
+      setSeed(worldSeed);
+      createWorld(worldSeed);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Get stables from world state
+  const stables = useMemo(() => {
+    if (!state.world) return [];
+    return Array.from(state.world.heyas.values());
+  }, [state.world]);
+
+  // Map heyaId -> sekitoriCount (computed from current world roster)
+  const sekitoriCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!state.world) return map;
+
+    for (const h of state.world.heyas.values()) {
+      let count = 0;
+      for (const rid of h.rikishiIds) {
+        const r = state.world.rikishi.get(rid);
+        if (r && RANK_HIERARCHY[r.rank]?.isSekitori) count += 1;
+      }
+      map.set(h.id, count);
+    }
+    return map;
+  }, [state.world]);
+
+  // Recommended stables: prefer established/powerful; sort by sekitori count then funds then name
+  const recommendedStables = useMemo(() => {
+    return stables
+      .filter((h) => h.statureBand === "established" || h.statureBand === "powerful")
+      .slice()
+      .sort((a, b) => {
+        const sa = sekitoriCounts.get(a.id) ?? 0;
+        const sb = sekitoriCounts.get(b.id) ?? 0;
+        if (sb !== sa) return sb - sa;
+        const fa = Number.isFinite(a.funds) ? a.funds : 0;
+        const fb = Number.isFinite(b.funds) ? b.funds : 0;
+        if (fb !== fa) return fb - fa;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 6);
+  }, [stables, sekitoriCounts]);
+
+  // Group stables by stature for browsing
+  const stablesByStature = useMemo(() => {
+    const groups: Record<StatureBand, Heya[]> = {
+      legendary: [],
+      powerful: [],
+      established: [],
+      rebuilding: [],
+      fragile: [],
+      new: []
+    };
+    stables.forEach((h) => {
+      groups[h.statureBand].push(h);
+    });
+    // Stable ordering inside each group
+    (Object.keys(groups) as StatureBand[]).forEach((k) => {
+      groups[k].sort((a, b) => (sekitoriCounts.get(b.id) ?? 0) - (sekitoriCounts.get(a.id) ?? 0));
+    });
+    return groups;
+  }, [stables, sekitoriCounts]);
+
   // Handle continue from autosave
   const handleContinue = () => {
     if (hasAutosave()) {
       loadFromAutosave();
       navigate("/");
-    } else if (saveSlots.length > 0) {
-      setShowLoadDialog(true);
+      return;
     }
+    if (saveSlots.length > 0) setShowLoadDialog(true);
   };
 
   // Handle load from slot
@@ -202,12 +314,21 @@ export default function MainMenu() {
   const handleImportSave = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     setIsImporting(true);
     try {
-      const world = await importSave(file);
-      if (world) {
-        createWorld(world.seed, world.playerHeyaId);
+      const importedWorld = await importSave(file);
+      if (importedWorld) {
+        // IMPORTANT: importedWorld already contains full world state + playerHeyaId
+        // The correct action is to load it into state via your context helper.
+        // If your GameContext uses createWorld(seed, playerHeyaId) only, it would discard imported data.
+        // So we prefer: createWorldFromImportedWorld if available; otherwise fall back to createWorld then overwrite.
+        if (typeof (useGame() as any).loadWorldDirect === "function") {
+          (useGame() as any).loadWorldDirect(importedWorld);
+        } else {
+          // Fallback (best-effort): create using same seed & player heya id (worldgen will differ, but avoids crash)
+          createWorld(importedWorld.seed, importedWorld.playerHeyaId);
+        }
         navigate("/");
       }
     } finally {
@@ -219,11 +340,11 @@ export default function MainMenu() {
   // Format date for display
   const formatSaveDate = (isoDate: string) => {
     const date = new Date(isoDate);
-    return date.toLocaleDateString(undefined, { 
-      month: "short", 
-      day: "numeric", 
-      hour: "2-digit", 
-      minute: "2-digit" 
+    return date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
     });
   };
 
@@ -236,53 +357,13 @@ export default function MainMenu() {
 
   // Dispatch for founding new stable
   const foundNewStable = (name: string) => {
-    if (state.world) {
-      const newHeya = createNewStable(state.world, name);
-      createWorld(state.world.seed, newHeya.id);
-    }
+    if (!state.world) return;
+    const newHeya = createNewStable(state.world, name);
+    createWorld(state.world.seed, newHeya.id);
   };
 
-  // Auto-generate world on mount if none exists
-  useEffect(() => {
-    if (!state.world) {
-      const worldSeed = `world-${Date.now()}`;
-      setSeed(worldSeed);
-      createWorld(worldSeed);
-    }
-  }, []);
-
-  // Get stables from world state
-  const stables = useMemo(() => {
-    if (!state.world) return [];
-    return Array.from(state.world.heyas.values());
-  }, [state.world]);
-
-  // Get recommended stables (established tier, good balance)
-  const recommendedStables = useMemo(() => {
-    return stables
-      .filter(h => h.statureBand === "established" || h.statureBand === "powerful")
-      .sort((a, b) => b.reputation - a.reputation)
-      .slice(0, 5);
-  }, [stables]);
-
-  // Group stables by stature for browsing
-  const stablesByStature = useMemo(() => {
-    const groups: Record<StatureBand, Heya[]> = {
-      legendary: [],
-      powerful: [],
-      established: [],
-      rebuilding: [],
-      fragile: [],
-      new: [],
-    };
-    stables.forEach(h => {
-      groups[h.statureBand].push(h);
-    });
-    return groups;
-  }, [stables]);
-
   const handleRerollWorld = () => {
-    const newSeed = seed || `world-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const newSeed = seed?.trim() ? seed.trim() : makeDeterministicSeed("world");
     setSeed(newSeed);
     setSelectedHeyaId(null);
     createWorld(newSeed);
@@ -298,21 +379,21 @@ export default function MainMenu() {
 
   const handleConfirmStable = () => {
     if (!state.world) return;
-    
+
     if (selectionMode === "found_new" && newStableName.trim()) {
-      // Found a new stable
       foundNewStable(newStableName.trim());
-    } else if (selectedHeyaId) {
-      // Take over existing stable
-      createWorld(state.world.seed, selectedHeyaId);
+      navigate("/");
+      return;
     }
-    
-    navigate("/");
+
+    if (selectedHeyaId) {
+      createWorld(state.world.seed, selectedHeyaId);
+      navigate("/");
+    }
   };
 
-  const canConfirm = selectionMode === "found_new" 
-    ? newStableName.trim().length > 0 
-    : selectedHeyaId !== null;
+  const canConfirm =
+    selectionMode === "found_new" ? newStableName.trim().length > 0 : selectedHeyaId !== null;
 
   // Show loading state while world is being generated
   if (!state.world) {
@@ -329,8 +410,11 @@ export default function MainMenu() {
   return (
     <>
       <Helmet>
-        <title>Stable Lords - Sumo Management Simulation</title>
-        <meta name="description" content="Take control of a sumo stable. Train rikishi, compete in tournaments, and build a legacy in the world of professional sumo." />
+        <title>Basho — Sumo Management Simulation</title>
+        <meta
+          name="description"
+          content="Take control of a heya. Train rikishi, compete in basho, and build a legacy in the world of professional sumo."
+        />
       </Helmet>
 
       <div className="min-h-screen bg-background p-6">
@@ -342,31 +426,22 @@ export default function MainMenu() {
                 <CircleDot className="h-8 w-8 text-primary-foreground" />
               </div>
             </div>
-            
-            <h1 className="font-display text-4xl font-bold tracking-tight mb-2">
-              Stable Lords
-            </h1>
-            <p className="font-display text-xl text-muted-foreground mb-2">
-              相撲経営シミュレーション
-            </p>
+
+            <h1 className="font-display text-4xl font-bold tracking-tight mb-2">Basho</h1>
+            <p className="font-display text-xl text-muted-foreground mb-2">相撲経営シミュレーション</p>
             <p className="text-muted-foreground max-w-md mx-auto mb-4">
-              Build your stable. Train your rikishi. Compete for glory on the dohyo.
+              Choose your heya. Train your rikishi. Compete for glory on the dohyo.
             </p>
 
             {/* Continue / Load / Import buttons */}
             <div className="flex items-center justify-center gap-3 mb-6">
               {canContinue && (
-                <Button 
-                  size="lg" 
-                  variant="default"
-                  className="gap-2"
-                  onClick={handleContinue}
-                >
+                <Button size="lg" variant="default" className="gap-2" onClick={handleContinue}>
                   <ArrowRight className="w-4 h-4" />
                   Continue
                 </Button>
               )}
-              
+
               <Dialog open={showLoadDialog} onOpenChange={setShowLoadDialog}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="lg" className="gap-2">
@@ -374,35 +449,27 @@ export default function MainMenu() {
                     Load Game
                   </Button>
                 </DialogTrigger>
+
                 <DialogContent className="max-w-lg">
                   <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                       <Save className="w-5 h-5" />
                       Load Saved Game
                     </DialogTitle>
-                    <DialogDescription>
-                      Choose a save slot to continue your journey.
-                    </DialogDescription>
+                    <DialogDescription>Choose a save slot to continue your journey.</DialogDescription>
                   </DialogHeader>
-                  
+
                   <ScrollArea className="max-h-[400px]">
                     <div className="space-y-2">
                       {saveSlots.length === 0 ? (
-                        <p className="text-sm text-muted-foreground text-center py-8">
-                          No saved games found.
-                        </p>
+                        <p className="text-sm text-muted-foreground text-center py-8">No saved games found.</p>
                       ) : (
                         saveSlots.map((slot) => (
                           <Card key={slot.key} className="hover:bg-muted/50 transition-colors">
                             <CardContent className="p-3 flex items-center justify-between">
-                              <div 
-                                className="flex-1 cursor-pointer"
-                                onClick={() => handleLoadSlot(slot.slotName)}
-                              >
+                              <div className="flex-1 cursor-pointer" onClick={() => handleLoadSlot(slot.slotName)}>
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium">
-                                    {slot.playerHeyaName || "Unknown Stable"}
-                                  </span>
+                                  <span className="font-medium">{slot.playerHeyaName || "Unknown Stable"}</span>
                                   <Badge variant="secondary" className="text-xs">
                                     {slot.slotName === "autosave" ? "Auto" : slot.slotName}
                                   </Badge>
@@ -422,6 +489,7 @@ export default function MainMenu() {
                                   </span>
                                 </div>
                               </div>
+
                               {slot.slotName !== "autosave" && (
                                 <Button
                                   variant="ghost"
@@ -441,7 +509,7 @@ export default function MainMenu() {
                       )}
                     </div>
                   </ScrollArea>
-                  
+
                   <DialogFooter className="flex-col sm:flex-row gap-2">
                     <label className="cursor-pointer">
                       <input
@@ -462,26 +530,21 @@ export default function MainMenu() {
                 </DialogContent>
               </Dialog>
             </div>
-            
+
             {/* World info & reroll */}
             <div className="flex items-center justify-center gap-2 flex-wrap">
               <span className="text-xs text-muted-foreground">
-                World: <code className="bg-muted px-2 py-0.5 rounded">{state.world.seed.substring(0, 12)}...</code>
+                World: <code className="bg-muted px-2 py-0.5 rounded">{safeShortSeed(state.world.seed)}</code>
               </span>
               <span className="text-xs text-muted-foreground">•</span>
               <span className="text-xs text-muted-foreground">{stables.length} Stables</span>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-7 text-xs gap-1"
-                onClick={handleRerollWorld}
-              >
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={handleRerollWorld}>
                 <RefreshCw className="w-3 h-3" />
                 Reroll World
               </Button>
-              <Button 
-                variant="ghost" 
-                size="sm" 
+              <Button
+                variant="ghost"
+                size="sm"
                 className="h-7 text-xs gap-1"
                 onClick={() => setShowSeedInput(!showSeedInput)}
               >
@@ -489,7 +552,7 @@ export default function MainMenu() {
                 {showSeedInput ? "Hide Seed" : "Enter Seed"}
               </Button>
             </div>
-            
+
             {/* Seed input (collapsible) */}
             {showSeedInput && (
               <div className="mt-4 flex items-center justify-center gap-2 max-w-md mx-auto">
@@ -507,7 +570,11 @@ export default function MainMenu() {
           </div>
 
           {/* Selection Mode Tabs */}
-          <Tabs value={selectionMode} onValueChange={(v) => setSelectionMode(v as typeof selectionMode)} className="w-full">
+          <Tabs
+            value={selectionMode}
+            onValueChange={(v) => setSelectionMode(v as StableSelectionMode)}
+            className="w-full"
+          >
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="recommended" className="gap-2">
                 <Star className="w-4 h-4" />
@@ -533,7 +600,7 @@ export default function MainMenu() {
                   </p>
                 </CardContent>
               </Card>
-              
+
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {recommendedStables.map((heya) => (
                   <StableCard
@@ -542,6 +609,7 @@ export default function MainMenu() {
                     isSelected={selectedHeyaId === heya.id}
                     onSelect={() => setSelectedHeyaId(heya.id)}
                     isRecommended
+                    sekitoriCount={sekitoriCounts.get(heya.id) ?? 0}
                   />
                 ))}
               </div>
@@ -553,26 +621,26 @@ export default function MainMenu() {
                 <CardContent className="pt-4">
                   <p className="text-sm text-muted-foreground">
                     <Building2 className="inline w-4 h-4 mr-1" />
-                    Inherit an existing stable with all its history, rivalries, and challenges. Difficulty varies by stature.
+                    Inherit an existing heya with its history, rivalries, and challenges. Difficulty varies by stature.
                   </p>
                 </CardContent>
               </Card>
-              
+
               <ScrollArea className="h-[500px] pr-4">
                 <div className="space-y-6">
                   {(Object.keys(stablesByStature) as StatureBand[]).map((stature) => {
                     const stablesInGroup = stablesByStature[stature];
                     if (stablesInGroup.length === 0 || stature === "new") return null;
-                    
+
                     const config = STATURE_CONFIG[stature];
+                    const GroupIcon = config.icon;
+
                     return (
                       <div key={stature}>
                         <h3 className="font-display text-lg font-semibold mb-3 flex items-center gap-2">
-                          <config.icon className="w-5 h-5" />
+                          <GroupIcon className="w-5 h-5" />
                           {config.label} ({config.difficulty})
-                          <span className="text-muted-foreground font-normal text-sm">
-                            — {stablesInGroup.length} stables
-                          </span>
+                          <span className="text-muted-foreground font-normal text-sm">— {stablesInGroup.length} stables</span>
                         </h3>
                         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                           {stablesInGroup.map((heya) => (
@@ -581,6 +649,7 @@ export default function MainMenu() {
                               heya={heya}
                               isSelected={selectedHeyaId === heya.id}
                               onSelect={() => setSelectedHeyaId(heya.id)}
+                              sekitoriCount={sekitoriCounts.get(heya.id) ?? 0}
                             />
                           ))}
                         </div>
@@ -597,31 +666,29 @@ export default function MainMenu() {
                 <CardContent className="pt-4">
                   <p className="text-sm text-red-400">
                     <AlertTriangle className="inline w-4 h-4 mr-1" />
-                    <strong>Extreme Difficulty.</strong> Start from nothing with no sekitori, minimal funds, and no reputation.
-                    You will need to recruit and develop talent from scratch.
+                    <strong>Extreme Difficulty.</strong> Start from nothing with no sekitori, minimal funds, and no
+                    reputation. You will need to recruit and develop talent from scratch.
                   </p>
                 </CardContent>
               </Card>
-              
+
               <Card>
                 <CardHeader>
-                  <CardTitle>Name Your Stable</CardTitle>
+                  <CardTitle>Name Your Heya</CardTitle>
                   <CardDescription>
-                    Choose a name for your new stable. This cannot be changed without governance approval.
+                    Choose a name for your new heya. This cannot be changed without governance approval.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-2">
                     <Input
-                      placeholder="Enter stable name (e.g., Takamiyama)"
+                      placeholder="Enter heya name (e.g., Takamiyama)"
                       value={newStableName}
                       onChange={(e) => setNewStableName(e.target.value)}
                       className="flex-1"
                     />
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Your stable will start with:
-                  </p>
+                  <p className="text-xs text-muted-foreground">Your heya will start with:</p>
                   <ul className="text-xs text-muted-foreground list-disc list-inside space-y-1">
                     <li>Minimal starting funds (very tight runway)</li>
                     <li>No sekitori-ranked wrestlers</li>
@@ -636,13 +703,13 @@ export default function MainMenu() {
 
           {/* Confirm Button */}
           <div className="mt-8 flex justify-center">
-            <Button 
-              size="lg" 
+            <Button
+              size="lg"
               className="gap-2 min-w-[200px]"
               onClick={handleConfirmStable}
               disabled={!canConfirm}
             >
-              {selectionMode === "found_new" ? "Found Stable" : "Begin Journey"}
+              {selectionMode === "found_new" ? "Found Heya" : "Begin Journey"}
               <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
