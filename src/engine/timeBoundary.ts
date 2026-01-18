@@ -2,37 +2,25 @@
 // Time Boundary System - Week/Month advancement with training, scouting, economy events
 // Per Constitution §A3.2-A3.3: Weekly and Monthly boundary processing
 //
-// FIXES APPLIED (canon + correctness):
-// - Removed non-deterministic Math.random() usage (training/injury text now uses rng).
-// - Fixed stamina vs fatigue bug: weekly fatigue should NOT write into `rikishi.stamina`.
-//   Instead we update `rikishi.fatigue` if present, otherwise we keep fatigue in the result map only.
-// - Deterministic per-rikishi RNG streams so iteration order doesn’t change outcomes.
-//   (heya iteration order / rikishiIds order no longer affects training/injury outcomes.)
-// - Injury recovery tick decrements weeks and clears injured deterministically.
-// - Monthly salary payments now actually update rikishi funds (and retirement) safely,
-//   not just totalEarnings (which is lifetime, not spendable).
-// - Monthly heya expenses are grouped per heya (no “filter the growing list” O(n^2) logic).
-// - Guard division-by-zero when world.heyas.size === 0.
-// - Removed unused imports (Rank, SALARY_CONFIG) and dead variables.
-// - Month boundary logic stays “4 weeks = 1 month” as you wrote, but now explicit and safe.
-// - Uses stable sorting for determinism when iterating arrays derived from Maps.
+// DROP-IN (canon + training.ts integration):
+// - Deterministic RNG: per-rikishi + per-heya streams (order independent).
+// - Uses computeTrainingMultipliers() from training.ts as the single source of truth.
+// - No Math.random() (all narrative picks use seeded rng).
+// - Fatigue is tracked as `rikishi.fatigue?: number` if present; NEVER writes into stamina.
+// - Injury recovery tick uses RECOVERY_EFFECTS.injuryRecovery via computeTrainingMultipliers.
+// - Monthly: salary adds to spendable cash (economics.cash) and retirement; avoids O(n^2) expense calcs.
+// - Stable iteration over Maps by sorting ids.
+// - Safe guards for division-by-zero.
 //
-// NOTE: This assumes types may optionally include:
-// - Rikishi.fatigue?: number (0..100, hidden)
-// - Rikishi.economics?: { cash?: number; totalEarnings: number; retirementFund: number }
-// - Heya.funds?: number
-// If your actual types differ, keep the patterns and adjust field names.
+// ASSUMPTIONS (safe, optional fields):
+// - Rikishi may have optional `fatigue?: number` (0..100). If absent, fatigue is computed but not stored.
+// - Rikishi.economics may have optional `cash?: number`.
+// - Heya has `funds: number` in your types (required), but this file guards anyway.
 
 import seedrandom from "seedrandom";
 import type { WorldState, Rikishi, Heya } from "./types";
-import {
-  INTENSITY_EFFECTS,
-  RECOVERY_EFFECTS,
-  FOCUS_EFFECTS,
-  getCareerPhase,
-  PHASE_EFFECTS,
-  type TrainingProfile
-} from "./training";
+import type { TrainingProfile } from "./training";
+import { computeTrainingMultipliers, getIndividualFocusMode, createDefaultTrainingProfile } from "./training";
 import { calculateMonthlyIncome, calculateRetirementContribution } from "./economics";
 import { calculateKoenkaiIncome, type KoenkaiBandType } from "./sponsors";
 import { RANK_HIERARCHY } from "./banzuke";
@@ -51,7 +39,7 @@ export interface TimeState {
 export interface WeeklyBoundaryResult {
   trainingEvents: TrainingEvent[];
   scoutingEvents: ScoutingEvent[];
-  fatigueChanges: Map<string, number>; // rikishiId -> fatigueDelta
+  fatigueChanges: Map<string, number>; // rikishiId -> fatigueDelta (positive means more fatigue)
   injuryEvents: InjuryEvent[];
 }
 
@@ -117,37 +105,17 @@ function stableSort<T>(arr: T[], keyFn: (x: T) => string): T[] {
   return arr.sort((a, b) => keyFn(a).localeCompare(keyFn(b)));
 }
 
-function getDefaultTrainingProfile(): TrainingProfile {
-  return {
-    intensity: "balanced",
-    focus: "neutral",
-    styleBias: "neutral",
-    recovery: "normal"
-  };
-}
-
-/**
- * Derive a deterministic sub-RNG for an entity so outcomes don’t depend on iteration order.
- * (IMPORTANT for map iteration stability + future refactors.)
- */
-function deriveRng(parent: seedrandom.PRNG, salt: string): seedrandom.PRNG {
-  // parent() consumption stays deterministic; salt keeps streams stable across loops
-  const s = `${salt}-${Math.floor(parent() * 1_000_000_000)}`;
-  return seedrandom(s);
-}
-
-/** Pull a per-rikishi RNG without consuming parent unpredictably across other entities. */
+/** Deterministic per-rikishi RNG stream (order independent). */
 function rikishiRng(weekSeed: string, rikishiId: string): seedrandom.PRNG {
   return seedrandom(`${weekSeed}-rikishi-${rikishiId}`);
 }
 
-/** Pull a per-heya RNG for expenses variance, independent of other heyas. */
+/** Deterministic per-heya RNG stream for monthly variance (order independent). */
 function heyaRng(monthSeed: string, heyaId: string): seedrandom.PRNG {
   return seedrandom(`${monthSeed}-heya-${heyaId}`);
 }
 
 function getRikishiFatigue(r: Rikishi): number {
-  // Optional fatigue stat. If you don’t have it, we treat fatigue as 0.
   const anyR = r as any;
   const f = typeof anyR.fatigue === "number" ? anyR.fatigue : 0;
   return clamp(f, 0, 100);
@@ -155,66 +123,107 @@ function getRikishiFatigue(r: Rikishi): number {
 
 function setRikishiFatigue(r: Rikishi, fatigue: number): void {
   const anyR = r as any;
+  // Only persist if the property exists (or your types include it)
   if (typeof anyR.fatigue === "number" || "fatigue" in anyR) {
     anyR.fatigue = clamp(fatigue, 0, 100);
   }
 }
 
 function getRikishiCash(r: Rikishi): number {
-  const anyR = r as any;
-  const econ = anyR.economics;
-  const cash = econ && typeof econ.cash === "number" ? econ.cash : 0;
-  return cash;
+  const econ = (r as any).economics;
+  if (!econ) return 0;
+  return typeof econ.cash === "number" ? econ.cash : 0;
 }
 
 function addRikishiCash(r: Rikishi, delta: number): void {
-  const anyR = r as any;
-  if (!anyR.economics) return;
-  if (typeof anyR.economics.cash !== "number") anyR.economics.cash = 0;
-  anyR.economics.cash += delta;
+  const econ = (r as any).economics;
+  if (!econ) return;
+  if (typeof econ.cash !== "number") econ.cash = 0;
+  econ.cash += delta;
+}
+
+// Try to read a heya training state if you later add it to Heya.
+// We keep this file drop-in compatible by treating it as optional.
+type HeyaTrainingStateLite = {
+  profile: TrainingProfile;
+  focusSlots: Array<{ rikishiId: string; mode: "develop" | "push" | "protect" | "rebuild" }>;
+  maxFocusSlots: number;
+};
+
+function getHeyaTrainingProfile(heya: Heya): TrainingProfile {
+  const t = (heya as any).trainingState as HeyaTrainingStateLite | undefined;
+  return t?.profile ?? createDefaultTrainingProfile();
+}
+
+function getHeyaFocusMode(heya: Heya, rikishiId: string): "develop" | "push" | "protect" | "rebuild" | null {
+  const t = (heya as any).trainingState as HeyaTrainingStateLite | undefined;
+  if (!t) return null;
+  // Use helper if you fully type trainingState later; otherwise simple lookup here.
+  // (Avoid importing BeyaTrainingState type to reduce circular risk.)
+  const found = t.focusSlots?.find(s => s.rikishiId === rikishiId);
+  return found ? found.mode : null;
 }
 
 // === WEEKLY BOUNDARY (Constitution §A3.2) ===
 
 export function processWeeklyBoundary(world: WorldState, weekSeed: string): WeeklyBoundaryResult {
-  const rng = seedrandom(weekSeed);
+  // Anchor RNG for any future “global weekly events” (kept deterministic even if unused now)
+  const _rng = seedrandom(weekSeed);
 
   const trainingEvents: TrainingEvent[] = [];
   const scoutingEvents: ScoutingEvent[] = [];
   const fatigueChanges = new Map<string, number>();
   const injuryEvents: InjuryEvent[] = [];
 
-  // Stable iteration: sort heyas by id
+  // Stable iteration: heya ids
   const heyaEntries = stableSort(Array.from(world.heyas.entries()), ([id]) => id);
 
   for (const [heyaId, heya] of heyaEntries) {
-    const profile = getDefaultTrainingProfile();
-
-    // stable iteration: sort rikishiIds (string compare)
+    const profile = getHeyaTrainingProfile(heya);
+    // Stable roster iteration
     const roster = [...heya.rikishiIds].sort((a, b) => a.localeCompare(b));
 
     for (const rikishiId of roster) {
       const rikishi = world.rikishi.get(rikishiId);
       if (!rikishi) continue;
 
-      // Use per-rikishi RNG so outcomes are independent of roster ordering
       const rrng = rikishiRng(weekSeed, rikishiId);
 
-      // Injured recovery tick
+      // Injury recovery tick (deterministic)
       if ((rikishi as any).injured) {
-        if ((rikishi as any).injuryWeeksRemaining > 0) {
-          (rikishi as any).injuryWeeksRemaining--;
-          if ((rikishi as any).injuryWeeksRemaining <= 0) {
-            (rikishi as any).injuryWeeksRemaining = 0;
-            (rikishi as any).injured = false;
-          }
+        const weeks = Math.max(0, (rikishi as any).injuryWeeksRemaining || 0);
+
+        if (weeks > 0) {
+          // Recovery speed comes from training recovery emphasis.
+          // (If you prefer: use a separate "medical" system later.)
+          const m = computeTrainingMultipliers({
+            rikishi,
+            heya,
+            profile,
+            individualMode: getHeyaFocusMode(heya, rikishiId)
+          });
+
+          // Deterministic reduction: high recovery can occasionally tick 2 weeks.
+          let dec = 1;
+          const extraChance = clamp((m.injuryRecoveryMult - 1) * 0.75, 0, 0.35); // gentle
+          if (rrng() < extraChance) dec = 2;
+
+          const after = Math.max(0, weeks - dec);
+          (rikishi as any).injuryWeeksRemaining = after;
+          if (after === 0) (rikishi as any).injured = false;
+        } else {
+          (rikishi as any).injuryWeeksRemaining = 0;
+          (rikishi as any).injured = false;
         }
+
         continue;
       }
 
-      const trainingResult = processRikishiTraining(rikishi, profile, heya, rrng);
-      trainingEvents.push(...trainingResult.events);
+      // Training step
+      const individualMode = getHeyaFocusMode(heya, rikishiId);
+      const trainingResult = processRikishiTraining(rikishi, profile, heya, individualMode, rrng);
 
+      trainingEvents.push(...trainingResult.events);
       fatigueChanges.set(rikishiId, trainingResult.fatigueDelta);
 
       // Apply fatigue delta to hidden fatigue (NOT stamina)
@@ -223,19 +232,19 @@ export function processWeeklyBoundary(world: WorldState, weekSeed: string): Week
       setRikishiFatigue(rikishi, afterFatigue);
 
       // Injury check
-      const injuryResult = checkForInjury(rikishi, profile, rrng);
-      if (injuryResult) {
-        injuryEvents.push(injuryResult);
+      const injury = checkForInjury(rikishi, profile, heya, individualMode, rrng);
+      if (injury) {
+        injuryEvents.push(injury);
         (rikishi as any).injured = true;
-        (rikishi as any).injuryWeeksRemaining = injuryResult.weeksOut;
+        (rikishi as any).injuryWeeksRemaining = injury.weeksOut;
       }
     }
+
+    void heyaId;
   }
 
-  // TODO: scoutingEvents (passive observation refresh) – left intentionally blank per your stub
-
-  // rng is intentionally unused beyond determinism “anchor” (okay).
-  void rng;
+  // TODO: scouting events (kept as stub)
+  void _rng;
 
   return { trainingEvents, scoutingEvents, fatigueChanges, injuryEvents };
 }
@@ -244,90 +253,95 @@ function processRikishiTraining(
   rikishi: Rikishi,
   profile: TrainingProfile,
   heya: Heya,
+  individualMode: "develop" | "push" | "protect" | "rebuild" | null,
   rng: seedrandom.PRNG
 ): { events: TrainingEvent[]; fatigueDelta: number } {
   const events: TrainingEvent[] = [];
 
-  const intensityEffect = INTENSITY_EFFECTS[profile.intensity];
-  const recoveryEffect = RECOVERY_EFFECTS[profile.recovery];
-  const focusEffect = FOCUS_EFFECTS[profile.focus];
-  const careerPhase = getCareerPhase(rikishi.experience);
-  const phaseEffect = PHASE_EFFECTS[careerPhase];
+  const m = computeTrainingMultipliers({
+    rikishi,
+    heya,
+    profile,
+    individualMode
+  });
 
-  // Base growth rate (per week)
-  const baseGrowth = 0.1;
-  const growthMod = intensityEffect.growthMult * phaseEffect.growthMod;
+  // Base growth chance (per attribute per week)
+  const baseChance = 0.1; // tuned to “slow grind”
+  const growthChance = baseChance * m.growthMult;
 
-  // Fatigue delta: +fatigue means MORE tired.
-  // training adds fatigue; recovery reduces fatigue.
+  // Fatigue delta: positive = more fatigue, negative = recovery
   const baseFatigue = 5;
-  const fatigueAdded = baseFatigue * intensityEffect.fatigueGain;
-  const fatigueReduced = baseFatigue * 1.2 * recoveryEffect.fatigueDecay;
-  const fatigueDelta = fatigueAdded - fatigueReduced; // positive = gain fatigue, negative = recover
+  const fatigueAdded = baseFatigue * m.fatigueMult;
+  const fatigueReduced = baseFatigue * 1.2 * m.fatigueRecoveryMult;
+  const fatigueDelta = fatigueAdded - fatigueReduced;
 
-  const attributes: Array<{ name: string; key: keyof Rikishi; mult: number }> = [
-    { name: "power", key: "power" as keyof Rikishi, mult: focusEffect.power },
-    { name: "speed", key: "speed" as keyof Rikishi, mult: focusEffect.speed },
-    { name: "technique", key: "technique" as keyof Rikishi, mult: focusEffect.technique },
-    { name: "balance", key: "balance" as keyof Rikishi, mult: focusEffect.balance }
+  const attributes: Array<{ name: "power" | "speed" | "technique" | "balance" }> = [
+    { name: "power" },
+    { name: "speed" },
+    { name: "technique" },
+    { name: "balance" }
   ];
 
   for (const attr of attributes) {
-    const currentValue = (rikishi as any)[attr.key] as number;
-    const gain = baseGrowth * growthMod * attr.mult;
+    const key = attr.name;
+    const currentValue = (rikishi as any)[key] as number;
 
     // Diminishing returns at high values
     const diminishing = Math.max(0.2, 1 - (currentValue - 70) / 100);
-    const actualGain = gain * diminishing;
 
-    if (rng() < actualGain) {
-      (rikishi as any)[attr.key] = Math.min(100, currentValue + 1);
+    // Final per-attribute chance
+    const chance = clamp(growthChance * m.attr[key] * diminishing, 0, 0.85);
+
+    if (rng() < chance) {
+      (rikishi as any)[key] = Math.min(100, currentValue + 1);
       events.push({
         rikishiId: rikishi.id,
-        attribute: attr.name,
+        attribute: key,
         change: 1,
-        description: getTrainingDescription(attr.name, profile, rng, heya)
+        description: getTrainingDescription(key, profile, rng)
       });
     }
   }
 
-  // Experience slow increase (if your experience is "basho count" this should live elsewhere;
-  // leaving as-is but deterministic.)
-  if (rng() < 0.15) {
+  // Experience slow increase (kept deterministic)
+  if (rng() < 0.15 * m.growthMult) {
     rikishi.experience = Math.min(100, rikishi.experience + 1);
   }
 
   return { events, fatigueDelta };
 }
 
-function checkForInjury(rikishi: Rikishi, profile: TrainingProfile, rng: seedrandom.PRNG): InjuryEvent | null {
-  const intensityEffect = INTENSITY_EFFECTS[profile.intensity];
-  const careerPhase = getCareerPhase(rikishi.experience);
-  const phaseEffect = PHASE_EFFECTS[careerPhase];
+function checkForInjury(
+  rikishi: Rikishi,
+  profile: TrainingProfile,
+  heya: Heya,
+  individualMode: "develop" | "push" | "protect" | "rebuild" | null,
+  rng: seedrandom.PRNG
+): InjuryEvent | null {
+  const m = computeTrainingMultipliers({ rikishi, heya, profile, individualMode });
 
   const fatigue = getRikishiFatigue(rikishi);
 
+  // Base injury chance per week (very low)
   const baseChance = 0.005;
-  const injuryChance =
-    baseChance *
-    intensityEffect.injuryRisk *
-    phaseEffect.injurySensitivity *
-    (1 + fatigue / 200); // more fatigue => higher risk
+
+  // Fatigue increases risk gently; focus/punishing increases via multipliers
+  const injuryChance = baseChance * m.injuryRiskMult * (1 + fatigue / 200);
 
   if (rng() < injuryChance) {
-    const severityRoll = rng();
+    const roll = rng();
     let severity: "minor" | "moderate" | "serious";
     let weeksOut: number;
 
-    if (severityRoll < 0.7) {
+    if (roll < 0.7) {
       severity = "minor";
-      weeksOut = 1 + Math.floor(rng() * 2);
-    } else if (severityRoll < 0.95) {
+      weeksOut = 1 + Math.floor(rng() * 2); // 1-2
+    } else if (roll < 0.95) {
       severity = "moderate";
-      weeksOut = 2 + Math.floor(rng() * 4);
+      weeksOut = 2 + Math.floor(rng() * 4); // 2-5
     } else {
       severity = "serious";
-      weeksOut = 6 + Math.floor(rng() * 8);
+      weeksOut = 6 + Math.floor(rng() * 8); // 6-13
     }
 
     return {
@@ -341,8 +355,7 @@ function checkForInjury(rikishi: Rikishi, profile: TrainingProfile, rng: seedran
   return null;
 }
 
-function getTrainingDescription(attribute: string, profile: TrainingProfile, rng: seedrandom.PRNG, heya: Heya): string {
-  // You can later bias by heya style/training focus; for now deterministic pick.
+function getTrainingDescription(attribute: string, profile: TrainingProfile, rng: seedrandom.PRNG): string {
   const descriptions: Record<string, string[]> = {
     power: ["Heavy pushing drills show results", "Strength training pays dividends", "Teppo practice builds power"],
     speed: ["Footwork drills improve agility", "Speed training shows progress", "Quick reaction exercises pay off"],
@@ -352,8 +365,8 @@ function getTrainingDescription(attribute: string, profile: TrainingProfile, rng
 
   const options = descriptions[attribute] || ["Training shows improvement"];
   const idx = Math.floor(rng() * options.length);
-  void profile;
-  void heya;
+
+  void profile; // reserved for future per-profile phrasing
   return options[idx];
 }
 
@@ -371,7 +384,7 @@ function getInjuryDescription(severity: "minor" | "moderate" | "serious", rng: s
 // === MONTHLY BOUNDARY (Constitution §A3.3) ===
 
 export function processMonthlyBoundary(world: WorldState, monthSeed: string): MonthlyBoundaryResult {
-  const rng = seedrandom(monthSeed);
+  const _rng = seedrandom(monthSeed);
 
   const salaryPayments: SalaryPayment[] = [];
   const koenkaiIncome: KoenkaiIncomeEvent[] = [];
@@ -390,17 +403,15 @@ export function processMonthlyBoundary(world: WorldState, monthSeed: string): Mo
       type: rankInfo.isSekitori ? "salary" : "allowance"
     });
 
-    // Update rikishi economics safely
-    if ((rikishi as any).economics) {
-      (rikishi as any).economics.totalEarnings = ((rikishi as any).economics.totalEarnings || 0) + income;
-
-      // Spendable cash (optional but recommended)
+    // Update economics safely
+    const econ = (rikishi as any).economics;
+    if (econ) {
+      econ.totalEarnings = (econ.totalEarnings || 0) + income;
       addRikishiCash(rikishi, income);
 
-      // Retirement contribution
       const retirementContrib = calculateRetirementContribution(rikishi.rank);
-      (rikishi as any).economics.retirementFund = ((rikishi as any).economics.retirementFund || 0) + retirementContrib;
-      // Retirement is typically withheld; if you want it to reduce cash, subtract here.
+      econ.retirementFund = (econ.retirementFund || 0) + retirementContrib;
+      // If you want retirement to reduce cash, uncomment:
       // addRikishiCash(rikishi, -retirementContrib);
     }
   }
@@ -408,20 +419,15 @@ export function processMonthlyBoundary(world: WorldState, monthSeed: string): Mo
   // Heya economics (stable iteration)
   const heyaEntries = stableSort(Array.from(world.heyas.entries()), ([id]) => id);
 
-  // Track per-heya totals as we go (avoid O(n^2) filters)
-  const perHeyaExpenseTotal = new Map<string, number>();
-
   for (const [heyaId, heya] of heyaEntries) {
     const hrng = heyaRng(monthSeed, heyaId);
 
-    // Kōenkai income
     const band: KoenkaiBandType = (heya as any).koenkaiBand || "none";
     const koenkaiAmount = calculateKoenkaiIncome(band);
-
     koenkaiIncome.push({ heyaId, amount: koenkaiAmount, band });
 
-    // Monthly expenses
     const rosterSize = heya.rikishiIds.length;
+
     const expenseCategories: Array<{ category: HeyaExpense["category"]; baseCost: number }> = [
       { category: "rent", baseCost: 2_000_000 },
       { category: "food", baseCost: 500_000 + rosterSize * 150_000 },
@@ -435,35 +441,28 @@ export function processMonthlyBoundary(world: WorldState, monthSeed: string): Mo
     for (const exp of expenseCategories) {
       const variance = 1 + (hrng() - 0.5) * 0.1; // +/-5%
       const amount = Math.floor(exp.baseCost * variance);
-
       heyaExpenses.push({ heyaId, category: exp.category, amount });
       totalExpenses += amount;
     }
 
-    perHeyaExpenseTotal.set(heyaId, totalExpenses);
+    const fundsBefore = typeof heya.funds === "number" ? heya.funds : (heya as any).funds || 0;
+    const fundsAfter = fundsBefore + koenkaiAmount - totalExpenses;
 
-    // Update heya funds
-    const incomeTotal = koenkaiAmount;
-    const fundsBefore = (heya.funds || 0) as number;
-    const fundsAfter = fundsBefore + incomeTotal - totalExpenses;
-
-    heya.funds = fundsAfter;
+    (heya as any).funds = fundsAfter;
     (heya as any).runwayBand = deriveRunwayBand(fundsAfter);
   }
 
-  // Economy snapshot
-  const totalHeyaFunds = Array.from(world.heyas.values()).reduce((sum, h) => sum + (h.funds || 0), 0);
-
-  // Prefer spendable cash if you track it; otherwise 0 (NOT totalEarnings)
+  const totalHeyaFunds = Array.from(world.heyas.values()).reduce((sum, h) => sum + ((h as any).funds || 0), 0);
   const totalRikishiFunds = Array.from(world.rikishi.values()).reduce((sum, r) => sum + getRikishiCash(r), 0);
 
   const heyaCount = world.heyas.size;
   const avgRunwayWeeks =
     heyaCount > 0
-      ? Array.from(world.heyas.values()).reduce((sum, h) => sum + runwayBandToWeeks((h as any).runwayBand), 0) / heyaCount
+      ? Array.from(world.heyas.values()).reduce((sum, h) => sum + runwayBandToWeeks((h as any).runwayBand), 0) /
+        heyaCount
       : 0;
 
-  void rng;
+  void _rng;
 
   return {
     salaryPayments,
@@ -514,16 +513,14 @@ export function advanceWeeks(world: WorldState, weeks: number, startTimeState: T
   for (let w = 0; w < totalWeeks; w++) {
     const weekSeed = `${world.seed}-week-${currentTime.weekIndexGlobal}`;
 
-    // Weekly boundary
     const weekResult = processWeeklyBoundary(world, weekSeed);
     weeklyResults.push(weekResult);
 
-    // Advance week
     currentTime.week++;
     currentTime.weekIndexGlobal++;
     currentTime.dayIndexGlobal += 7;
 
-    // Month boundary: your model is 4 weeks per month (explicit)
+    // Month boundary: 4 weeks per month (explicit)
     if (currentTime.week > 4) {
       currentTime.week = 1;
       currentTime.month++;
