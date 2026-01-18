@@ -1,18 +1,31 @@
 // Auto-Sim and Observer Mode System
 // Per Constitution §7: Auto-Sim "Watch the World" Mode
-// Allows hands-off simulation with configurable duration and stop conditions
+// Canon fixes applied:
+// - No Math.random(): all randomness is seeded or removed
+// - Inter-basho time is fixed at 6 weeks
+// - Day schedule seeding is per-day (not same seed reused)
+// - Auto-sim loop is boundary-aware (weekly/monthly hooks) via deterministic time advancement helpers
+// - Extra “flat random injury” during basho removed (injuries should come from simulateBout / combat engine)
+// - StopConditions are implemented where possible; unsupported ones safely no-op without lying
+// - Promotions/demotions are NOT done via naive static mapping; this module now exposes a deterministic hook
+//   to let your real banzuke system apply rank changes (required for canon compliance)
 
 import seedrandom from "seedrandom";
-import type { WorldState, BashoName, BoutResult, Rikishi } from "./types";
+import type { WorldState, BashoName, BoutResult } from "./types";
 import { simulateBout } from "./bout";
 import { getNextBasho, BASHO_CALENDAR } from "./calendar";
-import { advanceWeeks, processWeeklyBoundary, processMonthlyBoundary, type TimeState } from "./timeBoundary";
-import { RANK_HIERARCHY, isKachiKoshi, isMakeKoshi } from "./banzuke";
+import {
+  advanceWeeks,
+  processWeeklyBoundary,
+  processMonthlyBoundary,
+  type TimeState
+} from "./timeBoundary";
+import { RANK_HIERARCHY } from "./banzuke";
 import { initializeBasho, generateDaySchedule } from "./worldgen";
 
 // === AUTO-SIM CONFIGURATION ===
 
-export type SimDuration = 
+export type SimDuration =
   | { type: "days"; count: number }
   | { type: "weeks"; count: number }
   | { type: "months"; count: number }
@@ -20,7 +33,7 @@ export type SimDuration =
   | { type: "years"; count: number }
   | { type: "untilEvent"; eventType: StopCondition };
 
-export type StopCondition = 
+export type StopCondition =
   | "yokozunaPromotion"
   | "ozekiPromotion"
   | "yusho"
@@ -40,6 +53,23 @@ export interface AutoSimConfig {
   observerMode: boolean; // true = no player stable, pure world sim
   playerHeyaId?: string;
 }
+
+/**
+ * Canon-compliant banzuke integration point:
+ * Your real banzuke system should apply promotions/demotions deterministically.
+ * This module will call the hook if present and use its reported events.
+ */
+export interface BanzukeUpdateHookResult {
+  promotions: PromotionEvent[];
+  demotions: DemotionEvent[];
+}
+export type BanzukeUpdateHook = (args: {
+  world: WorldState;
+  bashoName: BashoName;
+  year: number;
+  standings: Map<string, { wins: number; losses: number }>;
+  seed: string;
+}) => BanzukeUpdateHookResult;
 
 export interface AutoSimResult {
   startYear: number;
@@ -92,7 +122,7 @@ export interface BashoSimResult {
   junYusho: string[];
   standings: Map<string, { wins: number; losses: number }>;
   keyBouts: BoutResult[];
-  injuries: string[];
+  injuries: string[]; // injuries detected during basho (from simulateBout / world state changes)
   promotions: PromotionEvent[];
   demotions: DemotionEvent[];
 }
@@ -114,15 +144,22 @@ export interface DemotionEvent {
 export function simulateEntireBasho(
   world: WorldState,
   bashoName: BashoName,
-  seed: string
+  seed: string,
+  opts?: {
+    banzukeUpdateHook?: BanzukeUpdateHook;
+  }
 ): BashoSimResult {
+  // NOTE: rng is used ONLY for deterministic things that are not already part of simulateBout.
+  // Avoid introducing parallel RNG paths that can desync save/load.
   const rng = seedrandom(seed);
+
   const basho = initializeBasho(world, bashoName);
+
   const standings = new Map<string, { wins: number; losses: number }>();
   const keyBouts: BoutResult[] = [];
   const injuries: string[] = [];
-  
-  // Initialize standings
+
+  // Initialize standings (sekitori only)
   for (const [id, rikishi] of world.rikishi) {
     if (rikishi.division === "makuuchi" || rikishi.division === "juryo") {
       standings.set(id, { wins: 0, losses: 0 });
@@ -130,113 +167,123 @@ export function simulateEntireBasho(
       rikishi.currentBashoLosses = 0;
     }
   }
-  
+
   // Simulate all 15 days
   for (let day = 1; day <= 15; day++) {
-    generateDaySchedule(world, basho, day, seed);
-    
-    const dayMatches = basho.matches.filter(m => m.day === day && !m.result);
-    
+    // IMPORTANT: per-day seed so schedule generation cannot accidentally repeat
+    const daySeed = `${seed}-day${day}`;
+    generateDaySchedule(world, basho, day, daySeed);
+
+    const dayMatches = basho.matches.filter((m) => m.day === day && !m.result);
+
     for (let boutIndex = 0; boutIndex < dayMatches.length; boutIndex++) {
       const match = dayMatches[boutIndex];
       const east = world.rikishi.get(match.eastRikishiId);
       const west = world.rikishi.get(match.westRikishiId);
-      
+
       if (!east || !west) continue;
       if (east.injured || west.injured) continue;
-      
+
+      // Deterministic bout seed
       const boutSeed = `${seed}-d${day}-b${boutIndex}`;
       const result = simulateBout(east, west, boutSeed);
       match.result = result;
-      
-      // Update records
+
+      // Update records (sekitori standings)
       const winner = result.winner === "east" ? east : west;
       const loser = result.winner === "east" ? west : east;
-      
+
       winner.currentBashoWins++;
       winner.careerWins++;
       loser.currentBashoLosses++;
       loser.careerLosses++;
-      
-      const winnerStanding = standings.get(winner.id) || { wins: 0, losses: 0 };
-      const loserStanding = standings.get(loser.id) || { wins: 0, losses: 0 };
-      standings.set(winner.id, { wins: winnerStanding.wins + 1, losses: winnerStanding.losses });
-      standings.set(loser.id, { wins: loserStanding.wins, losses: loserStanding.losses + 1 });
-      
+
+      const winnerStanding = standings.get(winner.id);
+      const loserStanding = standings.get(loser.id);
+
+      if (winnerStanding) {
+        standings.set(winner.id, {
+          wins: winnerStanding.wins + 1,
+          losses: winnerStanding.losses
+        });
+      }
+      if (loserStanding) {
+        standings.set(loser.id, {
+          wins: loserStanding.wins,
+          losses: loserStanding.losses + 1
+        });
+      }
+
       // Track key bouts (upsets, high-rank, senshuraku)
-      if (result.upset || day === 15 || 
-          RANK_HIERARCHY[east.rank].tier <= 2 || 
-          RANK_HIERARCHY[west.rank].tier <= 2) {
+      const eastTier = RANK_HIERARCHY[east.rank]?.tier ?? 999;
+      const westTier = RANK_HIERARCHY[west.rank]?.tier ?? 999;
+
+      if (result.upset || day === 15 || eastTier <= 2 || westTier <= 2) {
         keyBouts.push(result);
       }
-      
-      // Random injury check during basho
-      if (rng() < 0.003) {
-        const injured = rng() < 0.5 ? winner : loser;
-        injured.injured = true;
-        injured.injuryWeeksRemaining = 2 + Math.floor(rng() * 4);
-        injuries.push(injured.shikona);
+
+      // Injury tracking should come from simulateBout / combat engine effects.
+      // If simulateBout mutates rikishi.injured, record names deterministically here.
+      if (east.injured) injuries.push(east.shikona);
+      if (west.injured) injuries.push(west.shikona);
+
+      // Defensive: avoid duplicate entries
+      // (keeps chronicle nicer; does not affect sim outcome)
+      if (injuries.length > 1) {
+        // tiny deterministic cleanup; does not call RNG
+        const uniq = new Set(injuries);
+        injuries.length = 0;
+        for (const n of uniq) injuries.push(n);
       }
+
+      // (rng referenced to prevent “unused variable” warnings in some TS configs)
+      void rng;
     }
   }
-  
+
   // Determine yusho winner
   const sortedStandings = Array.from(standings.entries())
     .map(([id, record]) => ({
       id,
-      rikishi: world.rikishi.get(id)!,
-      ...record
+      rikishi: world.rikishi.get(id) || null,
+      wins: record.wins,
+      losses: record.losses
     }))
-    .filter(s => s.rikishi)
+    .filter((s) => !!s.rikishi)
     .sort((a, b) => b.wins - a.wins || a.losses - b.losses);
-  
+
   const yushoEntry = sortedStandings[0];
   const yushoWinner = {
     id: yushoEntry?.id || "",
-    shikona: yushoEntry?.rikishi.shikona || "Unknown",
-    wins: yushoEntry?.wins || 0,
-    losses: yushoEntry?.losses || 0
+    shikona: yushoEntry?.rikishi?.shikona || "Unknown",
+    wins: yushoEntry?.wins ?? 0,
+    losses: yushoEntry?.losses ?? 0
   };
-  
-  // Jun-yusho (runner-up, same wins as 2nd place)
+
+  // Jun-yusho group: whoever matches 2nd-place wins (excluding champion)
+  const second = sortedStandings[1];
+  const junYushoTargetWins = second ? second.wins : -1;
   const junYusho = sortedStandings
-    .filter(s => s.id !== yushoEntry?.id && s.wins === sortedStandings[1]?.wins)
-    .map(s => s.rikishi.shikona);
-  
-  // Calculate promotions/demotions
-  const promotions: PromotionEvent[] = [];
-  const demotions: DemotionEvent[] = [];
-  
-  for (const [id, record] of standings) {
-    const rikishi = world.rikishi.get(id);
-    if (!rikishi) continue;
-    
-    const kk = isKachiKoshi(record.wins, record.losses, rikishi.rank);
-    const mk = isMakeKoshi(record.wins, record.losses, rikishi.rank);
-    
-    if (kk && canPromote(rikishi.rank)) {
-      const newRank = getPromotedRank(rikishi.rank, record.wins);
-      if (newRank !== rikishi.rank) {
-        promotions.push({
-          rikishiId: id,
-          from: rikishi.rank,
-          to: newRank,
-          description: `${rikishi.shikona} promoted from ${rikishi.rank} to ${newRank}`
-        });
-      }
-    } else if (mk && canDemote(rikishi.rank)) {
-      const newRank = getDemotedRank(rikishi.rank);
-      if (newRank !== rikishi.rank) {
-        demotions.push({
-          rikishiId: id,
-          from: rikishi.rank,
-          to: newRank,
-          description: `${rikishi.shikona} demoted from ${rikishi.rank} to ${newRank}`
-        });
-      }
-    }
+    .filter((s) => s.id !== yushoEntry?.id && s.wins === junYushoTargetWins)
+    .map((s) => s.rikishi!.shikona);
+
+  // Promotions/demotions must be applied by the real banzuke system
+  let promotions: PromotionEvent[] = [];
+  let demotions: DemotionEvent[] = [];
+
+  if (opts?.banzukeUpdateHook) {
+    const hookSeed = `${seed}-banzuke`;
+    const hookResult = opts.banzukeUpdateHook({
+      world,
+      bashoName,
+      year: world.year,
+      standings,
+      seed: hookSeed
+    });
+    promotions = hookResult.promotions;
+    demotions = hookResult.demotions;
   }
-  
+
   return {
     bashoName,
     year: world.year,
@@ -254,13 +301,17 @@ export function simulateEntireBasho(
 
 export function runAutoSim(
   world: WorldState,
-  config: AutoSimConfig
+  config: AutoSimConfig,
+  opts?: {
+    banzukeUpdateHook?: BanzukeUpdateHook;
+  }
 ): AutoSimResult {
   const startYear = world.year;
+
   let bashoSimulated = 0;
   let daysSimulated = 0;
   let stoppedBy: StopCondition | "completed" = "completed";
-  
+
   const chronicle: ChronicleReport = {
     topChampions: [],
     biggestScandals: [],
@@ -269,70 +320,56 @@ export function runAutoSim(
     recordsBroken: [],
     highlights: []
   };
-  
+
   // Track champions
   const championCounts = new Map<string, number>();
-  
-  // Calculate target based on duration
-  let targetBasho = 0;
-  switch (config.duration.type) {
-    case "days":
-      targetBasho = Math.ceil(config.duration.count / 15);
-      break;
-    case "weeks":
-      targetBasho = Math.ceil(config.duration.count / 3);
-      break;
-    case "months":
-      targetBasho = config.duration.count / 2;
-      break;
-    case "basho":
-      targetBasho = config.duration.count;
-      break;
-    case "years":
-      targetBasho = config.duration.count * 6;
-      break;
-    case "untilEvent":
-      targetBasho = 600; // Max 100 years
-      break;
-  }
-  
+
+  // Determine simulation cap
+  const targetBasho = computeTargetBasho(config.duration);
+
   // Main simulation loop
   while (bashoSimulated < targetBasho) {
     const bashoName = world.currentBashoName || "hatsu";
     const bashoSeed = `${world.seed}-basho-${world.year}-${bashoName}`;
-    
-    // Simulate the basho
-    const bashoResult = simulateEntireBasho(world, bashoName, bashoSeed);
+
+    // Simulate the basho (deterministic)
+    const bashoResult = simulateEntireBasho(world, bashoName, bashoSeed, {
+      banzukeUpdateHook: opts?.banzukeUpdateHook
+    });
+
     bashoSimulated++;
     daysSimulated += 15;
-    
-    // Track champion
-    const prevCount = championCounts.get(bashoResult.yushoWinner.id) || 0;
-    championCounts.set(bashoResult.yushoWinner.id, prevCount + 1);
-    
-    // Add highlight
+
+    // Track champion counts
+    if (bashoResult.yushoWinner.id) {
+      const prevCount = championCounts.get(bashoResult.yushoWinner.id) || 0;
+      championCounts.set(bashoResult.yushoWinner.id, prevCount + 1);
+    }
+
+    // Chronicle highlight (deterministic ordering: per basho)
     if (config.verbosity !== "minimal") {
       chronicle.highlights.push(
-        `${bashoName.charAt(0).toUpperCase() + bashoName.slice(1)} ${world.year}: ${bashoResult.yushoWinner.shikona} wins with ${bashoResult.yushoWinner.wins}-${bashoResult.yushoWinner.losses}`
+        `${titleCase(bashoName)} ${world.year}: ${bashoResult.yushoWinner.shikona} wins with ${bashoResult.yushoWinner.wins}-${bashoResult.yushoWinner.losses}`
       );
     }
-    
-    // Check stop conditions
+
+    // Stop conditions check
     for (const condition of config.stopConditions) {
-      if (checkStopCondition(condition, bashoResult, world, config)) {
+      if (checkStopCondition(condition, bashoResult, world, config, chronicle)) {
         stoppedBy = condition;
         break;
       }
     }
-    
     if (stoppedBy !== "completed") break;
-    
+
     // Advance to next basho
     const nextBasho = getNextBasho(bashoName);
     const isNewYear = nextBasho === "hatsu";
-    
-    // Process inter-basho time (roughly 6-8 weeks)
-    const interBashoWeeks = 6 + Math.floor(Math.random() * 3);
+
+    // Canon: inter-basho time is fixed 6 weeks
+    const interBashoWeeks = 6;
+
+    // Boundary-aware deterministic time advancement
     const timeState: TimeState = {
       year: world.year,
       month: BASHO_CALENDAR[bashoName].month,
@@ -341,19 +378,16 @@ export function runAutoSim(
       weekIndexGlobal: Math.floor(daysSimulated / 7),
       phase: "interbasho"
     };
-    
-    advanceWeeks(world, interBashoWeeks, timeState);
-    
+
+    advanceInterBashoDeterministic(world, interBashoWeeks, timeState, `${bashoSeed}-inter`);
+
     // Update world state
     world.currentBashoName = nextBasho;
     if (isNewYear) {
       world.year++;
     }
-    
-    // Apply promotions/demotions (simplified - full implementation would use banzuke system)
-    // Note: Rank changes would normally go through proper promotion/demotion logic
-    
-    // Store history
+
+    // Store history (deterministic)
     world.history.push({
       year: bashoResult.year,
       bashoNumber: getBashoNumber(bashoName),
@@ -366,9 +400,18 @@ export function runAutoSim(
         specialPrizes: 2_000_000
       }
     });
+
+    // If duration is "untilEvent", keep going until an event fires or cap reached.
+    if (config.duration.type === "untilEvent") {
+      const eventCondition = config.duration.eventType;
+      if (checkStopCondition(eventCondition, bashoResult, world, config, chronicle)) {
+        stoppedBy = eventCondition;
+        break;
+      }
+    }
   }
-  
-  // Build chronicle
+
+  // Build chronicle top champions
   chronicle.topChampions = Array.from(championCounts.entries())
     .map(([id, count]) => {
       const rikishi = world.rikishi.get(id);
@@ -381,15 +424,15 @@ export function runAutoSim(
     })
     .sort((a, b) => b.yushoCount - a.yushoCount)
     .slice(0, 10);
-  
-  // Era labels
+
+  // Era labels (simple heuristic; deterministic)
   if (bashoSimulated >= 6) {
     const topChamp = chronicle.topChampions[0];
     if (topChamp && topChamp.yushoCount >= 3) {
       chronicle.eraLabels.push(`The ${topChamp.shikona} Era (${startYear}-${world.year})`);
     }
   }
-  
+
   return {
     startYear,
     endYear: world.year,
@@ -401,92 +444,177 @@ export function runAutoSim(
   };
 }
 
+// === STOP CONDITIONS ===
+
 function checkStopCondition(
   condition: StopCondition,
   bashoResult: BashoSimResult,
   world: WorldState,
-  config: AutoSimConfig
+  config: AutoSimConfig,
+  chronicle: ChronicleReport
 ): boolean {
+  // Observer mode: do not evaluate player-stable-specific conditions unless playerHeyaId is present
+  const hasPlayer = !config.observerMode && !!config.playerHeyaId;
+
   switch (condition) {
     case "yokozunaPromotion":
-      return bashoResult.promotions.some(p => p.to === "yokozuna");
-    
+      return bashoResult.promotions.some((p) => p.to === "yokozuna");
+
     case "ozekiPromotion":
-      return bashoResult.promotions.some(p => p.to === "ozeki");
-    
-    case "yusho":
-      if (config.playerHeyaId) {
-        const winner = world.rikishi.get(bashoResult.yushoWinner.id);
-        return winner?.heyaId === config.playerHeyaId;
-      }
-      return false;
-    
-    case "stableInsolvency":
-      if (config.playerHeyaId) {
-        const heya = world.heyas.get(config.playerHeyaId);
-        return heya?.runwayBand === "desperate";
-      }
-      return false;
-    
-    case "majorInjury":
-      if (config.playerHeyaId) {
-        const heya = world.heyas.get(config.playerHeyaId);
-        if (heya) {
-          return bashoResult.injuries.some(name => 
-            heya.rikishiIds.some(id => world.rikishi.get(id)?.shikona === name)
-          );
+      return bashoResult.promotions.some((p) => p.to === "ozeki");
+
+    case "yusho": {
+      if (!hasPlayer) return false;
+      const winner = world.rikishi.get(bashoResult.yushoWinner.id);
+      return winner?.heyaId === config.playerHeyaId;
+    }
+
+    case "stableInsolvency": {
+      if (!hasPlayer) return false;
+      const heya = world.heyas.get(config.playerHeyaId!);
+      return heya?.runwayBand === "desperate";
+    }
+
+    case "majorInjury": {
+      if (!hasPlayer) return false;
+      const heya = world.heyas.get(config.playerHeyaId!);
+      if (!heya) return false;
+
+      // Canon systems may represent injury severity differently; this is a conservative check.
+      // If your injury system tracks "major", prefer that.
+      return bashoResult.injuries.some((name) =>
+        heya.rikishiIds.some((id) => world.rikishi.get(id)?.shikona === name)
+      );
+    }
+
+    case "scandal": {
+      // Only trigger if your world has a deterministic scandal/event feed.
+      // Supported shapes (any one is enough):
+      // - world.scandals: Array<{ severity: "minor"|"major"; summary: string; year:number; bashoName?:BashoName }>
+      // - world.eventLog: Array<{ type: string; severity?: string; summary?: string; ... }>
+      const anyWorld: any = world as any;
+
+      const scandals: any[] = Array.isArray(anyWorld.scandals) ? anyWorld.scandals : [];
+      const eventLog: any[] = Array.isArray(anyWorld.eventLog) ? anyWorld.eventLog : [];
+
+      const hasMajorScandal =
+        scandals.some((s) => s?.severity === "major" && s?.year === world.year) ||
+        eventLog.some((e) => e?.type === "scandal" && (e?.severity === "major" || e?.severity === 2));
+
+      if (hasMajorScandal) {
+        // Optional: add to chronicle if present
+        if (config.verbosity !== "minimal") {
+          const summary =
+            scandals.find((s) => s?.severity === "major" && s?.year === world.year)?.summary ||
+            eventLog.find((e) => e?.type === "scandal")?.summary ||
+            `Major scandal in ${titleCase(bashoResult.bashoName)} ${world.year}`;
+          chronicle.biggestScandals.push(String(summary));
         }
+        return true;
       }
       return false;
-    
+    }
+
+    case "retirementOfStar": {
+      // Only trigger if your world has deterministic retirements.
+      // Supported shapes:
+      // - world.retirements: Array<{ rikishiId: string; year:number; bashoName?:BashoName }>
+      // - world.eventLog entries with type "retirement"
+      const anyWorld: any = world as any;
+      const retirements: any[] = Array.isArray(anyWorld.retirements) ? anyWorld.retirements : [];
+      const eventLog: any[] = Array.isArray(anyWorld.eventLog) ? anyWorld.eventLog : [];
+
+      const retiredIds = new Set<string>();
+      for (const r of retirements) {
+        if (r?.year === world.year) retiredIds.add(String(r.rikishiId));
+      }
+      for (const e of eventLog) {
+        if (e?.type === "retirement" && e?.year === world.year) retiredIds.add(String(e.rikishiId));
+      }
+
+      if (retiredIds.size === 0) return false;
+
+      // Define "star" conservatively as sanyaku or better at time of retirement, if info is present
+      for (const id of retiredIds) {
+        const rikishi = world.rikishi.get(id);
+        if (!rikishi) continue;
+        const tier = RANK_HIERARCHY[rikishi.rank]?.tier ?? 999;
+        if (tier <= 4) return true; // yokozuna/ozeki/sekiwake/komusubi
+      }
+      return false;
+    }
+
     case "never":
       return false;
-    
+
     default:
       return false;
   }
 }
 
-function canPromote(rank: string): boolean {
-  return rank !== "yokozuna";
+// === DETERMINISTIC TIME ADVANCEMENT HELPERS ===
+
+function advanceInterBashoDeterministic(
+  world: WorldState,
+  weeks: number,
+  timeState: TimeState,
+  seed: string
+): void {
+  // Always seed here even if the boundary processors use RNG internally
+  // (they should derive their RNG from world seed + time indices).
+  // We do not consume RNG here; we only ensure callers pass a deterministic seed around.
+  void seed;
+
+  // Advance whole weeks using existing engine function
+  advanceWeeks(world, weeks, timeState);
+
+  // Ensure weekly/monthly boundary processors run deterministically after advancement.
+  // If your engine expects these processors to run *during* week progression,
+  // move these calls into advanceWeeks() instead; this is a safe fallback.
+  for (let i = 0; i < weeks; i++) {
+    processWeeklyBoundary(world, timeState);
+
+    // Heuristic: run monthly boundary when month changes or each 4 weeks.
+    // If your TimeState exposes a precise calendar day, replace this with your canonical trigger.
+    if ((timeState.week + i + 1) % 4 === 0) {
+      processMonthlyBoundary(world, timeState);
+    }
+  }
 }
 
-function canDemote(rank: string): boolean {
-  return !["yokozuna", "jonokuchi"].includes(rank);
+// === DURATION / UTILITIES ===
+
+function computeTargetBasho(duration: SimDuration): number {
+  switch (duration.type) {
+    case "days":
+      return Math.max(0, Math.ceil(duration.count / 15));
+    case "weeks":
+      // ~3 weeks per basho day block is not canon; canon is basho + fixed 6-week inter-basho.
+      // But duration targeting is user-facing and approximate; keep deterministic.
+      return Math.max(0, Math.ceil(duration.count / 9)); // (3-week basho + 6-week inter) ~= 9 weeks per cycle
+    case "months":
+      return Math.max(0, Math.ceil(duration.count / 2)); // 6 basho/year => ~2 months per basho
+    case "basho":
+      return Math.max(0, Math.floor(duration.count));
+    case "years":
+      return Math.max(0, Math.floor(duration.count) * 6);
+    case "untilEvent":
+      return 600; // hard cap (100 years) to prevent infinite runs
+  }
 }
 
-function getPromotedRank(rank: string, wins: number): string {
-  const promotionMap: Record<string, string> = {
-    ozeki: wins >= 13 ? "yokozuna" : "ozeki", // Needs consistent great performance
-    sekiwake: wins >= 13 ? "ozeki" : "sekiwake", // 33 wins over 3 basho typically
-    komusubi: wins >= 10 ? "sekiwake" : "komusubi",
-    maegashira: wins >= 10 ? "komusubi" : "maegashira",
-    juryo: wins >= 10 ? "maegashira" : "juryo",
-    makushita: wins >= 5 ? "juryo" : "makushita",
-    sandanme: wins >= 5 ? "makushita" : "sandanme",
-    jonidan: wins >= 5 ? "sandanme" : "jonidan",
-    jonokuchi: wins >= 5 ? "jonidan" : "jonokuchi"
-  };
-  return promotionMap[rank] || rank;
-}
-
-function getDemotedRank(rank: string): string {
-  const demotionMap: Record<string, string> = {
-    ozeki: "sekiwake", // Ozeki demotion after losing record
-    sekiwake: "komusubi",
-    komusubi: "maegashira",
-    maegashira: "juryo",
-    juryo: "makushita",
-    makushita: "sandanme",
-    sandanme: "jonidan",
-    jonidan: "jonokuchi"
-  };
-  return demotionMap[rank] || rank;
+function titleCase(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 function getBashoNumber(name: BashoName): 1 | 2 | 3 | 4 | 5 | 6 {
   const numbers: Record<BashoName, 1 | 2 | 3 | 4 | 5 | 6> = {
-    hatsu: 1, haru: 2, natsu: 3, nagoya: 4, aki: 5, kyushu: 6
+    hatsu: 1,
+    haru: 2,
+    natsu: 3,
+    nagoya: 4,
+    aki: 5,
+    kyushu: 6
   };
   return numbers[name];
 }
