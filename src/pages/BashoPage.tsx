@@ -128,16 +128,46 @@ export default function BashoPage() {
       </Helmet>
 
       <div className="p-6 max-w-7xl mx-auto space-y-6">
-        {/* Header */}
+        {/* Header with Controls at Top */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-display text-3xl font-bold">{bashoInfo.nameJa}</h1>
             <p className="text-muted-foreground">{dayInfo.dayJa} • {bashoInfo.location}</p>
           </div>
-          <Badge variant="outline" className="text-lg px-4 py-2">
-            Day {basho.day}/15
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="text-lg px-4 py-2">
+              Day {basho.day}/15
+            </Badge>
+            {remainingBouts === 0 && (
+              <Button onClick={handleNextDay} className="gap-2">
+                {basho.day >= 15 ? "End Basho" : "Next Day"} <ChevronRight className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* Current Basho Records */}
+        <Card className="paper">
+          <CardContent className="pt-4">
+            <div className="flex items-center gap-6 overflow-x-auto">
+              <div className="text-sm text-muted-foreground shrink-0">Basho Standings:</div>
+              {standings.slice(0, 8).map((entry, idx) => {
+                const isPlayer = playerRikishiIds.has(entry.rikishi.id);
+                return (
+                  <div 
+                    key={entry.rikishi.id} 
+                    className={`flex items-center gap-2 shrink-0 ${isPlayer ? "text-primary font-semibold" : ""}`}
+                  >
+                    {idx === 0 && <Trophy className="h-4 w-4 text-amber-400" />}
+                    {isPlayer && <Star className="h-3 w-3" fill="currentColor" />}
+                    <span className="font-display">{entry.rikishi.shikona}</span>
+                    <span className="font-mono text-sm">{entry.wins}-{entry.losses}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
 
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Matches */}
@@ -232,11 +262,6 @@ export default function BashoPage() {
                 );
               })}
 
-              {remainingBouts === 0 && (
-                <Button className="w-full mt-4" onClick={handleNextDay}>
-                  {basho.day >= 15 ? "End Basho" : "Next Day"} <ChevronRight className="h-4 w-4" />
-                </Button>
-              )}
             </CardContent>
           </Card>
         </div>

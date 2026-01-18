@@ -303,6 +303,7 @@ function generateTachiai(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
   
   const winnerSide = entry.data?.winner as string;
   const winnerName = winnerSide === "east" ? east.shikona : west.shikona;
+  const loserName = winnerSide === "east" ? west.shikona : east.shikona;
   const margin = entry.data?.margin as number || 0;
   
   // The fan drop - critical moment
@@ -311,17 +312,23 @@ function generateTachiai(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
     
     if (margin > 10) {
       const impactPhrases = [
-        "A violent collision! The sound echoes through the hall!",
-        "They crash together—the sound ripples through the hall!",
-        "An explosive clash! Bodies collide with thunderous force!"
+        `${winnerName} launches forward with a low, powerful charge!`,
+        `An explosive collision! ${winnerName} drives forward with thunderous force!`,
+        `${winnerName} fires from the shikiri-sen like a cannon! The impact echoes through the hall!`,
+        `They crash together—the sound ripples through the rafters! ${winnerName} wins the initial clash!`
       ];
       lines.push(pick(rng, impactPhrases));
-      lines.push(`${winnerName} drives forward—the crowd responds!`);
+      
+      const followupPhrases = [
+        `${loserName} attempts to sidestep but is caught by the charge!`,
+        `${loserName} staggers back from the impact!`,
+        `The crowd gasps as ${loserName} is driven backward!`
+      ];
+      lines.push(pick(rng, followupPhrases));
     } else if (margin > 5) {
-      lines.push("They crash together! Neither gives!");
-      lines.push(`${winnerName} finds the better of it—just.`);
+      lines.push(`They crash together! Neither gives! ${winnerName} finds the better of it—just.`);
     } else {
-      lines.push("A measured clash—evenly matched!");
+      lines.push("A measured clash—evenly matched! Both wrestlers feel each other out.");
     }
   } else if (voiceStyle === "understated") {
     lines.push("The fan drops.");
@@ -351,25 +358,31 @@ function generateClinch(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
   const stance = entry.data?.stance as string || "no-grip";
   const advantage = entry.data?.advantage as string;
   const advantagedName = advantage === "east" ? east.shikona : advantage === "west" ? west.shikona : null;
+  const otherName = advantage === "east" ? west.shikona : advantage === "west" ? east.shikona : null;
   
   switch (stance) {
     case "belt-dominant":
       if (advantagedName) {
         if (voiceStyle === "dramatic") {
-          lines.push(`A murmur spreads—${advantagedName} has the belt!`);
+          const beltPhrases = [
+            `${advantagedName} drives forward with a double-hand thrust (morote-zuki). ${otherName} is pushed back!`,
+            `A murmur spreads—${advantagedName} has secured a deep belt grip!`,
+            `${advantagedName} finds the mawashi! That's exactly what he wanted!`
+          ];
+          lines.push(pick(rng, beltPhrases));
         } else {
-          lines.push(`${advantagedName} secures the mawashi. Deep grip.`);
+          lines.push(`${advantagedName} secures the mawashi. Deep grip established.`);
         }
       } else {
-        lines.push("Both find the belt. A yotsu battle now.");
+        lines.push("Both find the belt. A yotsu battle now—this could be a long one.");
       }
       break;
       
     case "push-dominant":
       if (voiceStyle === "dramatic") {
-        lines.push("No belt work here—pure oshi-zumo!");
+        lines.push("No belt work here—pure oshi-zumo! Hands at the chest!");
         if (advantagedName) {
-          lines.push(`${advantagedName} presses, hands driving at the chest!`);
+          lines.push(`${advantagedName} presses, palms driving at the throat and chest!`);
         }
       } else {
         lines.push("They settle into a pushing exchange.");
@@ -377,19 +390,27 @@ function generateClinch(ctx: NarrativeContext, entry: BoutLogEntry): string[] {
       break;
       
     case "migi-yotsu":
-      lines.push("Migi-yotsu—right hand inside for both.");
+      if (voiceStyle === "dramatic") {
+        lines.push(`${advantagedName || east.shikona} successfully secures a right-hand inside grip (migi-yotsu)!`);
+      } else {
+        lines.push("Migi-yotsu—right hand inside for both.");
+      }
       if (advantagedName) {
         lines.push(`${advantagedName} has the better angle.`);
       }
       break;
       
     case "hidari-yotsu":
-      lines.push("Hidari-yotsu position. Left hands in.");
+      if (voiceStyle === "dramatic") {
+        lines.push("Hidari-yotsu position established! Left hands locked inside!");
+      } else {
+        lines.push("Hidari-yotsu position. Left hands in.");
+      }
       break;
       
     default:
       if (voiceStyle === "dramatic") {
-        lines.push("They struggle for position—neither can settle!");
+        lines.push("They struggle for position—neither can settle! Hands slapping at arms and shoulders!");
       } else {
         lines.push("No clear grip established yet.");
       }
@@ -409,7 +430,12 @@ function generateMomentum(ctx: NarrativeContext, entry: BoutLogEntry): string[] 
   // Position descriptions - center→edge language axis
   if (position === "edge" || position === "straw") {
     if (voiceStyle === "dramatic") {
-      lines.push("They drift toward the edge—voices rising!");
+      const edgePhrases = [
+        "They drift toward the edge—voices rising in the crowd!",
+        "Near the tawara now! The straw bales loom!",
+        "The bout moves dangerously close to the edge!"
+      ];
+      lines.push(pick(rng, edgePhrases));
     } else if (voiceStyle === "formal") {
       lines.push("The bout moves to the tawara.");
     } else {
@@ -417,11 +443,15 @@ function generateMomentum(ctx: NarrativeContext, entry: BoutLogEntry): string[] 
     }
   } else if (position === "lateral") {
     const mover = east.speed > west.speed ? east.shikona : west.shikona;
-    lines.push(`${mover} angles sideways—seeking advantage!`);
+    if (voiceStyle === "dramatic") {
+      lines.push(`${mover} uses his opponent's forward momentum against him! A lateral pivot!`);
+    } else {
+      lines.push(`${mover} angles sideways—seeking advantage!`);
+    }
   } else if (position === "rear") {
     const winnerName = result.winner === "east" ? east.shikona : west.shikona;
     if (voiceStyle === "dramatic") {
-      lines.push(`${winnerName} circles behind! Dangerous position!`);
+      lines.push(`${winnerName} circles behind! Dangerous position for his opponent!`);
     } else {
       lines.push(`${winnerName} finds the back.`);
     }
@@ -431,7 +461,12 @@ function generateMomentum(ctx: NarrativeContext, entry: BoutLogEntry): string[] 
   if (recovery) {
     const trailingName = result.winner === "east" ? west.shikona : east.shikona;
     if (voiceStyle === "dramatic") {
-      lines.push(`${trailingName} gives ground but stays balanced!`);
+      const recoveryPhrases = [
+        `${trailingName} plants his feet at the straw bales! He refuses to go quietly!`,
+        `${trailingName} gives ground but stays balanced! Still in this!`,
+        `Remarkable recovery by ${trailingName}! He absorbs the pressure and pushes back!`
+      ];
+      lines.push(pick(rng, recoveryPhrases));
       if (crowdStyle === "intimate" || crowdStyle === "responsive") {
         lines.push("The crowd holds its breath!");
       }
@@ -448,9 +483,9 @@ function generateMomentum(ctx: NarrativeContext, entry: BoutLogEntry): string[] 
   if (leadingName && rng() > 0.4) {
     if (voiceStyle === "dramatic") {
       const phrases = [
-        `${leadingName} presses forward!`,
-        `${leadingName} surges—feeling it now!`,
-        `The pressure from ${leadingName} is relentless!`
+        `${leadingName} surges forward—relentless pressure!`,
+        `The pressure from ${leadingName} is unrelenting! Step by step!`,
+        `${leadingName} drives! His legs churning against the clay!`
       ];
       lines.push(pick(rng, phrases));
     } else if (voiceStyle === "formal") {
@@ -468,17 +503,18 @@ function generateTurningPoint(ctx: NarrativeContext): string[] {
   const { voiceStyle, east, west, result, rng } = ctx;
   const lines: string[] = [];
   
+  const winnerName = result.winner === "east" ? east.shikona : west.shikona;
   const loserName = result.winner === "east" ? west.shikona : east.shikona;
   
   // Per Constitution - turning points: hesitation, grip break, reset failure
   if (voiceStyle === "dramatic") {
     const turningPoints = [
-      `${loserName} hesitates—just a moment!`,
-      "A hesitation—just enough!",
-      `A grip slips! The balance shifts!`,
-      `${loserName} tries to reset—too late!`,
-      `The legs give! There's nothing left!`,
-      `One step too far—the opening appears!`
+      `${loserName} hesitates—just a moment! That's all ${winnerName} needs!`,
+      `${loserName} loses balance and touches the clay!`,
+      `A grip slips! The balance shifts—this is it!`,
+      `${loserName} tries to reset—too late! The opening appears!`,
+      `The legs give! There's nothing left in the tank!`,
+      `${winnerName} uses ${loserName}'s forward momentum against him!`
     ];
     lines.push(pick(rng, turningPoints));
   } else if (voiceStyle === "formal") {

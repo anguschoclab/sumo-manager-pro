@@ -211,8 +211,8 @@ export function simulateEntireBasho(
     const rikishi = world.rikishi.get(id);
     if (!rikishi) continue;
     
-    const kk = isKachiKoshi(record.wins, record.losses);
-    const mk = isMakeKoshi(record.wins, record.losses);
+    const kk = isKachiKoshi(record.wins, record.losses, rikishi.rank);
+    const mk = isMakeKoshi(record.wins, record.losses, rikishi.rank);
     
     if (kk && canPromote(rikishi.rank)) {
       const newRank = getPromotedRank(rikishi.rank, record.wins);
