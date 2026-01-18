@@ -1,11 +1,28 @@
+// mockData.ts
 // Mock rikishi data for testing the bout engine
+//
+// FIXES:
+// - No Math.random() (keeps determinism)
+// - Imports aligned to your updated types
+// - Avoids relying on initializeEconomics signature quirks
+// - Adds missing required fields safely (rankNumber only where needed)
+// - Deterministic helpers accept seed
 
-import type { Rikishi, TacticalArchetype, RikishiEconomics } from "./types";
+import seedrandom from "seedrandom";
+import type { Rikishi, TacticalArchetype, RikishiEconomics, Rank } from "./types";
 import { initializeEconomics } from "./economics";
 
 // Helper to create economics with custom values
 function createEconomics(overrides: Partial<RikishiEconomics> = {}): RikishiEconomics {
   return { ...initializeEconomics(), ...overrides };
+}
+
+// Helper: ensure rankNumber only for numbered ranks
+function maybeRankNumber(rank: Rank, n?: number): number | undefined {
+  if (rank === "maegashira" || rank === "juryo" || rank === "makushita" || rank === "sandanme" || rank === "jonidan" || rank === "jonokuchi") {
+    return n;
+  }
+  return undefined;
 }
 
 // Sample rikishi with tactical archetypes and economics
@@ -32,6 +49,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "yotsu_specialist",
     division: "makuuchi",
     rank: "yokozuna",
+    rankNumber: maybeRankNumber("yokozuna"),
     side: "east",
     careerWins: 1045,
     careerLosses: 198,
@@ -44,8 +62,9 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 2450,
       kinboshiCount: 0,
       totalEarnings: 320_000_000,
-      popularity: 95
-    })
+      popularity: 95,
+      currentBashoEarnings: 0,
+    }),
   },
   {
     id: "kaiou",
@@ -69,6 +88,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "oshi_specialist",
     division: "makuuchi",
     rank: "ozeki",
+    rankNumber: maybeRankNumber("ozeki"),
     side: "west",
     careerWins: 756,
     careerLosses: 312,
@@ -81,8 +101,9 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 1120,
       kinboshiCount: 0,
       totalEarnings: 145_000_000,
-      popularity: 78
-    })
+      popularity: 78,
+      currentBashoEarnings: 0,
+    }),
   },
   {
     id: "wakatora",
@@ -106,6 +127,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "speedster",
     division: "makuuchi",
     rank: "sekiwake",
+    rankNumber: maybeRankNumber("sekiwake"),
     side: "east",
     careerWins: 312,
     careerLosses: 178,
@@ -118,8 +140,9 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 380,
       kinboshiCount: 2,
       totalEarnings: 48_000_000,
-      popularity: 72
-    })
+      popularity: 72,
+      currentBashoEarnings: 0,
+    }),
   },
   {
     id: "takanofuji",
@@ -143,6 +166,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "all_rounder",
     division: "makuuchi",
     rank: "komusubi",
+    rankNumber: maybeRankNumber("komusubi"),
     side: "west",
     careerWins: 445,
     careerLosses: 289,
@@ -155,8 +179,9 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 520,
       kinboshiCount: 1,
       totalEarnings: 62_000_000,
-      popularity: 58
-    })
+      popularity: 58,
+      currentBashoEarnings: 0,
+    }),
   },
   {
     id: "tochinoshin",
@@ -180,7 +205,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "yotsu_specialist",
     division: "makuuchi",
     rank: "maegashira",
-    rankNumber: 1,
+    rankNumber: maybeRankNumber("maegashira", 1),
     side: "east",
     careerWins: 567,
     careerLosses: 423,
@@ -193,8 +218,9 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 780,
       kinboshiCount: 3,
       totalEarnings: 95_000_000,
-      popularity: 82
-    })
+      popularity: 82,
+      currentBashoEarnings: 0,
+    }),
   },
   {
     id: "enho",
@@ -218,7 +244,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "trickster",
     division: "makuuchi",
     rank: "maegashira",
-    rankNumber: 8,
+    rankNumber: maybeRankNumber("maegashira", 8),
     side: "west",
     careerWins: 234,
     careerLosses: 187,
@@ -231,8 +257,9 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 290,
       kinboshiCount: 4,
       totalEarnings: 32_000_000,
-      popularity: 88  // Fan favorite
-    })
+      popularity: 88, // fan favorite
+      currentBashoEarnings: 0,
+    }),
   },
   {
     id: "asanoyama",
@@ -256,7 +283,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "all_rounder",
     division: "makuuchi",
     rank: "maegashira",
-    rankNumber: 2,
+    rankNumber: maybeRankNumber("maegashira", 2),
     side: "east",
     careerWins: 398,
     careerLosses: 267,
@@ -269,8 +296,9 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 410,
       kinboshiCount: 2,
       totalEarnings: 52_000_000,
-      popularity: 65
-    })
+      popularity: 65,
+      currentBashoEarnings: 0,
+    }),
   },
   {
     id: "takakeisho",
@@ -294,6 +322,7 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
     archetype: "oshi_specialist",
     division: "makuuchi",
     rank: "ozeki",
+    rankNumber: maybeRankNumber("ozeki"),
     side: "east",
     careerWins: 512,
     careerLosses: 298,
@@ -306,18 +335,29 @@ export const SAMPLE_RIKISHI: Rikishi[] = [
       careerKenshoWon: 980,
       kinboshiCount: 0,
       totalEarnings: 125_000_000,
-      popularity: 75
-    })
-  }
+      popularity: 75,
+      currentBashoEarnings: 0,
+    }),
+  },
 ];
 
 export function getRikishiById(id: string): Rikishi | undefined {
   return SAMPLE_RIKISHI.find(r => r.id === id);
 }
 
-export function getRandomRikishiPair(): [Rikishi, Rikishi] {
-  const shuffled = [...SAMPLE_RIKISHI].sort(() => Math.random() - 0.5);
-  return [shuffled[0], shuffled[1]];
+/**
+ * Deterministic pair (no Math.random).
+ * Use a seed you control, e.g. `getRandomRikishiPair(world.seed + "-test")`
+ */
+export function getRandomRikishiPair(seed: string = "mock-pair"): [Rikishi, Rikishi] {
+  const rng = seedrandom(seed);
+  const idxA = Math.floor(rng() * SAMPLE_RIKISHI.length);
+
+  // ensure different
+  let idxB = Math.floor(rng() * (SAMPLE_RIKISHI.length - 1));
+  if (idxB >= idxA) idxB += 1;
+
+  return [SAMPLE_RIKISHI[idxA], SAMPLE_RIKISHI[idxB]];
 }
 
 // Get rikishi by archetype for testing
