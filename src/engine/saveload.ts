@@ -7,6 +7,10 @@
 // - Non-lossy migration fills missing fields (e.g., economics.cash) without deleting unknown fields.
 // - Stable Map serialization (sorted keys).
 // - Preserves createdAtISO when overwriting a slot.
+//
+// IMPORTANT:
+// - This module does NOT import from index.ts (barrel). Leaf import only.
+// - This keeps migrations "non-lossy": we never delete unknown keys; we only fill missing required ones.
 
 import type {
   WorldState,
@@ -14,25 +18,16 @@ import type {
   Rikishi,
   BashoState,
   SaveVersion,
-  BashoResult,
-  FTUEState,
-  BanzukeSnapshot,
   BashoName,
   Id,
   SaveGame,
   SerializedWorldState,
   SerializedBashoState
 } from "./types";
-import { CURRENT_SAVE_VERSION } from "./types"; // if you don't export this, remove and use literal "1.0.0"
-
-// If you do NOT export CURRENT_SAVE_VERSION from types.ts, use:
-const FALLBACK_SAVE_VERSION: SaveVersion = "1.0.0";
-const CURRENT_VERSION: SaveVersion = (typeof CURRENT_SAVE_VERSION === "string"
-  ? (CURRENT_SAVE_VERSION as SaveVersion)
-  : FALLBACK_SAVE_VERSION);
+import { CURRENT_SAVE_VERSION } from "./types";
 
 // === SAVE VERSION ===
-export const CURRENT_SAVE_VERSION_LOCAL: SaveVersion = CURRENT_VERSION;
+export const CURRENT_SAVE_VERSION_LOCAL: SaveVersion = CURRENT_SAVE_VERSION;
 
 // Canon: project is Basho
 const SAVE_KEY_PREFIX = "basho_save_";
@@ -60,7 +55,8 @@ function mapToObject<T>(map: Map<string, T>): Record<string, T> {
 
 function objectToMap<T>(obj: Record<string, T>): Map<string, T> {
   const map = new Map<string, T>();
-  for (const key of Object.keys(obj)) map.set(key, obj[key]);
+  // stable: keys in JS objects are not guaranteed sorted, so we sort
+  for (const key of Object.keys(obj).sort()) map.set(key, obj[key]);
   return map;
 }
 
@@ -122,7 +118,7 @@ function sanitizeRikishi(r: Rikishi): Rikishi {
     if (typeof anyR.economics.popularity !== "number") anyR.economics.popularity = 30;
   }
 
-  // fatigue is optional; if present, clamp it into range
+  // fatigue is optional; if present clamp it
   if (typeof anyR.fatigue === "number") {
     anyR.fatigue = Math.max(0, Math.min(100, anyR.fatigue));
   }
@@ -138,8 +134,8 @@ function sanitizeHeya(h: Heya): Heya {
 
 export function deserializeWorld(serialized: SerializedWorldState): WorldState {
   // Sanitize objects as we materialize them into Maps (non-lossy)
-  const heyasObj: Record<string, Heya> = serialized.heyas || {};
-  const rikishiObj: Record<string, Rikishi> = serialized.rikishi || {};
+  const heyasObj: Record<string, Heya> = (serialized as any).heyas || {};
+  const rikishiObj: Record<string, Rikishi> = (serialized as any).rikishi || {};
 
   for (const k of Object.keys(heyasObj)) sanitizeHeya(heyasObj[k]);
   for (const k of Object.keys(rikishiObj)) sanitizeRikishi(rikishiObj[k]);
@@ -184,7 +180,7 @@ function isSerializedSaveGame(x: any): x is SaveGame {
 type MigrationFn = (save: SaveGame) => SaveGame;
 
 const MIGRATIONS: Record<string, MigrationFn> = {
-  // Add as needed, e.g.:
+  // Add as needed:
   // "0.9.0->1.0.0": (save) => ({ ...save, version: "1.0.0" as SaveVersion })
 };
 
@@ -411,6 +407,11 @@ export function getAvailableSlotNames(): string[] {
   return Array.from({ length: SAVE_SLOT_COUNT }, (_, i) => `slot_${i + 1}`);
 }
 
+/**
+ * Quick save:
+ * - uses first empty numbered slot
+ * - else overwrites oldest numbered slot (not autosave)
+ */
 export function quickSave(world: WorldState): boolean {
   const infos = getSaveSlotInfos().filter((s) => /^slot_\d+$/.test(s.slotName));
   const existing = new Set(infos.map((s) => s.slotName));
