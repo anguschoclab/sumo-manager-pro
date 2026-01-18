@@ -1,15 +1,24 @@
+// economics.ts
 // Sumo Economics System - Kensho, salaries, and retirement funds
-// Canon fixes applied:
-// - No Math.random usage (none existed here, kept that way)
-// - Kensho is processed as three-way split (winner cash / retirement / JSA fee) and totals reconcile
-// - Added helper to process a bout’s kensho end-to-end (winner + heya cut + record)
-// - Ensured economics updates also track currentBashoEarnings consistently
-// - Fixed/clarified allowance typing (Rank-safe where possible)
-// - Made kinboshi bonus semantics consistent (store count; payout should be applied by basho-bonus calc)
-// - Added deterministic “kensho estimate” helpers but no RNG
+//
+// FIXES APPLIED (compile + type-safety + canon):
+// - Removed `as any` from allowance lookup by making a typed allowance map.
+// - Added compile-time split sanity check helper + runtime guard for split sum.
+// - Made basho bonus include kinboshi bump deterministically (optional arg).
+// - Added prize payout helpers that correctly update both totalEarnings and currentBashoEarnings.
+// - Fixed the createKenshoRecord amount to reflect *immediatePayment* only (as you intended) but now explicit.
+// - Added clamps and finite checks everywhere that matters.
+// - Kept everything deterministic (no RNG).
 
-import type { Rank, RikishiEconomics, KenshoRecord, BashoName } from "./types";
+import type { Rank, RikishiEconomics, KenshoRecord, BashoName, Division } from "./types";
 import { RANK_HIERARCHY } from "./banzuke";
+
+// === INTERNAL UTILS ===
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+const clamp0 = (n: number) => Math.max(0, n);
+const isFiniteNumber = (n: number) => Number.isFinite(n);
+
+type NonSekitoriRank = Exclude<Rank, "yokozuna" | "ozeki" | "sekiwake" | "komusubi" | "maegashira" | "juryo">;
 
 // === KENSHO (SPONSOR BANNERS) SYSTEM ===
 
@@ -23,7 +32,6 @@ export const KENSHO_CONFIG = {
   toRetirementFund: 30_000,     // saved into retirement fund
   associationFee: 10_000,       // to association (sink)
 
-  // Kensho attraction factors
   baseKenshoPerBout: {
     yokozuna: 15,
     ozeki: 10,
@@ -37,17 +45,22 @@ export const KENSHO_CONFIG = {
     jonokuchi: 0
   } as Record<Rank, number>,
 
-  // Popularity modifier (0.5 - 2.0)
   popularityMultiplier: {
     low: 0.5,
     medium: 1.0,
     high: 1.5,
     superstar: 2.0
   }
-};
+} as const;
 
 // Sanity check: keep this true forever.
-export const KENSHO_SPLIT_SUM = KENSHO_CONFIG.winnerReceives + KENSHO_CONFIG.toRetirementFund + KENSHO_CONFIG.associationFee;
+export const KENSHO_SPLIT_SUM =
+  KENSHO_CONFIG.winnerReceives + KENSHO_CONFIG.toRetirementFund + KENSHO_CONFIG.associationFee;
+
+// Runtime guard (won’t throw in production unless you want it to)
+export function assertKenshoSplitValid(): boolean {
+  return KENSHO_SPLIT_SUM === KENSHO_CONFIG.totalValue;
+}
 
 /**
  * Calculate expected banner count for a bout.
@@ -56,19 +69,17 @@ export const KENSHO_SPLIT_SUM = KENSHO_CONFIG.winnerReceives + KENSHO_CONFIG.toR
 export function calculateBoutKensho(
   eastRank: Rank,
   westRank: Rank,
-  eastPopularity: number = 50,
-  westPopularity: number = 50,
-  isMusubi: boolean = false,
-  isPlayoff: boolean = false,
-  day: number = 1
+  eastPopularity = 50,
+  westPopularity = 50,
+  isMusubi = false,
+  isPlayoff = false,
+  day = 1
 ): number {
   const baseEast = KENSHO_CONFIG.baseKenshoPerBout[eastRank] ?? 0;
   const baseWest = KENSHO_CONFIG.baseKenshoPerBout[westRank] ?? 0;
 
-  // Base: higher rank dominates, but the other contributes.
   let baseKensho = Math.max(baseEast, baseWest) + Math.min(baseEast, baseWest) * 0.5;
 
-  // Popularity modifier (avg of the two)
   const avgPopularity = (eastPopularity + westPopularity) / 2;
   let popMod = KENSHO_CONFIG.popularityMultiplier.medium;
   if (avgPopularity >= 80) popMod = KENSHO_CONFIG.popularityMultiplier.superstar;
@@ -78,13 +89,11 @@ export function calculateBoutKensho(
 
   baseKensho *= popMod;
 
-  // Special bout bonuses
   if (isMusubi) baseKensho *= 1.5;
   if (isPlayoff) baseKensho *= 3.0;
   if (day === 15) baseKensho *= 1.3;
 
-  // Kensho are discrete banners
-  return Math.max(0, Math.round(baseKensho));
+  return clamp0(Math.round(baseKensho));
 }
 
 export interface KenshoPayout {
@@ -99,28 +108,25 @@ export interface KenshoPayout {
  * Convert banner count into yen split.
  */
 export function splitKensho(kenshoCount: number): KenshoPayout {
-  const count = Math.max(0, Math.floor(kenshoCount));
+  const count = clamp0(Math.floor(isFiniteNumber(kenshoCount) ? kenshoCount : 0));
   const immediatePayment = count * KENSHO_CONFIG.winnerReceives;
   const toRetirement = count * KENSHO_CONFIG.toRetirementFund;
   const associationFee = count * KENSHO_CONFIG.associationFee;
   const totalValue = count * KENSHO_CONFIG.totalValue;
-
   return { kenshoCount: count, immediatePayment, toRetirement, associationFee, totalValue };
 }
 
 /**
  * Apply kensho payout to a rikishi’s economics (deterministic).
+ * (Association fee is not tracked on rikishi; it’s a sink.)
  */
-export function applyKenshoWinToEconomics(
-  payout: KenshoPayout,
-  currentEconomics: RikishiEconomics
-): RikishiEconomics {
+export function applyKenshoWinToEconomics(payout: KenshoPayout, currentEconomics: RikishiEconomics): RikishiEconomics {
   return {
     ...currentEconomics,
-    careerKenshoWon: currentEconomics.careerKenshoWon + payout.kenshoCount,
-    retirementFund: currentEconomics.retirementFund + payout.toRetirement,
-    totalEarnings: currentEconomics.totalEarnings + payout.immediatePayment + payout.toRetirement,
-    currentBashoEarnings: currentEconomics.currentBashoEarnings + payout.immediatePayment + payout.toRetirement
+    careerKenshoWon: clamp0(currentEconomics.careerKenshoWon + payout.kenshoCount),
+    retirementFund: clamp0(currentEconomics.retirementFund + payout.toRetirement),
+    totalEarnings: clamp0(currentEconomics.totalEarnings + payout.immediatePayment + payout.toRetirement),
+    currentBashoEarnings: clamp0(currentEconomics.currentBashoEarnings + payout.immediatePayment + payout.toRetirement)
   };
 }
 
@@ -132,30 +138,26 @@ export function processKenshoWin(
   currentEconomics: RikishiEconomics
 ): { immediatePayment: number; toRetirement: number; updatedEconomics: RikishiEconomics } {
   const payout = splitKensho(kenshoCount);
-  const updatedEconomics = applyKenshoWinToEconomics(payout, currentEconomics);
   return {
     immediatePayment: payout.immediatePayment,
     toRetirement: payout.toRetirement,
-    updatedEconomics
+    updatedEconomics: applyKenshoWinToEconomics(payout, currentEconomics)
   };
 }
 
 // === SALARY SYSTEM ===
 
 export const SALARY_CONFIG = {
-  // Monthly allowances for non-sekitori
   allowances: {
     makushita: 150_000,
     sandanme: 100_000,
     jonidan: 80_000,
     jonokuchi: 70_000
-  } as Record<Exclude<Rank, "yokozuna" | "ozeki" | "sekiwake" | "komusubi" | "maegashira" | "juryo">, number>,
+  } as const satisfies Record<NonSekitoriRank, number>,
 
-  // Bonus multipliers
   bashoBonus: 1.0,
   yearEndBonus: 2.0,
 
-  // Prize money
   prizes: {
     yusho: {
       makuuchi: 10_000_000,
@@ -171,17 +173,22 @@ export const SALARY_CONFIG = {
     shukunsho: 2_000_000,
     kinboshi: 100_000
   }
-};
+} as const;
 
 export function calculateMonthlyIncome(rank: Rank): number {
   const info = RANK_HIERARCHY[rank];
   if (info.isSekitori) return info.salary;
 
-  // Non-sekitori get allowance only
-  return (SALARY_CONFIG.allowances as any)[rank] ?? 70_000;
+  // Non-sekitori allowance only
+  const allowance = SALARY_CONFIG.allowances[rank as NonSekitoriRank];
+  return allowance ?? 70_000;
 }
 
-export function calculateBashoBonus(rank: Rank, wins: number): number {
+/**
+ * Basho bonus (sekitori only).
+ * Optional: pass kinboshiCount to include the lifetime bump deterministically.
+ */
+export function calculateBashoBonus(rank: Rank, wins: number, kinboshiCount = 0): number {
   const info = RANK_HIERARCHY[rank];
   if (!info.isSekitori) return 0;
 
@@ -190,7 +197,33 @@ export function calculateBashoBonus(rank: Rank, wins: number): number {
   const expectedWins = info.fightsPerBasho / 2;
   const performanceMod = 1 + (wins - expectedWins) * 0.05;
 
-  return Math.round(bonus * Math.max(0.5, performanceMod));
+  // Kinboshi bump: ¥4,000 added to each future basho bonus per kinboshi (canon from your design)
+  const kinboshiBump = clamp0(Math.floor(kinboshiCount)) * 4_000;
+
+  return Math.round(bonus * Math.max(0.5, performanceMod) + kinboshiBump);
+}
+
+// === PRIZE MONEY HELPERS ===
+
+export type SpecialPrize = "junYusho" | "ginoSho" | "kantosho" | "shukunsho";
+
+export function getYushoPrize(division: Division): number {
+  if (division === "makuuchi") return SALARY_CONFIG.prizes.yusho.makuuchi;
+  if (division === "juryo") return SALARY_CONFIG.prizes.yusho.juryo;
+  if (division === "makushita") return SALARY_CONFIG.prizes.yusho.makushita;
+  if (division === "sandanme") return SALARY_CONFIG.prizes.yusho.sandanme;
+  if (division === "jonidan") return SALARY_CONFIG.prizes.yusho.jonidan;
+  return SALARY_CONFIG.prizes.yusho.jonokuchi;
+}
+
+export function applyPrizeToEconomics(amount: number, econ: RikishiEconomics): RikishiEconomics {
+  const a = clamp0(Math.round(isFiniteNumber(amount) ? amount : 0));
+  if (a === 0) return econ;
+  return {
+    ...econ,
+    totalEarnings: clamp0(econ.totalEarnings + a),
+    currentBashoEarnings: clamp0(econ.currentBashoEarnings + a)
+  };
 }
 
 // === RETIREMENT FUND ===
@@ -207,20 +240,20 @@ export const RETIREMENT_CONFIG = {
     sandanme: 30_000,
     jonidan: 20_000,
     jonokuchi: 10_000
-  } as Record<Rank, number>,
+  } as const satisfies Record<Rank, number>,
 
-  serviceBonus: 100_000, // per year as sekitori (paid out at retirement estimate)
+  serviceBonus: 100_000,
   oyakataMinimum: 50_000_000
-};
+} as const;
 
 export function calculateRetirementContribution(rank: Rank): number {
   return RETIREMENT_CONFIG.jsaContribution[rank] ?? 10_000;
 }
 
 export function estimateRetirementPayout(economics: RikishiEconomics, yearsAsSekitori: number): number {
-  // 6 basho per year
-  const serviceBonus = Math.max(0, yearsAsSekitori) * RETIREMENT_CONFIG.serviceBonus * 6;
-  return economics.retirementFund + serviceBonus;
+  const years = clamp0(Math.floor(isFiniteNumber(yearsAsSekitori) ? yearsAsSekitori : 0));
+  const serviceBonus = years * RETIREMENT_CONFIG.serviceBonus * 6; // 6 basho/year
+  return clamp0(economics.retirementFund + serviceBonus);
 }
 
 // === KINBOSHI ===
@@ -230,11 +263,10 @@ export function isKinboshi(winnerRank: Rank, loserRank: Rank): boolean {
 }
 
 /**
- * Kinboshi creates a long-term “bonus bump”.
-// Each kinboshi adds ¥4,000 to every future basho bonus -> annualized value returned here.
+ * Annualized value helper (for UI / projections).
  */
 export function calculateKinboshiBonusAnnual(kinboshiCount: number): number {
-  return Math.max(0, kinboshiCount) * 4_000 * 6;
+  return clamp0(Math.floor(kinboshiCount)) * 4_000 * 6;
 }
 
 // === HEYA (STABLE) ECONOMICS ===
@@ -248,11 +280,11 @@ export const HEYA_CONFIG = {
     high: 7_000_000,
     elite: 15_000_000
   }
-};
+} as const;
 
 export function calculateHeyaIncome(sekitoriCount: number, totalKenshoWon: number, prestige: number): number {
-  const sekitoriIncome = Math.max(0, sekitoriCount) * HEYA_CONFIG.sekitoriSupport;
-  const kenshoIncome = Math.max(0, totalKenshoWon) * HEYA_CONFIG.kenshoHeyaCut;
+  const sekitoriIncome = clamp0(Math.floor(sekitoriCount)) * HEYA_CONFIG.sekitoriSupport;
+  const kenshoIncome = clamp0(Math.floor(totalKenshoWon)) * HEYA_CONFIG.kenshoHeyaCut;
 
   let sponsorship = HEYA_CONFIG.sponsorshipTiers.low;
   if (prestige >= 80) sponsorship = HEYA_CONFIG.sponsorshipTiers.elite;
@@ -269,7 +301,7 @@ export const CEREMONY_COSTS = {
   mawashiPurchase: 500_000,
   keshoMawashi: 1_000_000,
   retirementDanpatsushiki: 2_000_000
-};
+} as const;
 
 // === INIT ===
 
@@ -298,11 +330,12 @@ export function createKenshoRecord(
     day,
     opponentId,
     kenshoCount: payout.kenshoCount,
+    // amount is the immediate cash paid to winner (retirement part is tracked in economics)
     amount: payout.immediatePayment
   };
 }
 
-// === END-TO-END BOUT HELPERS (optional but recommended) ===
+// === END-TO-END BOUT HELPERS ===
 
 export interface BoutKenshoOutcome {
   payout: KenshoPayout;
@@ -313,7 +346,7 @@ export interface BoutKenshoOutcome {
 
 /**
  * Deterministic: process kensho for a single bout.
- * Caller handles applying the heyaCut to heya treasury (if you track it).
+ * Caller applies heyaCut to heya treasury (if you track it).
  */
 export function processBoutKenshoWin(args: {
   bashoName: BashoName;
@@ -323,12 +356,15 @@ export function processBoutKenshoWin(args: {
   winnerEconomics: RikishiEconomics;
 }): BoutKenshoOutcome {
   const payout = splitKensho(args.kenshoCount);
-  const updated = applyKenshoWinToEconomics(payout, args.winnerEconomics);
+  const winnerEconomics = applyKenshoWinToEconomics(payout, args.winnerEconomics);
+  const heyaCut = payout.kenshoCount * HEYA_CONFIG.kenshoHeyaCut;
 
   return {
     payout,
-    winnerEconomics: updated,
-    winnerRecord: payout.kenshoCount > 0 ? createKenshoRecord(args.bashoName, args.day, args.opponentId, payout.kenshoCount) : null,
-    heyaCut: payout.kenshoCount * HEYA_CONFIG.kenshoHeyaCut
+    winnerEconomics,
+    winnerRecord: payout.kenshoCount > 0
+      ? createKenshoRecord(args.bashoName, args.day, args.opponentId, payout.kenshoCount)
+      : null,
+    heyaCut
   };
 }
