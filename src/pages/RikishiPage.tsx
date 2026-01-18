@@ -1,13 +1,15 @@
+// RikishiPage.tsx
 // Rikishi Profile Page - Individual wrestler details with fog of war
 // Per Scouting Doc: "You never know the truth — only what the ring has allowed you to see."
 //
-// UPDATES APPLIED:
-// - Canon rename alignment: Basho (no legacy strings)
-// - Fixed favored kimarite lookup (registry is typically Record or array; support both safely)
-// - Fog-of-war: temperament/experience/conditioning now respect scouting unless owned
-// - Removed unused imports (SIDE_NAMES, Eye/EyeOff/HelpCircle, etc.)
-// - Safer narrative fallbacks if scouting layer returns undefined fields
-// - Avoid hard-coded scouting percent: use small baseline + confidence weight
+// FIXES APPLIED (runtime + canon):
+// - Works with updated scouting.ts: getScoutedAttributes(scouted, rikishi, seed)
+// - Uses world.seed for deterministic fog (fallback-safe)
+// - Fixes createScoutedView signature (obsCount + investment + currentWeek)
+// - Removes broken “soft trait” placeholders (temperamentNarrative, etc.) and uses scoutedAttrs instead
+// - Ensures rankNames fallback + avoids undefined lookups
+// - Keeps favored kimarite lookup compatible with registry being array OR record
+// - Keeps non-owned narratives fogged without crashing
 
 import { Helmet } from "react-helmet";
 import { useNavigate, useParams } from "react-router-dom";
@@ -36,16 +38,20 @@ import {
   ARCHETYPE_NAMES,
   createScoutedView,
   getScoutedAttributes,
-  describeScoutingLevel
+  describeScoutingLevel,
+  type ScoutingInvestment
 } from "@/engine/scouting";
 import { ArrowLeft, Ruler, Scale, Swords, Activity, Flame, Zap, Shield, Target, Search } from "lucide-react";
 
 function findKimariteById(id: string) {
-  // Support both array and record-style registries
   const anyReg = KIMARITE_REGISTRY as any;
   if (Array.isArray(anyReg)) return anyReg.find((k) => k?.id === id) || null;
   if (anyReg && typeof anyReg === "object") return anyReg[id] || null;
   return null;
+}
+
+function safeStr(v: any, fallback = ""): string {
+  return typeof v === "string" ? v : fallback;
 }
 
 export default function RikishiPage() {
@@ -66,23 +72,35 @@ export default function RikishiPage() {
   }
 
   const heya = world.heyas.get(rikishi.heyaId);
-  const rankNames = RANK_NAMES[rikishi.rank];
+
+  const rankNames = RANK_NAMES[rikishi.rank] || { ja: safeStr((RANK_HIERARCHY as any)?.[rikishi.rank]?.nameJa, rikishi.rank), en: rikishi.rank };
   const careerPhase = getCareerPhase(rikishi.experience);
 
   // Scouting - own stable wrestlers are fully scouted
   const isOwned = rikishi.heyaId === playerHeyaId;
 
-  // Baseline intel for non-owned; keep small but nonzero so UI works early
-  const baselineIntel = 8;
+  // Small baseline intel for non-owned so UI doesn't feel empty early game
+  const baselineObserved = 1; // 1 watched bout worth of intel
+  const baselineInvestment: ScoutingInvestment = "none";
+  const currentWeek = (world as any).week ?? 0;
 
-  const scouted = createScoutedView(rikishi, playerHeyaId, isOwned ? 100 : baselineIntel);
-  const scoutedAttrs = getScoutedAttributes(scouted);
+  const scouted = createScoutedView(
+    rikishi,
+    playerHeyaId ?? null,
+    isOwned ? 999 : baselineObserved,
+    baselineInvestment,
+    currentWeek
+  );
+
+  // IMPORTANT: pass truth + seed for deterministic fog + no undefined crashes
+  const seed = (world as any).seed || `world-${(world as any).id || "unknown"}`;
+  const scoutedAttrs = getScoutedAttributes(scouted, rikishi, seed);
   const scoutingInfo = describeScoutingLevel(scouted.scoutingLevel);
 
   // Favored kimarite names (safe)
   const favoredMoves =
     (rikishi.favoredKimarite || [])
-      .map((kid) => findKimariteById(kid))
+      .map((kid: string) => findKimariteById(kid))
       .filter(Boolean) as Array<NonNullable<ReturnType<typeof findKimariteById>>>;
 
   // Attribute narratives with icons - respect fog of war
@@ -105,18 +123,19 @@ export default function RikishiPage() {
   const styleInfo =
     STYLE_NAMES[rikishi.style] || { label: String(rikishi.style), labelJa: "", description: "" };
 
-  // Fog-of-war for “soft” traits
+  // Fog-of-war for “soft” traits: use scouting-layer narratives when not owned
   const temperamentText = isOwned
     ? describeAggressionVerbose(rikishi.aggression)
-    : (scouted as any)?.temperamentNarrative || "Their temperament is still difficult to read.";
+    : scoutedAttrs.aggression?.narrative || "Their temperament is still difficult to read.";
 
   const experienceText = isOwned
     ? describeExperienceVerbose(rikishi.experience)
-    : (scouted as any)?.experienceNarrative || "Their experience is inferred from limited appearances.";
+    : scoutedAttrs.experience?.narrative || "Their experience is inferred from limited appearances.";
 
+  // Conditioning isn't part of scouting.ts attributes, so keep it narrative-only + safe.
   const conditioningText = isOwned
     ? describeStaminaVerbose(rikishi.stamina)
-    : (scouted as any)?.conditioningNarrative || "Conditioning is hard to assess without sustained observation.";
+    : "Conditioning is hard to assess without sustained observation.";
 
   return (
     <>
@@ -137,15 +156,17 @@ export default function RikishiPage() {
             <h1 className="font-display text-4xl font-bold">{rikishi.shikona}</h1>
             <div className="flex items-center gap-3 mt-2 flex-wrap">
               <Badge className={`rank-${rikishi.rank}`}>
-                {rankNames?.ja || rikishi.rank}
+                {rankNames.ja}
                 {rikishi.rankNumber && ` ${rikishi.rankNumber}枚目`}
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {(rankNames?.en || rikishi.rank) + (rikishi.rankNumber ? ` ${rikishi.rankNumber}` : "")}
+                {rankNames.en}
+                {rikishi.rankNumber ? ` ${rikishi.rankNumber}` : ""}
               </span>
               <span className="text-muted-foreground">{rikishi.side === "east" ? "東 East" : "西 West"}</span>
               {heya && <span className="text-muted-foreground">• {heya.name}</span>}
             </div>
+
             <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">
               <span className="flex items-center gap-1">
                 <Ruler className="h-4 w-4" />
@@ -160,7 +181,6 @@ export default function RikishiPage() {
           </div>
 
           <div className="text-right">
-            {/* Win/Loss records are allowed per doc */}
             <div className="text-3xl font-mono font-bold">
               {rikishi.careerWins}-{rikishi.careerLosses}
             </div>
@@ -279,8 +299,7 @@ export default function RikishiPage() {
                       <div className="font-display font-medium">{move.name}</div>
                       <div className="text-sm text-muted-foreground">{move.nameJa}</div>
                     </div>
-                    {/* Some registries may not have rarity; keep safe */}
-                    {"rarity" in move ? (
+                    {"rarity" in (move as any) ? (
                       <Badge variant="outline" className="capitalize">
                         {(move as any).rarity}
                       </Badge>
