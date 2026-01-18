@@ -1,3 +1,4 @@
+// scouting.ts
 // Fog of War & Scouting System v1.0 — Canon-aligned deterministic player-knowledge layer
 // Per Scouting Documentation: separates Engine Truth from Player Knowledge
 // "You never know the truth — only what the ring has allowed you to see."
@@ -33,6 +34,17 @@ export interface PublicRikishiInfo {
   currentBashoLosses?: number;
 }
 
+// Optional cached numeric snapshot for deterministic UI fog calculations.
+// This prevents runtime errors when UI calls getScoutedAttributes(scouted) without passing truth/seed.
+export interface ScoutedAttributeTruthSnapshot {
+  power: number;
+  speed: number;
+  balance: number;
+  technique: number;
+  aggression: number;
+  experience: number;
+}
+
 // What the player knows about a rikishi (knowledge wrapper)
 export interface ScoutedRikishi {
   rikishiId: string;
@@ -51,6 +63,10 @@ export interface ScoutedRikishi {
 
   // Computed scouting percentage (0-100)
   scoutingLevel: number;
+
+  // ✅ NEW: always-present truth snapshot (numbers never shown directly; used to generate narratives)
+  // This is still "engine truth" but stored to prevent UI from needing to pass `truth`.
+  attributes: ScoutedAttributeTruthSnapshot;
 }
 
 // ============================================
@@ -124,8 +140,7 @@ export function getEstimatedValue(
   if (confidence === "unknown") return (min + max) / 2;
 
   // Error bands (percent points in 0..100 space; mapped to range)
-  const maxErrorPct: Record<Exclude<ConfidenceLevel, "certain">, number> = {
-    unknown: 40,
+  const maxErrorPct: Record<Exclude<ConfidenceLevel, "certain" | "unknown">, number> = {
     low: 35,    // doc: ±30–40
     medium: 20, // doc: ±15–25
     high: 9     // doc: ±5–10
@@ -133,7 +148,7 @@ export function getEstimatedValue(
 
   const rng = seedrandom(seed);
   const sign = rng() < 0.5 ? -1 : 1;
-  const magPct = rng() * maxErrorPct[confidence as Exclude<ConfidenceLevel, "certain">];
+  const magPct = rng() * maxErrorPct[confidence];
 
   const span = max - min;
   const error = (magPct / 100) * span * sign;
@@ -201,6 +216,17 @@ export function createPublicInfo(r: Rikishi): PublicRikishiInfo {
   };
 }
 
+function buildTruthSnapshot(r: Rikishi): ScoutedAttributeTruthSnapshot {
+  return {
+    power: safeNum((r as any).power, 0),
+    speed: safeNum((r as any).speed, 0),
+    balance: safeNum((r as any).balance, 0),
+    technique: safeNum((r as any).technique, 0),
+    aggression: safeNum((r as any).aggression, 0),
+    experience: safeNum((r as any).experience, 0)
+  };
+}
+
 export function createScoutedView(
   rikishi: Rikishi,
   playerHeyaId: string | null,
@@ -218,7 +244,9 @@ export function createScoutedView(
     timesObserved: Math.max(0, observationCount),
     lastObservedWeek: currentWeek,
     scoutingInvestment: investment,
-    scoutingLevel
+    scoutingLevel,
+    // ✅ always present, prevents undefined crashes in UI
+    attributes: buildTruthSnapshot(rikishi)
   };
 }
 
@@ -277,15 +305,45 @@ export interface ScoutedAttributes {
 
 /**
  * Build display attributes for UI.
- * Pass the engine-truth Rikishi (you have it in memory),
- * but we only reveal fuzzed narratives when not owned.
+ *
+ * ✅ Backward compatible:
+ * - UI can call: getScoutedAttributes(scouted)
+ * - OR: getScoutedAttributes(scouted, truthRikishi, worldSeed)
+ *
+ * If truth/seed are omitted, we fall back to scouted.attributes and a deterministic local seed.
  */
 export function getScoutedAttributes(
   scouted: ScoutedRikishi,
-  truth: Rikishi,
-  seed: string
+  truth?: Rikishi,
+  seed?: string
 ): ScoutedAttributes {
   const isOwned = scouted.isOwned;
+
+  // Prefer explicit truth; otherwise use cached snapshot.
+  const snapshot: ScoutedAttributeTruthSnapshot | null = truth
+    ? buildTruthSnapshot(truth)
+    : scouted?.attributes
+    ? scouted.attributes
+    : null;
+
+  // Deterministic seed fallback (still stable; better if you pass world.seed)
+  const baseSeed =
+    typeof seed === "string" && seed.length > 0
+      ? seed
+      : `scout-${scouted.rikishiId}-${scouted.lastObservedWeek}-${scouted.timesObserved}-${scouted.scoutingInvestment}`;
+
+  // If something is badly wrong, never crash the UI.
+  if (!snapshot) {
+    const unknown: ScoutedAttribute = { value: "Unknown", confidence: "unknown", narrative: "No reliable data" };
+    return {
+      power: unknown,
+      speed: unknown,
+      balance: unknown,
+      technique: unknown,
+      aggression: unknown,
+      experience: unknown
+    };
+  }
 
   const getAttr = (attr: "power" | "speed" | "balance" | "technique", value: number): ScoutedAttribute => {
     const confidence = getConfidenceLevel(scouted, "combat");
@@ -299,7 +357,7 @@ export function getScoutedAttributes(
       return { value: "Unknown", confidence, narrative: "Insufficient observation to assess" };
     }
 
-    const estimated = getEstimatedValue(value, confidence, `${seed}-${scouted.rikishiId}-${attr}`);
+    const estimated = getEstimatedValue(value, confidence, `${baseSeed}-${scouted.rikishiId}-${attr}`);
     const { description, qualifier } = getAttributeNarrative(attr, estimated, confidence);
 
     return { value: description, confidence, narrative: `${qualifier}: ${description}` };
@@ -317,7 +375,7 @@ export function getScoutedAttributes(
       return { value: "Unknown", confidence, narrative: "Insufficient observation to assess" };
     }
 
-    const estimated = getEstimatedValue(value, confidence, `${seed}-${scouted.rikishiId}-aggression`);
+    const estimated = getEstimatedValue(value, confidence, `${baseSeed}-${scouted.rikishiId}-aggression`);
     const q = confidence === "medium" ? "appears" : confidence === "low" ? "may be" : "";
     const label = describeAggression(estimated);
     const desc = q ? `${q} ${label.toLowerCase()}` : label;
@@ -338,7 +396,7 @@ export function getScoutedAttributes(
     }
 
     // Experience might not be 0..100 depending on your design; use a sane prose range
-    const estimated = getEstimatedValue(value, confidence, `${seed}-${scouted.rikishiId}-experience`, { min: 0, max: 80 });
+    const estimated = getEstimatedValue(value, confidence, `${baseSeed}-${scouted.rikishiId}-experience`, { min: 0, max: 80 });
     const q = confidence === "medium" ? "appears" : confidence === "low" ? "may be" : "";
     const label = describeExperience(estimated);
     const desc = q ? `${q} ${label.toLowerCase()}` : label;
@@ -347,12 +405,12 @@ export function getScoutedAttributes(
   };
 
   return {
-    power: getAttr("power", truth.power),
-    speed: getAttr("speed", truth.speed),
-    balance: getAttr("balance", truth.balance),
-    technique: getAttr("technique", truth.technique),
-    aggression: getAgg(truth.aggression),
-    experience: getExp(truth.experience)
+    power: getAttr("power", snapshot.power),
+    speed: getAttr("speed", snapshot.speed),
+    balance: getAttr("balance", snapshot.balance),
+    technique: getAttr("technique", snapshot.technique),
+    aggression: getAgg(snapshot.aggression),
+    experience: getExp(snapshot.experience)
   };
 }
 
@@ -374,6 +432,10 @@ function clamp(value: number, min: number, max: number): number {
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function safeNum(v: any, fallback: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
 // ============================================
