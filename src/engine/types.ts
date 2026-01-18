@@ -359,11 +359,11 @@ export interface KenshoRecord {
   day: number;
   opponentId: Id;
   kenshoCount: number;
-  amount: number;
+  amount: number; // immediate cash amount
 }
 
 export interface RikishiEconomics {
-  /** Spendable cash on hand (recommended; used by timeBoundary) */
+  /** Spendable cash on hand (used by timeBoundary + UI) */
   cash: number;
 
   retirementFund: number;
@@ -389,7 +389,6 @@ export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" 
 
 /** sponsors.ts + timeBoundary.ts aligned union */
 export type KoenkaiBandType = "none" | "weak" | "moderate" | "strong" | "powerful";
-
 export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
 
 /** FTUE */
@@ -596,6 +595,9 @@ export interface SerializedWorldState {
  *  ========================= */
 
 export type SaveVersion = "1.0.0";
+
+/** Canon current save version (importable by saveload.ts) */
+export const CURRENT_SAVE_VERSION: SaveVersion = "1.0.0";
 
 export interface SaveGame {
   version: SaveVersion;
