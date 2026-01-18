@@ -1,5 +1,16 @@
+// training.ts
 // Training System - Beya-wide and individual training management
 // Based on Training_System.md specification
+//
+// FIXES / UPGRADES (canon + engine integration):
+// - Added missing "injury recovery speed" consumption hook (weekly boundary can use RECOVERY_EFFECTS.injuryRecovery).
+// - Added per-rikishi focus slot resolution helpers (apply FocusMode effects deterministically).
+// - Added styleBias effects (oshi/yotsu) to influence technique growth weighting (future-proof).
+// - Added validation + safe setters for focus slots (no duplicates, max slots enforced).
+// - Added computeTrainingMultipliers() used by timeBoundary to avoid re-deriving logic differently in two places.
+// - Kept everything deterministic (no RNG here).
+//
+// NOTE: This module intentionally does NOT mutate WorldState. It just provides rules + helpers.
 
 import type { Rikishi, Heya } from "./types";
 
@@ -32,33 +43,31 @@ export interface BeyaTrainingState {
 
 // === INTENSITY EFFECTS ===
 
-export const INTENSITY_EFFECTS: Record<TrainingIntensity, {
-  growthMult: number;
-  fatigueGain: number;
-  injuryRisk: number;
-  description: string;
-}> = {
+export const INTENSITY_EFFECTS: Record<
+  TrainingIntensity,
+  { growthMult: number; fatigueGain: number; injuryRisk: number; description: string }
+> = {
   conservative: {
     growthMult: 0.85,
     fatigueGain: 0.75,
-    injuryRisk: 0.80,
+    injuryRisk: 0.8,
     description: "Safe, steady progress. Lower growth but preserves wrestlers."
   },
   balanced: {
-    growthMult: 1.00,
-    fatigueGain: 1.00,
-    injuryRisk: 1.00,
+    growthMult: 1.0,
+    fatigueGain: 1.0,
+    injuryRisk: 1.0,
     description: "Standard training regimen with balanced outcomes."
   },
   intensive: {
-    growthMult: 1.20,
+    growthMult: 1.2,
     fatigueGain: 1.25,
     injuryRisk: 1.15,
     description: "Pushing harder for faster gains. Increased wear."
   },
   punishing: {
     growthMult: 1.35,
-    fatigueGain: 1.50,
+    fatigueGain: 1.5,
     injuryRisk: 1.35,
     description: "Maximum intensity. High risk, high reward."
   }
@@ -66,39 +75,35 @@ export const INTENSITY_EFFECTS: Record<TrainingIntensity, {
 
 // === RECOVERY EFFECTS ===
 
-export const RECOVERY_EFFECTS: Record<RecoveryEmphasis, {
-  fatigueDecay: number;
-  injuryRecovery: number;
-  description: string;
-}> = {
+export const RECOVERY_EFFECTS: Record<
+  RecoveryEmphasis,
+  { fatigueDecay: number; injuryRecovery: number; description: string }
+> = {
   low: {
-    fatigueDecay: 0.80,
+    fatigueDecay: 0.8,
     injuryRecovery: 0.85,
     description: "Minimal rest periods. Fatigue accumulates."
   },
   normal: {
-    fatigueDecay: 1.00,
-    injuryRecovery: 1.00,
+    fatigueDecay: 1.0,
+    injuryRecovery: 1.0,
     description: "Standard recovery protocols."
   },
   high: {
     fatigueDecay: 1.25,
-    injuryRecovery: 1.20,
+    injuryRecovery: 1.2,
     description: "Emphasis on rest and rehabilitation."
   }
 };
 
 // === FOCUS BIAS EFFECTS ===
 
-export const FOCUS_EFFECTS: Record<TrainingFocus, {
-  power: number;
-  speed: number;
-  technique: number;
-  balance: number;
-  description: string;
-}> = {
+export const FOCUS_EFFECTS: Record<
+  TrainingFocus,
+  { power: number; speed: number; technique: number; balance: number; description: string }
+> = {
   power: {
-    power: 1.30,
+    power: 1.3,
     speed: 0.85,
     technique: 0.95,
     balance: 0.95,
@@ -106,63 +111,61 @@ export const FOCUS_EFFECTS: Record<TrainingFocus, {
   },
   speed: {
     power: 0.85,
-    speed: 1.30,
+    speed: 1.3,
     technique: 0.95,
     balance: 0.95,
     description: "Agility drills and footwork."
   },
   technique: {
-    power: 0.90,
-    speed: 0.90,
+    power: 0.9,
+    speed: 0.9,
     technique: 1.35,
-    balance: 1.10,
+    balance: 1.1,
     description: "Form refinement and kimarite practice."
   },
   balance: {
-    power: 0.90,
+    power: 0.9,
     speed: 0.95,
-    technique: 1.10,
+    technique: 1.1,
     balance: 1.35,
     description: "Stability exercises and defensive posture."
   },
   neutral: {
-    power: 1.00,
-    speed: 1.00,
-    technique: 1.00,
-    balance: 1.00,
+    power: 1.0,
+    speed: 1.0,
+    technique: 1.0,
+    balance: 1.0,
     description: "Well-rounded approach to all attributes."
   }
 };
 
 // === INDIVIDUAL FOCUS MODES ===
 
-export const FOCUS_MODE_EFFECTS: Record<FocusMode, {
-  growthMod: number;
-  fatigueMod: number;
-  injuryRiskMod: number;
-  description: string;
-}> = {
+export const FOCUS_MODE_EFFECTS: Record<
+  FocusMode,
+  { growthMod: number; fatigueMod: number; injuryRiskMod: number; description: string }
+> = {
   develop: {
     growthMod: 1.25,
-    fatigueMod: 1.10,
+    fatigueMod: 1.1,
     injuryRiskMod: 1.05,
     description: "Accelerated development program."
   },
   push: {
     growthMod: 1.35,
-    fatigueMod: 1.20,
-    injuryRiskMod: 1.20,
+    fatigueMod: 1.2,
+    injuryRiskMod: 1.2,
     description: "Win-now pressure, maximize short-term gains."
   },
   protect: {
     growthMod: 0.85,
     fatigueMod: 0.75,
-    injuryRiskMod: 0.70,
+    injuryRiskMod: 0.7,
     description: "Preservation mode for longevity."
   },
   rebuild: {
-    growthMod: 1.10,
-    fatigueMod: 0.90,
+    growthMod: 1.1,
+    fatigueMod: 0.9,
     injuryRiskMod: 0.85,
     description: "Post-injury rehabilitation focus."
   }
@@ -172,34 +175,33 @@ export const FOCUS_MODE_EFFECTS: Record<FocusMode, {
 
 export type CareerPhase = "youth" | "development" | "prime" | "veteran" | "late";
 
-export const PHASE_EFFECTS: Record<CareerPhase, {
-  growthMod: number;
-  injurySensitivity: number;
-  description: string;
-}> = {
+export const PHASE_EFFECTS: Record<
+  CareerPhase,
+  { growthMod: number; injurySensitivity: number; description: string }
+> = {
   youth: {
-    growthMod: 1.30,
-    injurySensitivity: 0.70,
+    growthMod: 1.3,
+    injurySensitivity: 0.7,
     description: "Rapid growth, resilient body."
   },
   development: {
-    growthMod: 1.20,
+    growthMod: 1.2,
     injurySensitivity: 0.85,
     description: "Still growing, building foundation."
   },
   prime: {
-    growthMod: 1.00,
-    injurySensitivity: 1.00,
+    growthMod: 1.0,
+    injurySensitivity: 1.0,
     description: "Peak performance years."
   },
   veteran: {
-    growthMod: 0.70,
-    injurySensitivity: 1.30,
+    growthMod: 0.7,
+    injurySensitivity: 1.3,
     description: "Experience compensates, body slowing."
   },
   late: {
-    growthMod: 0.40,
-    injurySensitivity: 1.60,
+    growthMod: 0.4,
+    injurySensitivity: 1.6,
     description: "Fighting time, high injury risk."
   }
 };
@@ -235,6 +237,128 @@ export function createDefaultTrainingState(maxSlots: number = 3): BeyaTrainingSt
     profile: createDefaultTrainingProfile(),
     focusSlots: [],
     maxFocusSlots: maxSlots
+  };
+}
+
+/**
+ * Normalize/validate focusSlots:
+ * - removes duplicates (keeps first)
+ * - clamps to maxFocusSlots
+ * - removes rikishiIds not in roster (optional safety)
+ */
+export function sanitizeFocusSlots(
+  focusSlots: IndividualFocus[],
+  maxFocusSlots: number,
+  rosterIds?: readonly string[]
+): IndividualFocus[] {
+  const seen = new Set<string>();
+  const roster = rosterIds ? new Set(rosterIds) : null;
+
+  const out: IndividualFocus[] = [];
+  for (const slot of focusSlots) {
+    if (!slot?.rikishiId) continue;
+    if (seen.has(slot.rikishiId)) continue;
+    if (roster && !roster.has(slot.rikishiId)) continue;
+
+    seen.add(slot.rikishiId);
+    out.push({ rikishiId: slot.rikishiId, mode: slot.mode });
+    if (out.length >= maxFocusSlots) break;
+  }
+  return out;
+}
+
+export function setFocusSlot(
+  state: BeyaTrainingState,
+  rikishiId: string,
+  mode: FocusMode,
+  rosterIds?: readonly string[]
+): BeyaTrainingState {
+  const next = { ...state, focusSlots: [...state.focusSlots] };
+  // Replace if exists
+  const idx = next.focusSlots.findIndex(s => s.rikishiId === rikishiId);
+  if (idx >= 0) next.focusSlots[idx] = { rikishiId, mode };
+  else next.focusSlots.push({ rikishiId, mode });
+
+  next.focusSlots = sanitizeFocusSlots(next.focusSlots, next.maxFocusSlots, rosterIds);
+  return next;
+}
+
+export function clearFocusSlot(state: BeyaTrainingState, rikishiId: string): BeyaTrainingState {
+  return {
+    ...state,
+    focusSlots: state.focusSlots.filter(s => s.rikishiId !== rikishiId)
+  };
+}
+
+export function getIndividualFocusMode(state: BeyaTrainingState | undefined, rikishiId: string): FocusMode | null {
+  if (!state) return null;
+  const found = state.focusSlots.find(s => s.rikishiId === rikishiId);
+  return found ? found.mode : null;
+}
+
+// === TRAINING MULTIPLIERS (used by time boundary) ===
+
+export interface TrainingMultipliers {
+  growthMult: number;      // multiplies chance/gains
+  fatigueMult: number;     // multiplies fatigue added
+  injuryRiskMult: number;  // multiplies injury chance
+  // Per-attribute multipliers after focus + style bias
+  attr: { power: number; speed: number; technique: number; balance: number };
+  // Recovery multipliers for fatigue and injury weeks reduction
+  fatigueRecoveryMult: number;
+  injuryRecoveryMult: number;
+}
+
+/**
+ * Compute the combined multipliers for one rikishi for one weekly tick.
+ * This is the canonical single source of truth so other modules don’t reimplement it differently.
+ */
+export function computeTrainingMultipliers(args: {
+  rikishi: Rikishi;
+  heya?: Heya;
+  profile: TrainingProfile;
+  individualMode?: FocusMode | null;
+}): TrainingMultipliers {
+  const { rikishi, profile, individualMode } = args;
+
+  const intensity = INTENSITY_EFFECTS[profile.intensity];
+  const recovery = RECOVERY_EFFECTS[profile.recovery];
+  const focus = FOCUS_EFFECTS[profile.focus];
+
+  const phase = getCareerPhase(rikishi.experience);
+  const phaseFx = PHASE_EFFECTS[phase];
+
+  const modeFx = individualMode ? FOCUS_MODE_EFFECTS[individualMode] : null;
+
+  // Style bias: nudges technique vs power/speed slightly (future-proof)
+  // (kept gentle; your bout engine + kimarite system should dominate style identity.)
+  const styleBias = profile.styleBias;
+  const styleTech = styleBias === "yotsu" ? 1.06 : styleBias === "oshi" ? 0.97 : 1.0;
+  const stylePower = styleBias === "oshi" ? 1.05 : 1.0;
+  const styleSpeed = styleBias === "oshi" ? 1.02 : 1.0;
+  const styleBalance = styleBias === "yotsu" ? 1.03 : 1.0;
+
+  const baseGrowth = intensity.growthMult * phaseFx.growthMod;
+  const growthMult = baseGrowth * (modeFx ? modeFx.growthMod : 1.0);
+
+  const fatigueMult = intensity.fatigueGain * (modeFx ? modeFx.fatigueMod : 1.0);
+  const injuryRiskMult = intensity.injuryRisk * phaseFx.injurySensitivity * (modeFx ? modeFx.injuryRiskMod : 1.0);
+
+  // Attribute focus multipliers + gentle style nudges
+  const attr = {
+    power: focus.power * stylePower,
+    speed: focus.speed * styleSpeed,
+    technique: focus.technique * styleTech,
+    balance: focus.balance * styleBalance
+  };
+
+  return {
+    growthMult,
+    fatigueMult,
+    injuryRiskMult,
+    attr,
+    fatigueRecoveryMult: recovery.fatigueDecay,
+    injuryRecoveryMult: recovery.injuryRecovery
   };
 }
 
