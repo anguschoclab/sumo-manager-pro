@@ -1,22 +1,23 @@
 // types.ts
 // Clean, corrected, drop-in core types for Basho
-// FIXES APPLIED (drop-in + compiles with the other modules you pasted):
-// - SaveGame.world is JSON-safe (SerializedWorldState), NOT WorldState (WorldState contains Maps)
-// - Added SerializedWorldState / SerializedBashoState / SerializedSaveGame + helper map types
-// - Fixed BoutLogEntry.data to allow optional and to avoid forcing all keys present
-// - Added narrow, shared KoenkaiBandType + RunwayBand union compatible with sponsors/timeBoundary
-// - Made Heya.koenkaiBand use sponsors' KoenkaiBandType naming (none/weak/moderate/strong/powerful)
-// - Added optional trainingState on Heya to match training/timeBoundary integration without circular deps
-// - Added RankPosition helpers for runtime normalization
-// - Added KimariteClass / KimariteId / KimariteFamily hooks without importing kimarite.ts (no circular deps)
 //
-// IMPORTANT: This file is designed to be the single source of truth for types across:
-// calendar, banzuke, bout engine, pbp, sponsors, training, timeBoundary, saveload, scouting.
-// If you already have some of these types elsewhere, delete/replace those duplicates.
+// GOALS (drop-in + matches the modules you’ve been building):
+// - Single source of truth for shared types across engine modules
+// - Runtime WorldState uses Maps; SaveGame uses JSON-safe SerializedWorldState
+// - No duplicate interface names (Heya)
+// - RankPosition enforces numbered vs unnumbered at compile time
+// - Kimarite types centralized here (avoid circular imports with kimarite.ts)
+// - Training types included here (training.ts should import these types to avoid drift)
+// - Adds optional hidden fatigue + spendable cash (timeBoundary support)
+// - KoenkaiBandType and RunwayBand aligned to sponsors/timeBoundary
+//
+// IMPORTANT:
+// - Engine/internal modules should import from leaf modules, not index.ts.
+// - kimarite.ts can refine KimariteId via `as const`, but this file keeps it string-safe.
 
 export type Id = string;
-export type IdMap<T> = Record<string, T>;
-/** Map-based IdMap for runtime - use Object.values() / Map iteration */
+export type IdMap<T> = Record<Id, T>;
+/** Runtime maps (NOT JSON-safe) */
 export type IdMapRuntime<T> = Map<Id, T>;
 
 /** =========================
@@ -57,8 +58,7 @@ export type KimariteId = string;
 
 /**
  * KimariteClass:
- * Keep this in types.ts so both kimarite.ts and the bout engine can share it
- * without circular imports.
+ * Keep this in types.ts so kimarite.ts + bout engine share it without circular imports.
  */
 export type KimariteClass =
   | "force_out"
@@ -74,7 +74,7 @@ export type KimariteClass =
   | "special"
   | "forfeit";
 
-/** Archetype stat profiles */
+/** Archetype stat profiles (shared lookup) */
 export const ARCHETYPE_PROFILES: Record<
   TacticalArchetype,
   {
@@ -231,6 +231,7 @@ export type UnnumberedRank = "yokozuna" | "ozeki" | "sekiwake" | "komusubi";
 
 export type Side = "east" | "west";
 
+/** Enforce numbered vs unnumbered ranks at compile time */
 export type RankPosition =
   | { rank: UnnumberedRank; side: Side; rankNumber?: never }
   | { rank: NumberedRank; rankNumber: number; side: Side };
@@ -249,12 +250,9 @@ export function isNumberedRank(rank: Rank): rank is NumberedRank {
 export function toRankPosition(args: { rank: Rank; side: Side; rankNumber?: number }): RankPosition {
   const { rank, side, rankNumber } = args;
   if (isNumberedRank(rank)) {
-    if (!rankNumber || rankNumber < 1) {
-      throw new Error(`Rank ${rank} requires a rankNumber >= 1`);
-    }
+    if (!rankNumber || rankNumber < 1) throw new Error(`Rank ${rank} requires rankNumber >= 1`);
     return { rank, side, rankNumber };
   }
-  // Unnumbered ranks must not carry rankNumber
   return { rank: rank as UnnumberedRank, side };
 }
 
@@ -314,6 +312,7 @@ export interface BashoInfo {
 export interface BoutLogEntry {
   phase: "tachiai" | "clinch" | "momentum" | "finish";
   description: string;
+  /** Optional bag of facts for UI/narrative (never required) */
   data?: Record<string, number | string | boolean | null | undefined>;
 }
 
@@ -337,8 +336,9 @@ export interface MatchSchedule {
   result?: BoutResult;
 }
 
-/** JSON-safe standings - use Map at runtime */
+/** JSON-safe standings */
 export type StandingsTable = Record<Id, { wins: number; losses: number }>;
+/** Runtime standings */
 export type StandingsTableRuntime = Map<Id, { wins: number; losses: number }>;
 
 export interface BashoState {
@@ -363,11 +363,19 @@ export interface KenshoRecord {
 }
 
 export interface RikishiEconomics {
+  /** Spendable cash on hand (recommended; used by timeBoundary) */
+  cash: number;
+
   retirementFund: number;
   careerKenshoWon: number;
   kinboshiCount: number;
+
+  /** Lifetime earnings record (not spendable by default) */
   totalEarnings: number;
+
+  /** Per-basho earnings accumulator */
   currentBashoEarnings: number;
+
   popularity: number; // 0..100
 }
 
@@ -379,11 +387,7 @@ export type StatureBand = "legendary" | "powerful" | "established" | "rebuilding
 export type PrestigeBand = "elite" | "respected" | "modest" | "struggling" | "unknown";
 export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" | "minimal";
 
-/**
- * IMPORTANT:
- * sponsors.ts uses KoenkaiBandType = "none" | "weak" | "moderate" | "strong" | "powerful"
- * timeBoundary.ts imports that type. To avoid drift, we mirror it here.
- */
+/** sponsors.ts + timeBoundary.ts aligned union */
 export type KoenkaiBandType = "none" | "weak" | "moderate" | "strong" | "powerful";
 
 export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
@@ -398,7 +402,7 @@ export interface FTUEState {
 export type StableSelectionMode = "found_new" | "take_over" | "recommended";
 
 /** =========================
- *  Training (optional hook; avoids circular dep)
+ *  Training (shared types)
  *  ========================= */
 
 export type TrainingIntensity = "conservative" | "balanced" | "intensive" | "punishing";
@@ -444,10 +448,19 @@ export interface Rikishi {
   balance: number; // 0..100
   technique: number; // 0..100
   aggression: number; // 0..100
-  experience: number; // basho count or scaled stat (0..100)
+  experience: number; // 0..100 (scaled; not necessarily basho count)
 
   momentum: number; // -10..+10
-  stamina: number; // 0..100 (your timeBoundary uses this as a fatigue proxy)
+
+  /**
+   * Stamina is “in-the-moment readiness/endurance”.
+   * Long-term weekly wear is `fatigue` (hidden, optional).
+   */
+  stamina: number; // 0..100
+
+  /** Hidden long-term wear (0..100). Used by timeBoundary/injuries. */
+  fatigue?: number;
+
   injured: boolean;
   injuryWeeksRemaining: number;
 
@@ -499,7 +512,7 @@ export interface Heya {
     rivalry: boolean;
   };
 
-  // Optional systems:
+  /** Optional systems */
   trainingState?: BeyaTrainingState;
 
   descriptor?: string;
@@ -543,6 +556,7 @@ export interface WorldState {
   ftue: FTUEState;
   playerHeyaId?: Id;
 
+  /** last published banzuke (authoritative placement) */
   currentBanzuke?: BanzukeSnapshot;
 }
 
@@ -588,6 +602,7 @@ export interface SaveGame {
   createdAtISO: string;
   lastSavedAtISO: string;
 
+  /** Future-proof: store options affecting determinism */
   ruleset: {
     banzukeAlgorithm: "slot_fill_v1";
     kimariteRegistryVersion: string; // e.g. "82_official_v1"
