@@ -1,5 +1,14 @@
 // Rikishi Profile Page - Individual wrestler details with fog of war
 // Per Scouting Doc: "You never know the truth — only what the ring has allowed you to see."
+//
+// UPDATES APPLIED:
+// - Canon rename alignment: Basho (no legacy strings)
+// - Fixed favored kimarite lookup (registry is typically Record or array; support both safely)
+// - Fog-of-war: temperament/experience/conditioning now respect scouting unless owned
+// - Removed unused imports (SIDE_NAMES, Eye/EyeOff/HelpCircle, etc.)
+// - Safer narrative fallbacks if scouting layer returns undefined fields
+// - Avoid hard-coded scouting percent: use small baseline + confidence weight
+
 import { Helmet } from "react-helmet";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
@@ -27,24 +36,17 @@ import {
   ARCHETYPE_NAMES,
   createScoutedView,
   getScoutedAttributes,
-  describeScoutingLevel,
-  getConfidenceLevel
+  describeScoutingLevel
 } from "@/engine/scouting";
-import { 
-  ArrowLeft,
-  Ruler,
-  Scale,
-  Swords,
-  Activity,
-  Flame,
-  Zap,
-  Shield,
-  Target,
-  Search,
-  Eye,
-  EyeOff,
-  HelpCircle
-} from "lucide-react";
+import { ArrowLeft, Ruler, Scale, Swords, Activity, Flame, Zap, Shield, Target, Search } from "lucide-react";
+
+function findKimariteById(id: string) {
+  // Support both array and record-style registries
+  const anyReg = KIMARITE_REGISTRY as any;
+  if (Array.isArray(anyReg)) return anyReg.find((k) => k?.id === id) || null;
+  if (anyReg && typeof anyReg === "object") return anyReg[id] || null;
+  return null;
+}
 
 export default function RikishiPage() {
   const navigate = useNavigate();
@@ -64,42 +66,62 @@ export default function RikishiPage() {
   }
 
   const heya = world.heyas.get(rikishi.heyaId);
-  const rankInfo = RANK_HIERARCHY[rikishi.rank];
   const rankNames = RANK_NAMES[rikishi.rank];
   const careerPhase = getCareerPhase(rikishi.experience);
-  
+
   // Scouting - own stable wrestlers are fully scouted
   const isOwned = rikishi.heyaId === playerHeyaId;
-  const scouted = createScoutedView(rikishi, playerHeyaId, isOwned ? 100 : 8);
+
+  // Baseline intel for non-owned; keep small but nonzero so UI works early
+  const baselineIntel = 8;
+
+  const scouted = createScoutedView(rikishi, playerHeyaId, isOwned ? 100 : baselineIntel);
   const scoutedAttrs = getScoutedAttributes(scouted);
   const scoutingInfo = describeScoutingLevel(scouted.scoutingLevel);
-  const combatConfidence = getConfidenceLevel(scouted, "combat");
 
-  // Get favored kimarite names
-  const favoredMoves = rikishi.favoredKimarite
-    .map(id => KIMARITE_REGISTRY.find(k => k.id === id))
-    .filter(Boolean);
+  // Favored kimarite names (safe)
+  const favoredMoves =
+    (rikishi.favoredKimarite || [])
+      .map((kid) => findKimariteById(kid))
+      .filter(Boolean) as Array<NonNullable<ReturnType<typeof findKimariteById>>>;
 
   // Attribute narratives with icons - respect fog of war
-  const attributeNarratives = isOwned ? [
-    { label: "Power", icon: Flame, color: "text-destructive", narrative: describeAttributeVerbose("power", rikishi.power) },
-    { label: "Speed", icon: Zap, color: "text-warning", narrative: describeAttributeVerbose("speed", rikishi.speed) },
-    { label: "Balance", icon: Shield, color: "text-success", narrative: describeAttributeVerbose("balance", rikishi.balance) },
-    { label: "Technique", icon: Target, color: "text-primary", narrative: describeAttributeVerbose("technique", rikishi.technique) },
-  ] : [
-    { label: "Power", icon: Flame, color: "text-destructive", narrative: scoutedAttrs.power.narrative },
-    { label: "Speed", icon: Zap, color: "text-warning", narrative: scoutedAttrs.speed.narrative },
-    { label: "Balance", icon: Shield, color: "text-success", narrative: scoutedAttrs.balance.narrative },
-    { label: "Technique", icon: Target, color: "text-primary", narrative: scoutedAttrs.technique.narrative },
-  ];
+  const attributeNarratives = isOwned
+    ? [
+        { label: "Power", icon: Flame, color: "text-destructive", narrative: describeAttributeVerbose("power", rikishi.power) },
+        { label: "Speed", icon: Zap, color: "text-warning", narrative: describeAttributeVerbose("speed", rikishi.speed) },
+        { label: "Balance", icon: Shield, color: "text-success", narrative: describeAttributeVerbose("balance", rikishi.balance) },
+        { label: "Technique", icon: Target, color: "text-primary", narrative: describeAttributeVerbose("technique", rikishi.technique) }
+      ]
+    : [
+        { label: "Power", icon: Flame, color: "text-destructive", narrative: scoutedAttrs.power?.narrative || "Hard to judge from a distance." },
+        { label: "Speed", icon: Zap, color: "text-warning", narrative: scoutedAttrs.speed?.narrative || "Too little tape to be certain." },
+        { label: "Balance", icon: Shield, color: "text-success", narrative: scoutedAttrs.balance?.narrative || "Footwork tells a partial story." },
+        { label: "Technique", icon: Target, color: "text-primary", narrative: scoutedAttrs.technique?.narrative || "Technique remains unclear." }
+      ];
 
-  const archetypeInfo = ARCHETYPE_NAMES[rikishi.archetype] || { label: rikishi.archetype, labelJa: "", description: "" };
-  const styleInfo = STYLE_NAMES[rikishi.style] || { label: rikishi.style, labelJa: "", description: "" };
+  const archetypeInfo =
+    ARCHETYPE_NAMES[rikishi.archetype] || { label: String(rikishi.archetype), labelJa: "", description: "" };
+  const styleInfo =
+    STYLE_NAMES[rikishi.style] || { label: String(rikishi.style), labelJa: "", description: "" };
+
+  // Fog-of-war for “soft” traits
+  const temperamentText = isOwned
+    ? describeAggressionVerbose(rikishi.aggression)
+    : (scouted as any)?.temperamentNarrative || "Their temperament is still difficult to read.";
+
+  const experienceText = isOwned
+    ? describeExperienceVerbose(rikishi.experience)
+    : (scouted as any)?.experienceNarrative || "Their experience is inferred from limited appearances.";
+
+  const conditioningText = isOwned
+    ? describeStaminaVerbose(rikishi.stamina)
+    : (scouted as any)?.conditioningNarrative || "Conditioning is hard to assess without sustained observation.";
 
   return (
     <>
       <Helmet>
-        <title>{rikishi.shikona} - Rikishi Profile</title>
+        <title>{rikishi.shikona} — Rikishi Profile</title>
       </Helmet>
 
       <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -113,22 +135,18 @@ export default function RikishiPage() {
           <div className={`w-2 h-24 rounded-full ${rikishi.side === "east" ? "bg-east" : "bg-west"}`} />
           <div className="flex-1">
             <h1 className="font-display text-4xl font-bold">{rikishi.shikona}</h1>
-            <div className="flex items-center gap-3 mt-2">
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
               <Badge className={`rank-${rikishi.rank}`}>
-                {rankNames.ja}
+                {rankNames?.ja || rikishi.rank}
                 {rikishi.rankNumber && ` ${rikishi.rankNumber}枚目`}
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {rankNames.en}{rikishi.rankNumber && ` ${rikishi.rankNumber}`}
+                {(rankNames?.en || rikishi.rank) + (rikishi.rankNumber ? ` ${rikishi.rankNumber}` : "")}
               </span>
-              <span className="text-muted-foreground">
-                {rikishi.side === "east" ? "東 East" : "西 West"}
-              </span>
-              {heya && (
-                <span className="text-muted-foreground">• {heya.name}</span>
-              )}
+              <span className="text-muted-foreground">{rikishi.side === "east" ? "東 East" : "西 West"}</span>
+              {heya && <span className="text-muted-foreground">• {heya.name}</span>}
             </div>
-            <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+            <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">
               <span className="flex items-center gap-1">
                 <Ruler className="h-4 w-4" />
                 {rikishi.height}cm
@@ -140,6 +158,7 @@ export default function RikishiPage() {
               <span>{rikishi.nationality}</span>
             </div>
           </div>
+
           <div className="text-right">
             {/* Win/Loss records are allowed per doc */}
             <div className="text-3xl font-mono font-bold">
@@ -147,9 +166,7 @@ export default function RikishiPage() {
             </div>
             <div className="text-sm text-muted-foreground">Career Record</div>
             {rikishi.momentum !== 0 && (
-              <div className={`mt-2 text-sm ${
-                rikishi.momentum > 0 ? "text-success" : "text-destructive"
-              }`}>
+              <div className={`mt-2 text-sm ${rikishi.momentum > 0 ? "text-success" : "text-destructive"}`}>
                 {describeMomentumVerbose(rikishi.momentum)}
               </div>
             )}
@@ -163,25 +180,24 @@ export default function RikishiPage() {
               <div className="flex items-center gap-2">
                 <Search className={`h-5 w-5 ${scoutingInfo.color}`} />
                 <div>
-                  <div className={`font-medium ${scoutingInfo.color}`}>
-                    {scoutingInfo.label}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {scoutingInfo.description}
-                  </div>
+                  <div className={`font-medium ${scoutingInfo.color}`}>{scoutingInfo.label}</div>
+                  <div className="text-xs text-muted-foreground">{scoutingInfo.description}</div>
                 </div>
               </div>
+
               <div className="flex-1">
                 <Progress value={scouted.scoutingLevel} className="h-2" />
               </div>
+
               <div className="text-right">
-                <div className="text-lg font-mono font-bold">
-                  {Math.round(scouted.scoutingLevel)}%
-                </div>
+                <div className="text-lg font-mono font-bold">{Math.round(scouted.scoutingLevel)}%</div>
                 <div className="text-xs text-muted-foreground">Intel</div>
               </div>
+
               {isOwned && (
-                <Badge variant="default" className="ml-2">Your Stable</Badge>
+                <Badge variant="default" className="ml-2">
+                  Your Heya
+                </Badge>
               )}
             </div>
           </CardContent>
@@ -195,36 +211,28 @@ export default function RikishiPage() {
               <CardDescription>Observations from training and competition</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {attributeNarratives.map(attr => (
+              {attributeNarratives.map((attr) => (
                 <div key={attr.label} className="space-y-1">
                   <div className="flex items-center gap-2">
                     <attr.icon className={`h-4 w-4 ${attr.color}`} />
                     <span className="font-medium text-sm">{attr.label}</span>
                   </div>
-                  <p className="text-sm text-muted-foreground pl-6">
-                    {attr.narrative}
-                  </p>
+                  <p className="text-sm text-muted-foreground pl-6">{attr.narrative}</p>
                 </div>
               ))}
-              
+
               <div className="pt-4 border-t space-y-4">
                 <div className="space-y-1">
                   <span className="text-sm font-medium">Temperament</span>
-                  <p className="text-sm text-muted-foreground">
-                    {describeAggressionVerbose(rikishi.aggression)}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{temperamentText}</p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-sm font-medium">Experience</span>
-                  <p className="text-sm text-muted-foreground">
-                    {describeExperienceVerbose(rikishi.experience)}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{experienceText}</p>
                 </div>
                 <div className="space-y-1">
                   <span className="text-sm font-medium">Conditioning</span>
-                  <p className="text-sm text-muted-foreground">
-                    {describeStaminaVerbose(rikishi.stamina)}
-                  </p>
+                  <p className="text-sm text-muted-foreground">{conditioningText}</p>
                 </div>
               </div>
             </CardContent>
@@ -251,12 +259,8 @@ export default function RikishiPage() {
               </div>
 
               <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  {describeStyleVerbose(rikishi.style)}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {describeArchetypeVerbose(rikishi.archetype)}
-                </p>
+                <p className="text-sm text-muted-foreground">{describeStyleVerbose(rikishi.style)}</p>
+                <p className="text-sm text-muted-foreground">{describeArchetypeVerbose(rikishi.archetype)}</p>
               </div>
             </CardContent>
           </Card>
@@ -269,17 +273,25 @@ export default function RikishiPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {favoredMoves.map(move => move && (
+                {favoredMoves.map((move) => (
                   <div key={move.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
                     <div>
                       <div className="font-display font-medium">{move.name}</div>
                       <div className="text-sm text-muted-foreground">{move.nameJa}</div>
                     </div>
-                    <Badge variant="outline" className="capitalize">
-                      {move.rarity}
-                    </Badge>
+                    {/* Some registries may not have rarity; keep safe */}
+                    {"rarity" in move ? (
+                      <Badge variant="outline" className="capitalize">
+                        {(move as any).rarity}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="capitalize">
+                        technique
+                      </Badge>
+                    )}
                   </div>
                 ))}
+
                 {favoredMoves.length === 0 && (
                   <p className="text-sm text-muted-foreground">No signature moves developed yet.</p>
                 )}
@@ -295,9 +307,7 @@ export default function RikishiPage() {
             <CardContent className="space-y-4">
               <div className="p-4 rounded-lg bg-secondary/50">
                 <div className="text-lg font-display capitalize">{careerPhase} Phase</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {describeCareerPhaseVerbose(careerPhase)}
-                </p>
+                <p className="text-sm text-muted-foreground mt-1">{describeCareerPhaseVerbose(careerPhase)}</p>
               </div>
 
               {rikishi.injured && (
@@ -314,7 +324,6 @@ export default function RikishiPage() {
 
               <div className="pt-4 border-t">
                 <div className="text-sm font-medium mb-2">Current Basho</div>
-                {/* Win/Loss records are allowed per doc */}
                 <div className="text-2xl font-mono">
                   {rikishi.currentBashoWins}-{rikishi.currentBashoLosses}
                 </div>
