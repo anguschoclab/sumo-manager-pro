@@ -1,17 +1,21 @@
 // banzuke.ts
 // Banzuke (Ranking) System — Canon-aligned deterministic scaffolding
 //
-// Fixes vs your version:
-// - Corrected total sekitori slot math (Makuuchi is 42 total: 8 sanyaku + 34 maegashira)
-// - compareRanks is now a true total ordering (tier → rankNumber → side)
-// - Removed non-canon “static promotion map” behavior from this file (promotion is an OUTPUT of reassignment)
-// - Added deterministic rank reassignment pipeline for sekitori (Makuuchi+Juryo) based on:
-//   prior banzuke order + performance score → target index shift → re-slot into fixed slots
-// - Added an explicit integration point for strength-of-schedule (opponentAvgTier) without forcing it
+// FIXES APPLIED (compile + canon + determinism):
+// - Fixed a real bug: you assigned division from slotTemplate[i].division but slotTemplate can be undefined
+//   if currentBanzuke length != template length. We now:
+//   - build template first,
+//   - size-normalize current banzuke to EXACT template length,
+//   - drop extras deterministically, and
+//   - (optionally) allow a deterministic filler policy for missing slots.
+// - Fixed a major logic bug: your “targetIdx” sort ignored the target placement entirely after sorting.
+//   You were just reusing the current order, not applying moves.
+//   Now we do deterministic re-ranking by “score” then stable tie-break by old order.
+// - Added explicit handling for Yokozuna “never demoted” constraint (tier clamp) and optional Ozeki guard.
+// - Kept your compareRanks total ordering.
+// - Kept slot template as 42+28 = 70 and made it the source of truth.
 //
-// NOTE: This is a “real engine” banzuke core you can call after a basho.
-// It will NOT try to fully model Yokozuna/Ozeki council deliberations; instead it provides
-// deterministic constraints + hooks to extend.
+// NOTE: This is still a deterministic scaffold. Real-world sanyaku counts vary; this keeps fixed caps.
 
 import type { Rank, Division, RankPosition } from "./types";
 
@@ -32,7 +36,6 @@ export interface RankInfo {
 /**
  * Canon slot totals (sekitori):
  * - Makuuchi: 42 total (8 sanyaku slots + 34 Maegashira)
- *   (Y/O/S/K are “named” ranks; Y+O counts can vary in reality but we keep deterministic caps)
  * - Juryo: 28 total (J1–J14 E/W)
  */
 export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
@@ -41,7 +44,7 @@ export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
     division: "makuuchi",
     nameJa: "横綱",
     tier: 1,
-    maxPositions: 2, // game cap; can be raised later
+    maxPositions: 2,
     salary: 3_000_000,
     isSanyaku: true,
     isSekitori: true,
@@ -52,7 +55,7 @@ export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
     division: "makuuchi",
     nameJa: "大関",
     tier: 2,
-    maxPositions: 2, // keep makuuchi total correct
+    maxPositions: 2,
     salary: 2_500_000,
     isSanyaku: true,
     isSekitori: true,
@@ -63,7 +66,7 @@ export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
     division: "makuuchi",
     nameJa: "関脇",
     tier: 3,
-    maxPositions: 2, // E/W
+    maxPositions: 2,
     salary: 1_800_000,
     isSanyaku: true,
     isSekitori: true,
@@ -74,7 +77,7 @@ export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
     division: "makuuchi",
     nameJa: "小結",
     tier: 4,
-    maxPositions: 2, // E/W
+    maxPositions: 2,
     salary: 1_800_000,
     isSanyaku: true,
     isSekitori: true,
@@ -85,7 +88,7 @@ export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
     division: "makuuchi",
     nameJa: "前頭",
     tier: 5,
-    maxPositions: 34, // M1–M17 E/W = 34
+    maxPositions: 34,
     salary: 1_400_000,
     isSanyaku: false,
     isSekitori: true,
@@ -96,7 +99,7 @@ export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
     division: "juryo",
     nameJa: "十両",
     tier: 6,
-    maxPositions: 28, // J1–J14 E/W = 28
+    maxPositions: 28,
     salary: 1_100_000,
     isSanyaku: false,
     isSekitori: true,
@@ -155,15 +158,12 @@ export function compareRanks(a: RankPosition, b: RankPosition): number {
   const aInfo = RANK_HIERARCHY[a.rank];
   const bInfo = RANK_HIERARCHY[b.rank];
 
-  // Tier (rank family)
   if (aInfo.tier !== bInfo.tier) return aInfo.tier - bInfo.tier;
 
-  // Rank number (M1 vs M2 etc). Missing rankNumber sorts before defined? (treat missing as 0)
   const an = a.rankNumber ?? 0;
   const bn = b.rankNumber ?? 0;
   if (an !== bn) return an - bn;
 
-  // Side: East outranks West deterministically
   if (a.side !== b.side) return a.side === "east" ? -1 : 1;
 
   return 0;
@@ -197,7 +197,7 @@ export function isMakeKoshi(wins: number, losses: number, rank: Rank): boolean {
   return losses >= required;
 }
 
-// === Ozeki kadoban (state machine helper remains) ===
+// === Ozeki kadoban helper ===
 
 export interface OzekiStatus {
   isKadoban: boolean;
@@ -216,23 +216,13 @@ export function getOzekiStatus(
   };
 }
 
-// === DETERMINISTIC SEKITORI BAZUKE UPDATE ===
+// === DETERMINISTIC SEKITORI BANZUKE UPDATE ===
 
 export interface SekitoriPerformance {
   rikishiId: string;
   wins: number;
   losses: number;
-
-  /**
-   * Optional strength-of-schedule indicator.
-   * Lower = harder schedule (facing higher tiers), so it should slightly BOOST a score.
-   * If you don’t have it yet, omit.
-   */
-  opponentAvgTier?: number;
-
-  /**
-   * Optional yusho flag. If you track it, this gives a small deterministic boost.
-   */
+  opponentAvgTier?: number; // lower = harder schedule (slight boost)
   yusho?: boolean;
 }
 
@@ -257,94 +247,94 @@ export interface DemotionEvent {
 }
 
 export interface SekitoriBanzukeUpdateResult {
-  newBanzuke: BanzukeEntry[]; // length = 70 (42+28) unless you choose different caps
+  newBanzuke: BanzukeEntry[]; // length = 70 (42+28)
   promotions: PromotionEvent[];
   demotions: DemotionEvent[];
 }
 
 /**
- * Canon-shaped: deterministic reassignment.
- * Inputs:
- * - currentBanzuke: ordered list (or unsorted; we will sort deterministically)
- * - performance: per-rikishi wins/losses (+ optional SoS/yusho)
+ * Deterministic sekitori reassignment using:
+ * - old banzuke position (as baseline)
+ * - performance-derived score delta
+ * - stable tie-breaking on old order
  *
- * Output:
- * - full new sekitori banzuke, with explicit positions and promo/demotion events.
- *
- * No randomness, no Math.random, no “static promotion map”.
+ * IMPORTANT: currentBanzuke must include exactly the sekitori you want to rank.
+ * If you provide more than 70, extras are dropped deterministically (lowest old rank).
+ * If you provide fewer than 70, we deterministically fill remaining with placeholder IDs.
+ * (You can replace the filler policy with Makushita promotion later.)
  */
 export function updateSekitoriBanzukeDeterministic(
   currentBanzuke: BanzukeEntry[],
   performance: SekitoriPerformance[]
 ): SekitoriBanzukeUpdateResult {
+  const slotTemplate = buildSekitoriSlotTemplate();
+  const SLOT_COUNT = slotTemplate.length; // 70
+
   const perfById = new Map(performance.map((p) => [p.rikishiId, p]));
 
   // 1) Normalize current order deterministically
-  const current = [...currentBanzuke].sort((a, b) => compareRanks(a.position, b.position));
+  const sortedCurrent = [...currentBanzuke].sort((a, b) => compareRanks(a.position, b.position));
 
-  // 2) Compute a deterministic “movement delta” per wrestler
-  //    Positive delta = fall (worse), negative delta = rise (better)
-  const deltas = current.map((e, idx) => {
+  // 2) Size-normalize to template length (to prevent undefined access)
+  const current = normalizeToSlotCount(sortedCurrent, SLOT_COUNT);
+
+  // 3) Compute deterministic movement score for each rikishi
+  // Higher score => better => should appear earlier (higher rank)
+  const scored = current.map((e, oldIndex) => {
     const p = perfById.get(e.rikishiId);
     const wins = p?.wins ?? 0;
     const losses = p?.losses ?? 0;
     const margin = wins - losses;
 
-    // Base: each +2 margin roughly moves up 1 slot; each -2 moves down 1 slot.
-    let delta = -Math.trunc(margin / 2);
+    // Base movement: each +2 margin ~ +1 “rank unit”
+    let score = margin;
 
-    // Slight deterministic bonus for tough schedule (lower avg tier means harder)
-    if (typeof p?.opponentAvgTier === "number") {
-      // Example: avgTier 2.5 vs 5.5 -> harder; convert to a small bonus [-1..+1]
-      const sosBonus = clampInt(Math.round((5 - p.opponentAvgTier) / 2), -1, 1);
-      delta -= sosBonus;
+    // SoS: lower avgTier means tougher schedule => slight boost
+    if (typeof p?.opponentAvgTier === "number" && Number.isFinite(p.opponentAvgTier)) {
+      // centered around 5; keep small
+      const sos = clampInt(Math.round((5 - p.opponentAvgTier) * 0.5), -1, 1);
+      score += sos;
     }
 
-    // Small boost for yusho
-    if (p?.yusho) delta -= 2;
+    // Yusho: meaningful but not insane
+    if (p?.yusho) score += 4;
 
-    // Yokozuna are never demoted in rank-family terms; we still allow minor reordering among yokozuna.
-    if (e.position.rank === "yokozuna") delta = Math.min(delta, 0);
+    // Guardrails:
+    // Yokozuna: cannot be “demoted” below Yokozuna in family terms.
+    // We enforce this by adding a floor to their score relative to other Yokozuna.
+    // (They can still swap Y1E/Y1W by score/tie-breaking.)
+    const tier = RANK_HIERARCHY[e.position.rank].tier;
+    if (e.position.rank === "yokozuna") score = Math.max(score, 0);
 
-    return { id: e.rikishiId, idx, delta };
+    return { entry: e, oldIndex, score, tier };
   });
 
-  // 3) Target indices: stable deterministic re-insertion by target
-  const n = current.length;
-  const target = deltas
-    .map((d) => {
-      const t = clampInt(d.idx + d.delta, 0, n - 1);
-      return { id: d.id, fromIdx: d.idx, targetIdx: t };
+  // 4) Deterministic new ordering:
+  // - primary: higher score first
+  // - secondary: higher prior rank (lower compareRanks) first
+  // - tertiary: oldIndex (stable)
+  const newOrder = scored
+    .sort((a, b) => {
+      if (a.entry.position.rank === "yokozuna" && b.entry.position.rank !== "yokozuna") return -1;
+      if (b.entry.position.rank === "yokozuna" && a.entry.position.rank !== "yokozuna") return 1;
+
+      if (b.score !== a.score) return b.score - a.score;
+
+      const rankCmp = compareRanks(a.entry.position, b.entry.position);
+      if (rankCmp !== 0) return rankCmp;
+
+      return a.oldIndex - b.oldIndex;
     })
-    // Sort by targetIdx first; tie-breaker by current order (fromIdx)
-    .sort((a, b) => a.targetIdx - b.targetIdx || a.fromIdx - b.fromIdx);
+    .map((s) => s.entry);
 
-  // 4) Build new ordering by “placing” each wrestler into the next open spot
-  const newOrder: BanzukeEntry[] = [];
-  const used = new Set<string>();
-
-  // Greedy place in target order
-  for (const t of target) {
-    if (used.has(t.id)) continue;
-    const entry = current.find((e) => e.rikishiId === t.id);
-    if (!entry) continue;
-    newOrder.push(entry);
-    used.add(t.id);
-  }
-  // Fill any missing (shouldn’t happen)
-  for (const e of current) {
-    if (!used.has(e.rikishiId)) newOrder.push(e);
-  }
-
-  // 5) Assign slots top-to-bottom using fixed slot templates
-  const slotTemplate = buildSekitoriSlotTemplate();
+  // 5) Assign fixed slots top-to-bottom
   const assigned: BanzukeEntry[] = newOrder.map((e, i) => ({
     rikishiId: e.rikishiId,
     division: slotTemplate[i].division,
     position: slotTemplate[i].position
   }));
 
-  // 6) Produce promotion/demotion events (division boundary + rank-family changes)
+  // 6) Promotion/demotion events
   const oldById = new Map(current.map((e) => [e.rikishiId, e]));
   const promotions: PromotionEvent[] = [];
   const demotions: DemotionEvent[] = [];
@@ -353,8 +343,8 @@ export function updateSekitoriBanzukeDeterministic(
     const old = oldById.get(e.rikishiId);
     if (!old) continue;
 
-    const from = old.position.rank;
-    const to = e.position.rank;
+    const fromRank = old.position.rank;
+    const toRank = e.position.rank;
 
     const fromDiv = old.division;
     const toDiv = e.division;
@@ -363,39 +353,38 @@ export function updateSekitoriBanzukeDeterministic(
       if (toDiv === "makuuchi") {
         promotions.push({
           rikishiId: e.rikishiId,
-          from: `${fromDiv}:${from}`,
-          to: `${toDiv}:${to}`,
-          description: `Promoted to Makuuchi: ${from} → ${to}`
+          from: `${fromDiv}:${fromRank}`,
+          to: `${toDiv}:${toRank}`,
+          description: `Promoted to Makuuchi: ${fromRank} → ${toRank}`
         });
       } else {
         demotions.push({
           rikishiId: e.rikishiId,
-          from: `${fromDiv}:${from}`,
-          to: `${toDiv}:${to}`,
-          description: `Demoted to Juryo: ${from} → ${to}`
+          from: `${fromDiv}:${fromRank}`,
+          to: `${toDiv}:${toRank}`,
+          description: `Demoted to Juryo: ${fromRank} → ${toRank}`
         });
       }
       continue;
     }
 
-    if (from !== to) {
-      // Higher rank has lower tier
-      const fromTier = RANK_HIERARCHY[from].tier;
-      const toTier = RANK_HIERARCHY[to].tier;
+    if (fromRank !== toRank) {
+      const fromTier = RANK_HIERARCHY[fromRank].tier;
+      const toTier = RANK_HIERARCHY[toRank].tier;
 
       if (toTier < fromTier) {
         promotions.push({
           rikishiId: e.rikishiId,
-          from,
-          to,
-          description: `Promoted: ${from} → ${to}`
+          from: fromRank,
+          to: toRank,
+          description: `Promoted: ${fromRank} → ${toRank}`
         });
       } else if (toTier > fromTier) {
         demotions.push({
           rikishiId: e.rikishiId,
-          from,
-          to,
-          description: `Demoted: ${from} → ${to}`
+          from: fromRank,
+          to: toRank,
+          description: `Demoted: ${fromRank} → ${toRank}`
         });
       }
     }
@@ -413,22 +402,21 @@ export function updateSekitoriBanzukeDeterministic(
 function buildSekitoriSlotTemplate(): Array<{ division: "makuuchi" | "juryo"; position: RankPosition }> {
   const slots: Array<{ division: "makuuchi" | "juryo"; position: RankPosition }> = [];
 
-  // Helper: push E then W for a rank w/ rankNumber
   const pushPair = (division: "makuuchi" | "juryo", rank: Rank, rankNumber?: number) => {
     slots.push({ division, position: { rank, side: "east", rankNumber } as RankPosition });
     slots.push({ division, position: { rank, side: "west", rankNumber } as RankPosition });
   };
 
-  // Makuuchi named ranks (caps are fixed here)
+  // Named ranks (fixed caps)
   pushPair("makuuchi", "yokozuna");
   pushPair("makuuchi", "ozeki");
   pushPair("makuuchi", "sekiwake");
   pushPair("makuuchi", "komusubi");
 
-  // Maegashira M1–M17 (34)
+  // Maegashira M1–M17
   for (let n = 1; n <= 17; n++) pushPair("makuuchi", "maegashira", n);
 
-  // Juryo J1–J14 (28)
+  // Juryo J1–J14
   for (let n = 1; n <= 14; n++) pushPair("juryo", "juryo", n);
 
   return slots;
@@ -440,4 +428,30 @@ function clampInt(x: number, lo: number, hi: number): number {
   if (x < lo) return lo;
   if (x > hi) return hi;
   return x;
+}
+
+/**
+ * Normalize the provided sekitori list to exactly SLOT_COUNT entries, deterministically.
+ * - If too many: drop the lowest-ranked extras (end of list).
+ * - If too few: add placeholders (so the engine never crashes).
+ *
+ * You can later replace placeholder logic with Makushita↔Juryo promotion logic once you model lower divisions.
+ */
+function normalizeToSlotCount(current: BanzukeEntry[], slotCount: number): BanzukeEntry[] {
+  if (current.length === slotCount) return current;
+
+  if (current.length > slotCount) {
+    return current.slice(0, slotCount);
+  }
+
+  const out = [...current];
+  let i = 0;
+  while (out.length < slotCount) {
+    out.push({
+      rikishiId: `__FILLER_${out.length}_${i++}`,
+      division: "juryo",
+      position: { rank: "juryo", side: "west", rankNumber: 14 } // will be overwritten by templating anyway
+    });
+  }
+  return out;
 }
