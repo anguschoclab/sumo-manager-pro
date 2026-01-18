@@ -1,19 +1,23 @@
+// types.ts
 // Clean, corrected, drop-in core types for Basho
-// Goals:
-// - No duplicate interface names (Heya)
-// - No Map in persisted state (JSON-safe, deterministic)
-// - Strong RankPosition (numbered vs unnumbered enforced)
-// - Kimarite registry types integrated (KimariteId / KimariteClass / KimariteFamily)
-// - Banzuke snapshot + basho performance types to support canonical slot-based builder
-
-/** =========================
- *  Utility
- *  ========================= */
+// FIXES APPLIED (drop-in + compiles with the other modules you pasted):
+// - SaveGame.world is JSON-safe (SerializedWorldState), NOT WorldState (WorldState contains Maps)
+// - Added SerializedWorldState / SerializedBashoState / SerializedSaveGame + helper map types
+// - Fixed BoutLogEntry.data to allow optional and to avoid forcing all keys present
+// - Added narrow, shared KoenkaiBandType + RunwayBand union compatible with sponsors/timeBoundary
+// - Made Heya.koenkaiBand use sponsors' KoenkaiBandType naming (none/weak/moderate/strong/powerful)
+// - Added optional trainingState on Heya to match training/timeBoundary integration without circular deps
+// - Added RankPosition helpers for runtime normalization
+// - Added KimariteClass / KimariteId / KimariteFamily hooks without importing kimarite.ts (no circular deps)
+//
+// IMPORTANT: This file is designed to be the single source of truth for types across:
+// calendar, banzuke, bout engine, pbp, sponsors, training, timeBoundary, saveload, scouting.
+// If you already have some of these types elsewhere, delete/replace those duplicates.
 
 export type Id = string;
 export type IdMap<T> = Record<string, T>;
-/** Map-based IdMap for runtime - use Object.values() to iterate */
-export type IdMapRuntime<T> = Map<string, T>;
+/** Map-based IdMap for runtime - use Object.values() / Map iteration */
+export type IdMapRuntime<T> = Map<Id, T>;
 
 /** =========================
  *  Combat / Style
@@ -48,9 +52,15 @@ export type KimariteFamily =
   | "REVERSAL"
   | "SPECIAL";
 
-// Note: KimariteClass is re-exported from kimarite.ts - import from there for the full type
-// This is the subset needed for ARCHETYPE_PROFILES to avoid circular deps
-type KimariteClassLite =
+/** KimariteId stays string here; kimarite.ts can refine via `as const` registry */
+export type KimariteId = string;
+
+/**
+ * KimariteClass:
+ * Keep this in types.ts so both kimarite.ts and the bout engine can share it
+ * without circular imports.
+ */
+export type KimariteClass =
   | "force_out"
   | "push"
   | "thrust"
@@ -70,7 +80,7 @@ export const ARCHETYPE_PROFILES: Record<
   {
     tachiaiBonus: number;
     gripPreference: number; // -1..+1
-    preferredClasses: KimariteClassLite[];
+    preferredClasses: KimariteClass[];
     volatility: number; // 0..1
     counterBonus: number;
     baseRisk: number; // 0..1
@@ -91,8 +101,8 @@ export const ARCHETYPE_PROFILES: Record<
       TRIP: 0.95,
       PULLDOWN: 0.8,
       REVERSAL: 0.9,
-      SPECIAL: 0.75,
-    },
+      SPECIAL: 0.75
+    }
   },
   yotsu_specialist: {
     tachiaiBonus: -3,
@@ -108,8 +118,8 @@ export const ARCHETYPE_PROFILES: Record<
       TRIP: 0.95,
       PULLDOWN: 0.8,
       REVERSAL: 1.05,
-      SPECIAL: 0.8,
-    },
+      SPECIAL: 0.8
+    }
   },
   speedster: {
     tachiaiBonus: 5,
@@ -125,8 +135,8 @@ export const ARCHETYPE_PROFILES: Record<
       TRIP: 1.45,
       PULLDOWN: 1.0,
       REVERSAL: 1.1,
-      SPECIAL: 0.9,
-    },
+      SPECIAL: 0.9
+    }
   },
   trickster: {
     tachiaiBonus: 0,
@@ -142,8 +152,8 @@ export const ARCHETYPE_PROFILES: Record<
       TRIP: 1.05,
       PULLDOWN: 1.45,
       REVERSAL: 1.25,
-      SPECIAL: 1.1,
-    },
+      SPECIAL: 1.1
+    }
   },
   all_rounder: {
     tachiaiBonus: 2,
@@ -159,8 +169,8 @@ export const ARCHETYPE_PROFILES: Record<
       TRIP: 1.0,
       PULLDOWN: 1.0,
       REVERSAL: 1.0,
-      SPECIAL: 1.0,
-    },
+      SPECIAL: 1.0
+    }
   },
   hybrid_oshi_yotsu: {
     tachiaiBonus: 3,
@@ -176,8 +186,8 @@ export const ARCHETYPE_PROFILES: Record<
       TRIP: 0.95,
       PULLDOWN: 0.85,
       REVERSAL: 1.05,
-      SPECIAL: 0.9,
-    },
+      SPECIAL: 0.9
+    }
   },
   counter_specialist: {
     tachiaiBonus: -2,
@@ -193,9 +203,9 @@ export const ARCHETYPE_PROFILES: Record<
       TRIP: 1.1,
       PULLDOWN: 0.9,
       REVERSAL: 1.5,
-      SPECIAL: 1.05,
-    },
-  },
+      SPECIAL: 1.05
+    }
+  }
 };
 
 /** =========================
@@ -216,7 +226,6 @@ export type Rank =
   | "jonidan"
   | "jonokuchi";
 
-/** Enforce numbered vs unnumbered ranks at compile time */
 export type NumberedRank = "maegashira" | "juryo" | "makushita" | "sandanme" | "jonidan" | "jonokuchi";
 export type UnnumberedRank = "yokozuna" | "ozeki" | "sekiwake" | "komusubi";
 
@@ -225,6 +234,29 @@ export type Side = "east" | "west";
 export type RankPosition =
   | { rank: UnnumberedRank; side: Side; rankNumber?: never }
   | { rank: NumberedRank; rankNumber: number; side: Side };
+
+export function isNumberedRank(rank: Rank): rank is NumberedRank {
+  return (
+    rank === "maegashira" ||
+    rank === "juryo" ||
+    rank === "makushita" ||
+    rank === "sandanme" ||
+    rank === "jonidan" ||
+    rank === "jonokuchi"
+  );
+}
+
+export function toRankPosition(args: { rank: Rank; side: Side; rankNumber?: number }): RankPosition {
+  const { rank, side, rankNumber } = args;
+  if (isNumberedRank(rank)) {
+    if (!rankNumber || rankNumber < 1) {
+      throw new Error(`Rank ${rank} requires a rankNumber >= 1`);
+    }
+    return { rank, side, rankNumber };
+  }
+  // Unnumbered ranks must not carry rankNumber
+  return { rank: rank as UnnumberedRank, side };
+}
 
 /** Canon banzuke snapshot (ordered slots + assignments) */
 export interface BanzukeAssignment {
@@ -249,14 +281,13 @@ export interface BanzukeSnapshot {
 /** Basho performance input for banzuke building (deterministic sorting) */
 export interface RikishiBashoPerformance {
   rikishiId: Id;
-  division: Division; // division during the basho
+  division: Division;
   priorRank: RankPosition;
   wins: number;
   losses: number;
   absences?: number;
   fusenWins?: number;
   fusenLosses?: number;
-  /** Strength-of-schedule proxy; higher = harder opposition */
   sos?: number;
 }
 
@@ -283,11 +314,8 @@ export interface BashoInfo {
 export interface BoutLogEntry {
   phase: "tachiai" | "clinch" | "momentum" | "finish";
   description: string;
-  data: Record<string, number | string | boolean>;
+  data?: Record<string, number | string | boolean | null | undefined>;
 }
-
-/** KimariteId stays string here; you can optionally refine it in kimarite.ts via `as const` registry */
-export type KimariteId = string;
 
 export interface BoutResult {
   winner: Side;
@@ -344,6 +372,60 @@ export interface RikishiEconomics {
 }
 
 /** =========================
+ *  Narrative bands (stable)
+ *  ========================= */
+
+export type StatureBand = "legendary" | "powerful" | "established" | "rebuilding" | "fragile" | "new";
+export type PrestigeBand = "elite" | "respected" | "modest" | "struggling" | "unknown";
+export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" | "minimal";
+
+/**
+ * IMPORTANT:
+ * sponsors.ts uses KoenkaiBandType = "none" | "weak" | "moderate" | "strong" | "powerful"
+ * timeBoundary.ts imports that type. To avoid drift, we mirror it here.
+ */
+export type KoenkaiBandType = "none" | "weak" | "moderate" | "strong" | "powerful";
+
+export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
+
+/** FTUE */
+export interface FTUEState {
+  isActive: boolean;
+  bashoCompleted: number;
+  suppressedEvents: string[];
+}
+
+export type StableSelectionMode = "found_new" | "take_over" | "recommended";
+
+/** =========================
+ *  Training (optional hook; avoids circular dep)
+ *  ========================= */
+
+export type TrainingIntensity = "conservative" | "balanced" | "intensive" | "punishing";
+export type TrainingFocus = "power" | "speed" | "technique" | "balance" | "neutral";
+export type StyleBias = "oshi" | "yotsu" | "neutral";
+export type RecoveryEmphasis = "low" | "normal" | "high";
+export type FocusMode = "develop" | "push" | "protect" | "rebuild";
+
+export interface TrainingProfile {
+  intensity: TrainingIntensity;
+  focus: TrainingFocus;
+  styleBias: StyleBias;
+  recovery: RecoveryEmphasis;
+}
+
+export interface IndividualFocus {
+  rikishiId: Id;
+  mode: FocusMode;
+}
+
+export interface BeyaTrainingState {
+  profile: TrainingProfile;
+  focusSlots: IndividualFocus[];
+  maxFocusSlots: number;
+}
+
+/** =========================
  *  Rikishi / Heya / World
  *  ========================= */
 
@@ -354,31 +436,27 @@ export interface Rikishi {
   heyaId: Id;
   nationality: string;
 
-  height: number;
-  weight: number;
+  height: number; // cm
+  weight: number; // kg
 
-  power: number;
-  speed: number;
-  balance: number;
-  technique: number;
-  aggression: number;
-  experience: number;
+  power: number; // 0..100
+  speed: number; // 0..100
+  balance: number; // 0..100
+  technique: number; // 0..100
+  aggression: number; // 0..100
+  experience: number; // basho count or scaled stat (0..100)
 
   momentum: number; // -10..+10
-  stamina: number; // 0..100
+  stamina: number; // 0..100 (your timeBoundary uses this as a fatigue proxy)
   injured: boolean;
   injuryWeeksRemaining: number;
 
   style: Style;
   archetype: TacticalArchetype;
 
-  /** Division placement */
   division: Division;
-  /** Rank within the division */
   rank: Rank;
-  /** Rank number for numbered ranks (maegashira 1, juryo 5, etc.) */
   rankNumber?: number;
-  /** East or West side of banzuke */
   side: Side;
 
   careerWins: number;
@@ -392,22 +470,6 @@ export interface Rikishi {
   economics?: RikishiEconomics;
 }
 
-/** Narrative bands */
-export type StatureBand = "legendary" | "powerful" | "established" | "rebuilding" | "fragile" | "new";
-export type PrestigeBand = "elite" | "respected" | "modest" | "struggling" | "unknown";
-export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" | "minimal";
-export type KoenkaiBand = "powerful" | "strong" | "moderate" | "weak" | "none";
-export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
-
-/** FTUE */
-export interface FTUEState {
-  isActive: boolean;
-  bashoCompleted: number;
-  suppressedEvents: string[];
-}
-
-export type StableSelectionMode = "found_new" | "take_over" | "recommended";
-
 /** SINGLE heya definition (no duplicates) */
 export interface Heya {
   id: Id;
@@ -419,11 +481,12 @@ export interface Heya {
   statureBand: StatureBand;
   prestigeBand: PrestigeBand;
   facilitiesBand: FacilitiesBand;
-  koenkaiBand: KoenkaiBand;
+  koenkaiBand: KoenkaiBandType;
   runwayBand: RunwayBand;
 
   reputation: number; // 0..100 (hidden)
   funds: number;
+
   facilities: {
     training: number;
     recovery: number;
@@ -436,6 +499,9 @@ export interface Heya {
     rivalry: boolean;
   };
 
+  // Optional systems:
+  trainingState?: BeyaTrainingState;
+
   descriptor?: string;
   isPlayerOwned?: boolean;
 }
@@ -445,7 +511,6 @@ export interface BashoResult {
   bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;
   bashoName: BashoName;
 
-  /** Makuuuchi yusho by default; expand later for division-specific results if needed */
   yusho: Id;
   junYusho: Id[];
 
@@ -459,7 +524,6 @@ export interface BashoResult {
     specialPrizes: number;
   };
 
-  /** Pointer to the banzuke snapshot after this basho */
   nextBanzuke?: BanzukeSnapshot;
 }
 
@@ -479,19 +543,43 @@ export interface WorldState {
   ftue: FTUEState;
   playerHeyaId?: Id;
 
-  /** last published banzuke (authoritative placement) */
   currentBanzuke?: BanzukeSnapshot;
 }
 
+/** =========================
+ *  JSON-SAFE SERIALIZED TYPES
+ *  ========================= */
+
+export interface SerializedBashoState {
+  year: number;
+  bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;
+  bashoName: BashoName;
+  day: number;
+  matches: MatchSchedule[];
+  standings: StandingsTable; // JSON safe
+}
+
+export interface SerializedWorldState {
+  seed: string;
+  year: number;
+  week: number;
+  currentBashoName?: BashoName;
+
+  heyas: IdMap<Heya>;
+  rikishi: IdMap<Rikishi>;
+
+  currentBasho?: SerializedBashoState;
+  history: BashoResult[];
+
+  ftue: FTUEState;
+  playerHeyaId?: Id;
+
+  currentBanzuke?: BanzukeSnapshot;
+}
 
 /** =========================
- *  Save Format (planned)
- *  =========================
- * Keep this as your top-level persisted object.
- * - `version` enables migrations
- * - everything is JSON-native (no Map/Set)
- * - snapshots are deterministic & replayable
- */
+ *  Save Format (persisted)
+ *  ========================= */
 
 export type SaveVersion = "1.0.0";
 
@@ -500,11 +588,14 @@ export interface SaveGame {
   createdAtISO: string;
   lastSavedAtISO: string;
 
-  /** Future-proof: store options affecting determinism */
   ruleset: {
     banzukeAlgorithm: "slot_fill_v1";
     kimariteRegistryVersion: string; // e.g. "82_official_v1"
   };
 
-  world: WorldState;
+  /** JSON-safe world */
+  world: SerializedWorldState;
+
+  saveSlotName?: string;
+  playTimeMinutes?: number;
 }
