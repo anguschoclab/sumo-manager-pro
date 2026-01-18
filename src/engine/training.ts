@@ -2,15 +2,18 @@
 // Training System - Beya-wide and individual training management
 // Based on Training_System.md specification
 //
-// FIXES / UPGRADES (canon + engine integration):
-// - Added missing "injury recovery speed" consumption hook (weekly boundary can use RECOVERY_EFFECTS.injuryRecovery).
-// - Added per-rikishi focus slot resolution helpers (apply FocusMode effects deterministically).
-// - Added styleBias effects (oshi/yotsu) to influence technique growth weighting (future-proof).
-// - Added validation + safe setters for focus slots (no duplicates, max slots enforced).
-// - Added computeTrainingMultipliers() used by timeBoundary to avoid re-deriving logic differently in two places.
-// - Kept everything deterministic (no RNG here).
+// DROP-IN (canon + engine integration):
+// - Deterministic rules + helpers only (NO RNG, NO WorldState mutation).
+// - Single source of truth: computeTrainingMultipliers() for timeBoundary.
+// - Supports heya-wide profile + per-rikishi focus slots (FocusMode).
+// - Includes styleBias nudges (gentle, future-proof).
+// - Includes recovery multipliers for both fatigue and injury recovery speed.
+// - Validation/sanitization helpers for focus slots (no dupes, max slots).
 //
-// NOTE: This module intentionally does NOT mutate WorldState. It just provides rules + helpers.
+// NOTE ON TYPES / CIRCULAR DEPS:
+// This file only imports Rikishi/Heya types. If you later choose to store
+// `trainingState` on Heya in types.ts, do it as a "lite" shape there to
+// avoid circular imports (recommended).
 
 import type { Rikishi, Heya } from "./types";
 
@@ -216,6 +219,10 @@ export function getCareerPhase(experience: number): CareerPhase {
   return "late";
 }
 
+/**
+ * Note: prestigeTier is a numeric proxy you can derive from PrestigeBand
+ * if you want (elite=4, respected=3, modest=2, struggling=1, unknown=0).
+ */
 export function getMaxFocusSlots(prestigeTier: number): number {
   let slots = 3;
   if (prestigeTier >= 2) slots++;
@@ -244,7 +251,7 @@ export function createDefaultTrainingState(maxSlots: number = 3): BeyaTrainingSt
  * Normalize/validate focusSlots:
  * - removes duplicates (keeps first)
  * - clamps to maxFocusSlots
- * - removes rikishiIds not in roster (optional safety)
+ * - optional: removes rikishiIds not in roster
  */
 export function sanitizeFocusSlots(
   focusSlots: IndividualFocus[],
@@ -256,7 +263,7 @@ export function sanitizeFocusSlots(
 
   const out: IndividualFocus[] = [];
   for (const slot of focusSlots) {
-    if (!slot?.rikishiId) continue;
+    if (!slot || !slot.rikishiId) continue;
     if (seen.has(slot.rikishiId)) continue;
     if (roster && !roster.has(slot.rikishiId)) continue;
 
@@ -273,8 +280,8 @@ export function setFocusSlot(
   mode: FocusMode,
   rosterIds?: readonly string[]
 ): BeyaTrainingState {
-  const next = { ...state, focusSlots: [...state.focusSlots] };
-  // Replace if exists
+  const next: BeyaTrainingState = { ...state, focusSlots: [...state.focusSlots] };
+
   const idx = next.focusSlots.findIndex(s => s.rikishiId === rikishiId);
   if (idx >= 0) next.focusSlots[idx] = { rikishiId, mode };
   else next.focusSlots.push({ rikishiId, mode });
@@ -290,7 +297,10 @@ export function clearFocusSlot(state: BeyaTrainingState, rikishiId: string): Bey
   };
 }
 
-export function getIndividualFocusMode(state: BeyaTrainingState | undefined, rikishiId: string): FocusMode | null {
+export function getIndividualFocusMode(
+  state: BeyaTrainingState | undefined,
+  rikishiId: string
+): FocusMode | null {
   if (!state) return null;
   const found = state.focusSlots.find(s => s.rikishiId === rikishiId);
   return found ? found.mode : null;
@@ -299,19 +309,21 @@ export function getIndividualFocusMode(state: BeyaTrainingState | undefined, rik
 // === TRAINING MULTIPLIERS (used by time boundary) ===
 
 export interface TrainingMultipliers {
-  growthMult: number;      // multiplies chance/gains
-  fatigueMult: number;     // multiplies fatigue added
-  injuryRiskMult: number;  // multiplies injury chance
+  growthMult: number; // multiplies chance/gains
+  fatigueMult: number; // multiplies fatigue added
+  injuryRiskMult: number; // multiplies injury chance
+
   // Per-attribute multipliers after focus + style bias
   attr: { power: number; speed: number; technique: number; balance: number };
-  // Recovery multipliers for fatigue and injury weeks reduction
+
+  // Recovery multipliers used by time boundary
   fatigueRecoveryMult: number;
   injuryRecoveryMult: number;
 }
 
 /**
  * Compute the combined multipliers for one rikishi for one weekly tick.
- * This is the canonical single source of truth so other modules don’t reimplement it differently.
+ * Canonical single source of truth so other modules don’t reimplement it differently.
  */
 export function computeTrainingMultipliers(args: {
   rikishi: Rikishi;
@@ -319,7 +331,8 @@ export function computeTrainingMultipliers(args: {
   profile: TrainingProfile;
   individualMode?: FocusMode | null;
 }): TrainingMultipliers {
-  const { rikishi, profile, individualMode } = args;
+  const { rikishi, profile } = args;
+  const individualMode = args.individualMode ?? null;
 
   const intensity = INTENSITY_EFFECTS[profile.intensity];
   const recovery = RECOVERY_EFFECTS[profile.recovery];
@@ -330,8 +343,7 @@ export function computeTrainingMultipliers(args: {
 
   const modeFx = individualMode ? FOCUS_MODE_EFFECTS[individualMode] : null;
 
-  // Style bias: nudges technique vs power/speed slightly (future-proof)
-  // (kept gentle; your bout engine + kimarite system should dominate style identity.)
+  // Style bias: gentle nudges (kept small; bout engine dominates identity)
   const styleBias = profile.styleBias;
   const styleTech = styleBias === "yotsu" ? 1.06 : styleBias === "oshi" ? 0.97 : 1.0;
   const stylePower = styleBias === "oshi" ? 1.05 : 1.0;
@@ -342,9 +354,10 @@ export function computeTrainingMultipliers(args: {
   const growthMult = baseGrowth * (modeFx ? modeFx.growthMod : 1.0);
 
   const fatigueMult = intensity.fatigueGain * (modeFx ? modeFx.fatigueMod : 1.0);
-  const injuryRiskMult = intensity.injuryRisk * phaseFx.injurySensitivity * (modeFx ? modeFx.injuryRiskMod : 1.0);
 
-  // Attribute focus multipliers + gentle style nudges
+  const injuryRiskMult =
+    intensity.injuryRisk * phaseFx.injurySensitivity * (modeFx ? modeFx.injuryRiskMod : 1.0);
+
   const attr = {
     power: focus.power * stylePower,
     speed: focus.speed * styleSpeed,
@@ -362,7 +375,7 @@ export function computeTrainingMultipliers(args: {
   };
 }
 
-// === TRAINING DESCRIPTIONS ===
+// === TRAINING DESCRIPTIONS (labels only) ===
 
 export function getIntensityLabel(intensity: TrainingIntensity): { ja: string; en: string } {
   const labels: Record<TrainingIntensity, { ja: string; en: string }> = {
