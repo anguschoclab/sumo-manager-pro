@@ -57,9 +57,21 @@ export type KimariteClass =
   | "forfeit";
 
 // --- small helpers to keep the big list readable ---
-type Base = Omit<Kimarite, "styleAffinity" | "archetypeBonus"> & {
+// Base makes most kimarite fields optional since K() fills them from defaults
+type Base = {
+  id: string;
+  name: string;
+  nameJa?: string;
+  category: KimariteCategory;
+  kimariteClass: KimariteClass;
+  description?: string;
   styleAffinity?: Kimarite["styleAffinity"];
   archetypeBonus?: Kimarite["archetypeBonus"];
+  requiredStances?: Stance[];
+  vector?: "frontal" | "lateral" | "rear";
+  gripNeed?: "belt" | "arm" | "none" | "any";
+  baseWeight?: number;
+  rarity?: "common" | "uncommon" | "rare" | "legendary";
 };
 
 const SA = (oshi: number, yotsu: number, hybrid: number) => ({ oshi, yotsu, hybrid });

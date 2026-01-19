@@ -45,8 +45,8 @@ export const KENSHO_CONFIG = {
     medium: 1.0,
     high: 1.5,
     superstar: 2.0
-  }
-} as const;
+  } as Record<string, number>
+};
 
 export const KENSHO_SPLIT_SUM =
   KENSHO_CONFIG.winnerReceives + KENSHO_CONFIG.toRetirementFund + KENSHO_CONFIG.associationFee;
@@ -260,8 +260,8 @@ export const HEYA_CONFIG = {
     medium: 3_000_000,
     high: 7_000_000,
     elite: 15_000_000
-  }
-} as const;
+  } as Record<string, number>
+};
 
 export function calculateHeyaIncome(sekitoriCount: number, totalKenshoWon: number, prestige: number): number {
   const sekitoriIncome = clamp0(Math.floor(sekitoriCount)) * HEYA_CONFIG.sekitoriSupport;

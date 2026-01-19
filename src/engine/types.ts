@@ -72,6 +72,7 @@ export type KimariteClass =
   | "rear"
   | "evasion"
   | "special"
+  | "result"
   | "forfeit";
 
 /** Archetype stat profiles (shared lookup) */
@@ -389,7 +390,22 @@ export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" 
 
 /** sponsors.ts + timeBoundary.ts aligned union */
 export type KoenkaiBandType = "none" | "weak" | "moderate" | "strong" | "powerful";
+/** Alias for backward compatibility */
+export type KoenkaiBand = KoenkaiBandType;
 export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
+
+/** Re-export types from specialized modules for convenience */
+// Scouting types
+export type ConfidenceLevel = "unknown" | "low" | "medium" | "high" | "certain";
+export type ScoutingInvestment = "none" | "light" | "standard" | "deep";
+
+// Leverage types
+export type LeverageClass =
+  | "CompactAnchor"
+  | "LongLever"
+  | "TopHeavy"
+  | "MobileLight"
+  | "Standard";
 
 /** FTUE */
 export interface FTUEState {

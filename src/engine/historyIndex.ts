@@ -52,6 +52,9 @@ export interface RikishiHistoryEntry {
   bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;
   bashoName?: BashoName;
 
+  /** The rikishi this entry is for */
+  rikishiId?: string;
+
   division?: Division;
 
   /** placement going in (if known) */
