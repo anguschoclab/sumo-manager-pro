@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { BASHO_CALENDAR, getBashoInfo, getSeasonalFlavor } from "@/engine/calendar";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import type { StatureBand, PrestigeBand, RunwayBand, KoenkaiBandType, FacilitiesBand } from "@/engine/types";
+import { StableName, RikishiName } from "@/components/ClickableName";
 import {
   Swords,
   Trophy,
@@ -126,7 +127,9 @@ export default function Dashboard() {
         <div className="flex items-start justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <h1 className="font-display text-3xl font-bold">{playerHeya?.name || "Your Stable"}</h1>
+              <h1 className="font-display text-3xl font-bold">
+                {playerHeya ? <StableName id={playerHeya.id} name={playerHeya.name} /> : "Your Stable"}
+              </h1>
               {statureInfo && (
                 <Badge className={`${statureInfo.color} border`}>
                   {statureInfo.labelJa} ({statureInfo.label})
@@ -321,7 +324,9 @@ export default function Dashboard() {
                       >
                         <div className={`w-1 h-12 rounded-full ${rikishi.side === "east" ? "bg-east" : "bg-west"}`} />
                         <div className="flex-1 min-w-0">
-                          <div className="font-display font-medium truncate">{rikishi.shikona}</div>
+                          <div className="font-display font-medium truncate">
+                            <RikishiName id={rikishi.id} name={rikishi.shikona} />
+                          </div>
                           <div className="text-sm text-muted-foreground">
                             {RANK_HIERARCHY[rikishi.rank].nameJa}
                             {rikishi.rankNumber && ` ${rikishi.rankNumber}枚目`}

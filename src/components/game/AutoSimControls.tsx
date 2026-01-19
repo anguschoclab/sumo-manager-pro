@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
+import { RikishiName } from "@/components/ClickableName";
 import { 
   Play, 
   FastForward, 
@@ -270,7 +271,9 @@ export function AutoSimControls({ onStartSim, isSimulating, playerHeyaId }: Auto
                     <div className="space-y-2">
                       {result.chronicle.topChampions.slice(0, 5).map((c, i) => (
                         <div key={c.rikishiId} className="flex items-center justify-between text-sm">
-                          <span className="font-display">{c.shikona}</span>
+                          <span className="font-display">
+                            <RikishiName id={c.rikishiId} name={c.shikona} />
+                          </span>
                           <Badge variant="outline">{c.yushoCount} yusho</Badge>
                         </div>
                       ))}

@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { BASHO_CALENDAR } from "@/engine/calendar";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import { Trophy, Medal, Award, Star, ArrowLeft, Calendar } from "lucide-react";
+import { RikishiName, StableName } from "@/components/ClickableName";
 
 export default function HistoryPage() {
   const navigate = useNavigate();
@@ -92,17 +93,18 @@ export default function HistoryPage() {
                     <div className="grid gap-4 md:grid-cols-2">
                       {/* Yusho Winner */}
                       {yushoRikishi ? (
-                        <div
-                          className="p-4 rounded-lg bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-900/20 dark:to-amber-800/10 border border-amber-200 dark:border-amber-800 cursor-pointer hover:opacity-90 transition-opacity"
-                          onClick={() => navigate(`/rikishi/${yushoRikishi.id}`)}
-                        >
+                        <div className="p-4 rounded-lg bg-gradient-to-br from-amber-100 to-amber-50 dark:from-amber-900/20 dark:to-amber-800/10 border border-amber-200 dark:border-amber-800">
                           <div className="flex items-center gap-2 mb-2">
                             <Trophy className="h-5 w-5 text-amber-600" />
                             <span className="text-sm font-medium text-amber-800 dark:text-amber-400">優勝 Yusho</span>
                           </div>
-                          <div className="font-display text-xl font-bold">{yushoRikishi.shikona}</div>
+                          <div className="font-display text-xl font-bold">
+                            <RikishiName id={yushoRikishi.id} name={yushoRikishi.shikona} />
+                          </div>
                           <div className="text-sm text-muted-foreground">
-                            {RANK_HIERARCHY[yushoRikishi.rank].nameJa} • {yushoHeya?.name ?? "—"}
+                            {RANK_HIERARCHY[yushoRikishi.rank].nameJa} • {yushoHeya ? (
+                              <StableName id={yushoHeya.id} name={yushoHeya.name} />
+                            ) : "—"}
                           </div>
                         </div>
                       ) : (
@@ -127,12 +129,8 @@ export default function HistoryPage() {
                               const rikishi = getRikishi(id);
                               if (!rikishi) return null;
                               return (
-                                <div
-                                  key={id}
-                                  className="font-display cursor-pointer hover:text-primary"
-                                  onClick={() => navigate(`/rikishi/${id}`)}
-                                >
-                                  {rikishi.shikona}
+                                <div key={id} className="font-display">
+                                  <RikishiName id={id} name={rikishi.shikona} />
                                 </div>
                               );
                             })}
@@ -147,12 +145,9 @@ export default function HistoryPage() {
                           <Award className="h-4 w-4 mx-auto mb-1 text-amber-500" />
                           <div className="text-xs text-muted-foreground">殊勲賞</div>
                           {basho.shukunsho && getRikishi(basho.shukunsho) ? (
-                            <button
-                              className="text-sm font-display hover:text-primary"
-                              onClick={() => navigate(`/rikishi/${basho.shukunsho}`)}
-                            >
-                              {getRikishi(basho.shukunsho)!.shikona}
-                            </button>
+                            <div className="text-sm font-display">
+                              <RikishiName id={basho.shukunsho} name={getRikishi(basho.shukunsho)!.shikona} />
+                            </div>
                           ) : (
                             <div className="text-sm font-display">—</div>
                           )}
@@ -163,12 +158,9 @@ export default function HistoryPage() {
                           <Star className="h-4 w-4 mx-auto mb-1 text-rose-500" />
                           <div className="text-xs text-muted-foreground">敢闘賞</div>
                           {basho.kantosho && getRikishi(basho.kantosho) ? (
-                            <button
-                              className="text-sm font-display hover:text-primary"
-                              onClick={() => navigate(`/rikishi/${basho.kantosho}`)}
-                            >
-                              {getRikishi(basho.kantosho)!.shikona}
-                            </button>
+                            <div className="text-sm font-display">
+                              <RikishiName id={basho.kantosho} name={getRikishi(basho.kantosho)!.shikona} />
+                            </div>
                           ) : (
                             <div className="text-sm font-display">—</div>
                           )}
@@ -179,12 +171,9 @@ export default function HistoryPage() {
                           <Medal className="h-4 w-4 mx-auto mb-1 text-sky-500" />
                           <div className="text-xs text-muted-foreground">技能賞</div>
                           {basho.ginoSho && getRikishi(basho.ginoSho) ? (
-                            <button
-                              className="text-sm font-display hover:text-primary"
-                              onClick={() => navigate(`/rikishi/${basho.ginoSho}`)}
-                            >
-                              {getRikishi(basho.ginoSho)!.shikona}
-                            </button>
+                            <div className="text-sm font-display">
+                              <RikishiName id={basho.ginoSho} name={getRikishi(basho.ginoSho)!.shikona} />
+                            </div>
                           ) : (
                             <div className="text-sm font-display">—</div>
                           )}

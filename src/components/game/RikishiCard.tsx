@@ -4,6 +4,7 @@
 import { cn } from "@/lib/utils";
 import type { Rikishi, TacticalArchetype } from "@/engine/types";
 import { Badge } from "@/components/ui/badge";
+import { RikishiName } from "@/components/ClickableName";
 import { Progress } from "@/components/ui/progress";
 import { 
   RANK_NAMES, 
@@ -65,7 +66,7 @@ export function RikishiCard({
       <div className="flex items-start justify-between gap-2 mb-3">
         <div>
           <h3 className="font-display text-xl font-semibold text-foreground">
-            {rikishi.shikona}
+            <RikishiName id={rikishi.id} name={rikishi.shikona} />
           </h3>
           {!compact && rikishi.realName && (
             <p className="text-sm text-muted-foreground">{rikishi.realName}</p>
