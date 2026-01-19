@@ -367,7 +367,7 @@ export function hydrateFromRikishiFlags(args: {
       type,
       title,
       description,
-      causedBy: "unknown"
+      causedBy: "training"
     };
 
     state = applyInjuryRecord(state, rec);

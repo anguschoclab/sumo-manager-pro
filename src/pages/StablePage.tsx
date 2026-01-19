@@ -18,7 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
-import type { StatureBand, PrestigeBand, RunwayBand, KoenkaiBand, FacilitiesBand } from "@/engine/types";
+import type { StatureBand, PrestigeBand, RunwayBand, KoenkaiBandType, FacilitiesBand } from "@/engine/types";
 import {
   INTENSITY_EFFECTS,
   FOCUS_EFFECTS,
@@ -82,7 +82,7 @@ const RUNWAY_NARRATIVE: Record<RunwayBand, { label: string; color: string; descr
   desperate: { label: "Desperate", color: "text-destructive", description: "Every yen matters. Survival mode." }
 };
 
-const KOENKAI_NARRATIVE: Record<KoenkaiBand, { label: string; description: string }> = {
+const KOENKAI_NARRATIVE: Record<KoenkaiBandType, { label: string; description: string }> = {
   powerful: { label: "Powerful", description: "Influential patrons provide substantial monthly support." },
   strong: { label: "Strong", description: "Reliable supporter base with steady contributions." },
   moderate: { label: "Moderate", description: "A modest group of dedicated supporters." },

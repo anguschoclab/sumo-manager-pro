@@ -12,8 +12,32 @@
 import seedrandom from "seedrandom";
 import type { Id, WorldState } from "./types";
 import type { InjuryRecord } from "./injuries";
-import type { RivalryState, RivalryEvent } from "./rivalries";
-import type { MediaEvent } from "./media";
+
+// Define missing types that events.ts needs to bridge other systems
+export interface RivalryEvent {
+  type: "rivalry_started" | "rivalry_escalation" | "rivalry_peak" | "rivalry_cool";
+  rikishiA: string;
+  rikishiB: string;
+  title: string;
+  summary: string;
+  data: Record<string, string | number | boolean | null | undefined>;
+  truthLevel?: "public" | "limited" | "private";
+}
+
+export interface MediaEvent {
+  type: string;
+  subjectId?: string;
+  phase?: EventPhase;
+  importance?: EventImportance;
+  scope?: EventScope;
+  heyaId?: string;
+  rikishiId?: string;
+  title: string;
+  summary: string;
+  data: Record<string, string | number | boolean | null | undefined>;
+  truthLevel?: "public" | "limited" | "private";
+  tags?: string[];
+}
 
 // -------------------------------
 // Core Event Types

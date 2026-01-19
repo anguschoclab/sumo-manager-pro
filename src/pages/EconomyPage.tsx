@@ -28,7 +28,7 @@ import {
   AlertTriangle,
   Info
 } from "lucide-react";
-import type { RunwayBand, KoenkaiBand } from "@/engine/types";
+import type { RunwayBand, KoenkaiBandType } from "@/engine/types";
 
 // Runway narrative descriptions
 const RUNWAY_CONFIG: Record<
@@ -80,7 +80,7 @@ const RUNWAY_CONFIG: Record<
 
 // Koenkai (supporter) descriptions
 const KOENKAI_CONFIG: Record<
-  KoenkaiBand,
+  KoenkaiBandType,
   {
     label: string;
     description: string;
@@ -183,7 +183,7 @@ export default function EconomyPage() {
   }
 
   const runwayBand = (playerHeya.runwayBand ?? "tight") as RunwayBand;
-  const koenkaiBand = (playerHeya.koenkaiBand ?? "none") as KoenkaiBand;
+  const koenkaiBand = (playerHeya.koenkaiBand ?? "none") as KoenkaiBandType;
 
   const runwayConfig = RUNWAY_CONFIG[runwayBand];
   const koenkaiConfig = KOENKAI_CONFIG[koenkaiBand];
