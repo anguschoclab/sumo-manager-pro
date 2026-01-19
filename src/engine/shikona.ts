@@ -433,12 +433,12 @@ function generateCandidate(
 export function generateShikona(rng: seedrandom.PRNG, usedNames: Set<string>, config: ShikonaGenerationConfig = {}): string {
   const house = getHouseStyle(config.heyaId);
   const rankRule = getRankRule(config.rank);
-  const tier = rankRule.tier;
+  const currentTier = rankRule.tier;
 
   const maxAttempts = 140;
 
   // Allow some headroom on escalations; still keep bounded by tier policy
-  const hardMaxLen = RANK_TIER_DISPLAY_MAXLEN[tier];
+  const currentMaxLen = RANK_TIER_DISPLAY_MAXLEN[currentTier];
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     let name = generateCandidate(rng, config, attempt, house, rankRule);
@@ -450,15 +450,15 @@ export function generateShikona(rng: seedrandom.PRNG, usedNames: Set<string>, co
     if (attempt >= 40 && attempt < 90) {
       const extra = pickSuffixByCategoryBias(rng, house.suffixCategoryBias);
       const extended = name + extra;
-      if (extended.length <= hardMaxLen) name = extended;
+      if (extended.length <= currentMaxLen) name = extended;
     } else if (attempt >= 90) {
       const connector = pickConnectorToken(rng, house);
       const extra = pickSuffixByCategoryBias(rng, house.suffixCategoryBias);
       const forced = name + connector + extra;
-      if (forced.length <= hardMaxLen) name = forced;
+      if (forced.length <= currentMaxLen) name = forced;
     }
 
-    if (name.length > hardMaxLen) continue;
+    if (name.length > currentMaxLen) continue;
 
     const key = normalizeKey(name);
     if (!usedNames.has(key)) {
@@ -474,9 +474,7 @@ export function generateShikona(rng: seedrandom.PRNG, usedNames: Set<string>, co
 
   let fallback = `${prefix}${suffix}${disambiguator}`;
   // Ensure fallback isn’t absurdly long for the tier; trim suffix if needed deterministically
-  const tier = getRankRule(config.rank).tier;
-  const hardMaxLen = RANK_TIER_DISPLAY_MAXLEN[tier];
-  if (fallback.length > hardMaxLen) {
+  if (fallback.length > currentMaxLen) {
     fallback = `${prefix}${disambiguator}`;
   }
 

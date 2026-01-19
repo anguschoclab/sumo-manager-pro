@@ -273,7 +273,7 @@ export function buildMediaDigest(args: {
       rikishiId: row.rikishiId,
       shikona: args.world.rikishi.get(row.rikishiId)?.shikona,
       heat: row.heat,
-      tone: row.heat >= 70 ? "hype" : row.heat >= 40 ? "praise" : "neutral"
+      tone: (row.heat >= 70 ? "hype" : row.heat >= 40 ? "praise" : "neutral") as MediaTone
     }));
 
   const heyaPressure = Object.entries(args.state.heyaPressure)

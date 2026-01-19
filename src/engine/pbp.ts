@@ -317,7 +317,7 @@ export function buildPbp(
   });
 
   // Determine winner/loser labels if a finish fact exists
-  const finish = ordered.findLast ? (ordered as any).findLast((f: PbpFact) => f.phase === "finish") : [...ordered].reverse().find(f => f.phase === "finish");
+  const finish = [...ordered].reverse().find(f => f.phase === "finish");
   const winnerSide = finish && finish.phase === "finish" ? finish.winner : undefined;
 
   const winnerName = winnerSide ? sideName(ctx, winnerSide) : "";

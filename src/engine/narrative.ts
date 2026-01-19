@@ -26,7 +26,7 @@
 // - It expects clinch log entry data includes { stance, advantage } (your bout.ts does)
 
 import seedrandom from "seedrandom";
-import type { BoutResult, BoutLogEntry, Rikishi, BashoName } from "./types";
+import type { BoutResult, BoutLogEntry, Rikishi, BashoName, Stance } from "./types";
 import { BASHO_CALENDAR } from "./calendar";
 import { RANK_HIERARCHY } from "./banzuke";
 
