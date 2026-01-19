@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import type { Rikishi, Heya } from "@/engine/types";
+import { RikishiName, StableName } from "@/components/ClickableName";
 import {
   Trophy,
   Search,
@@ -412,10 +413,12 @@ export default function AlmanacPage() {
                       return (
                         <div className="p-4 rounded-lg bg-secondary/50">
                           <div className="text-sm text-muted-foreground">Best Career Win Rate (min 30 bouts)</div>
-                          <Link to={`/rikishi/${best.id}`} className="flex items-center gap-2 mt-1 hover:text-primary">
-                            <span className="font-display font-bold text-lg">{best.shikona}</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="font-display font-bold text-lg">
+                              <RikishiName id={best.id} name={best.shikona} />
+                            </span>
                             <span className="font-mono text-success">{rate}%</span>
-                          </Link>
+                          </div>
                         </div>
                       );
                     })()}
@@ -433,10 +436,12 @@ export default function AlmanacPage() {
                       return (
                         <div className="p-4 rounded-lg bg-secondary/50">
                           <div className="text-sm text-muted-foreground">Most Career Bouts</div>
-                          <Link to={`/rikishi/${most.id}`} className="flex items-center gap-2 mt-1 hover:text-primary">
-                            <span className="font-display font-bold text-lg">{most.shikona}</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="font-display font-bold text-lg">
+                              <RikishiName id={most.id} name={most.shikona} />
+                            </span>
                             <span className="font-mono">{bouts} bouts</span>
-                          </Link>
+                          </div>
                         </div>
                       );
                     })()}
@@ -449,10 +454,12 @@ export default function AlmanacPage() {
                       return (
                         <div className="p-4 rounded-lg bg-secondary/50">
                           <div className="text-sm text-muted-foreground">Largest Active Stable</div>
-                          <Link to={`/stable/${largest.id}`} className="flex items-center gap-2 mt-1 hover:text-primary">
-                            <span className="font-display font-bold text-lg">{largest.name}</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="font-display font-bold text-lg">
+                              <StableName id={largest.id} name={largest.name} />
+                            </span>
                             <span className="font-mono">{largest.rikishiIds?.length || 0} wrestlers</span>
-                          </Link>
+                          </div>
                         </div>
                       );
                     })()}

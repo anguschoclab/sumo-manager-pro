@@ -34,6 +34,7 @@ function AppRoutes() {
         <Route path="/basho" element={<BashoPage />} />
         <Route path="/banzuke" element={<BanzukePage />} />
         <Route path="/stable" element={<StablePage />} />
+        <Route path="/stable/:id" element={<StablePage />} />
         <Route path="/rikishi/:id" element={<RikishiPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/economy" element={<EconomyPage />} />

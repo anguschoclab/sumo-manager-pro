@@ -11,7 +11,7 @@
 // - Keeps “allowed” numbers (wins/losses) but avoids raw hidden stats
 
 import { Helmet } from "react-helmet";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -116,6 +116,7 @@ function safeFacilitiesCopy(band: FacilitiesBand | undefined, kind: "training" |
 
 export default function StablePage() {
   const navigate = useNavigate();
+  const { id: routeId } = useParams<{ id?: string }>();
   const { state } = useGame();
   const { world, playerHeyaId } = state;
 
@@ -124,7 +125,11 @@ export default function StablePage() {
     return null;
   }
 
-  const heya = world.heyas.get(playerHeyaId);
+  // Use route param if provided, otherwise default to player's stable
+  const viewingHeyaId = routeId || playerHeyaId;
+  const isViewingOwnStable = viewingHeyaId === playerHeyaId;
+  
+  const heya = world.heyas.get(viewingHeyaId);
   if (!heya) {
     navigate("/");
     return null;

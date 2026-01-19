@@ -17,6 +17,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
+import { RikishiName } from "@/components/ClickableName";
 import {
   Wallet,
   TrendingUp,
@@ -357,7 +358,9 @@ export default function EconomyPage() {
                       <div className="flex items-center gap-3">
                         <span className="text-2xl font-display font-bold text-muted-foreground">{i + 1}</span>
                         <div>
-                          <p className="font-medium">{(r as any)?.shikona}</p>
+                          <p className="font-medium">
+                            <RikishiName id={(r as any)?.id} name={(r as any)?.shikona} />
+                          </p>
                           <p className="text-xs text-muted-foreground">{tier.detail}</p>
                         </div>
                       </div>

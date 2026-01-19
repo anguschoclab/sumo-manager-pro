@@ -8,6 +8,7 @@ import { generateNarrative } from "@/engine/narrative";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import type { Rikishi, BoutResult, BashoName } from "@/engine/types";
 import { Trophy } from "lucide-react";
+import { RikishiName } from "@/components/ClickableName";
 
 interface BoutNarrativeModalProps {
   open: boolean;
@@ -49,7 +50,9 @@ export function BoutNarrativeModal({
             {/* East wrestler */}
             <div className={`text-center flex-1 ${result.winner === "east" ? "" : "opacity-60"}`}>
               <div className="text-xs text-east font-medium mb-1">東 East</div>
-              <div className="font-display text-xl">{east.shikona}</div>
+              <div className="font-display text-xl">
+                <RikishiName id={east.id} name={east.shikona} />
+              </div>
               <div className="text-xs text-muted-foreground">
                 {RANK_HIERARCHY[east.rank]?.nameJa}
                 {east.rankNumber && ` ${east.rankNumber}`}
@@ -64,7 +67,9 @@ export function BoutNarrativeModal({
             {/* West wrestler */}
             <div className={`text-center flex-1 ${result.winner === "west" ? "" : "opacity-60"}`}>
               <div className="text-xs text-west font-medium mb-1">西 West</div>
-              <div className="font-display text-xl">{west.shikona}</div>
+              <div className="font-display text-xl">
+                <RikishiName id={west.id} name={west.shikona} />
+              </div>
               <div className="text-xs text-muted-foreground">
                 {RANK_HIERARCHY[west.rank]?.nameJa}
                 {west.rankNumber && ` ${west.rankNumber}`}
