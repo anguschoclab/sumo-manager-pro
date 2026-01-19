@@ -8,6 +8,8 @@ import type { Rikishi } from "./types";
 import { describeAttribute, describeAggression, describeExperience } from "./narrativeDescriptions";
 
 // === Confidence levels for scouted information ===
+// Note: These types are also defined in types.ts for convenience imports
+// The definitions must stay in sync
 export type ConfidenceLevel = "unknown" | "low" | "medium" | "high" | "certain";
 
 // Scouting investment levels per documentation

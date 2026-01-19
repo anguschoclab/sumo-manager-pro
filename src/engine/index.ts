@@ -35,7 +35,26 @@ export {
 
 export * from "./bout";
 export * from "./calendar";
-export * from "./banzuke";
+
+// Banzuke - export selectively to avoid conflicts with injuries.ts
+export {
+  type RankInfo,
+  RANK_HIERARCHY,
+  compareRanks,
+  formatRank,
+  getRankTitleJa,
+  isKachiKoshi,
+  isMakeKoshi,
+  type OzekiStatus,
+  getOzekiStatus,
+  type SekitoriPerformance,
+  type BanzukeEntry,
+  type PromotionEvent,
+  type DemotionEvent,
+  type SekitoriBanzukeUpdateResult,
+  updateSekitoriBanzukeDeterministic
+} from "./banzuke";
+
 export * from "./economics";
 
 // Training - exclude duplicate types
@@ -81,7 +100,7 @@ export {
 
 export * from "./shikona";
 
-// Scouting - exclude duplicate types
+// Scouting - these types are also in types.ts but we need the functions
 export {
   type AttributeType,
   type PublicRikishiInfo,
@@ -107,7 +126,7 @@ export * from "./oyakataPersonalities";
 export * from "./npcAI";
 export * from "./rivalries";
 
-// Injuries - export selectively to avoid PromotionEvent/DemotionEvent conflicts
+// Injuries - export selectively to avoid PromotionEvent/DemotionEvent conflicts  
 export {
   type InjurySeverity,
   type InjuryBodyArea,
@@ -120,5 +139,26 @@ export {
 
 export * from "./events";
 export * from "./uiDigest";
-export * from "./uiModels";
+
+// uiModels - exclude ScoutingInvestment duplicate, export what exists
+export {
+  type UILocale,
+  type UIText,
+  type UIIconRef,
+  type UIChip,
+  type Yen,
+  type UITimeState,
+  type UIPublicRikishi,
+  type UIScoutedAttribute,
+  type UIScoutedAttributes,
+  type UIScoutingSummary,
+  type UIRikishiScoutView,
+  type UIStatureBand,
+  type UIPrestigeBand,
+  type UIFacilitiesBand,
+  type UIKoenkaiBand,
+  type UIRunwayBand,
+  type UIHeyaSummary
+} from "./uiModels";
+
 export * from "./mockData";

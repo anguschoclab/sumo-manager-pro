@@ -36,9 +36,7 @@ import {
   sanitizeFocusSlots,
   getMaxFocusSlots
 } from "./training";
-
-/** Scouting investment levels per scouting system */
-export type ScoutingInvestment = "none" | "light" | "standard" | "deep";
+import type { ScoutingInvestment } from "./types";
 
 /** Minimal training state shape stored on heya (kept local to avoid type coupling). */
 export interface HeyaTrainingState {
