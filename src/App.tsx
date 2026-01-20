@@ -13,6 +13,7 @@ import BashoPage from "./pages/BashoPage";
 import BanzukePage from "./pages/BanzukePage";
 import StablePage from "./pages/StablePage";
 import RikishiPage from "./pages/RikishiPage";
+import OyakataPage from "./pages/OyakataPage";
 import HistoryPage from "./pages/HistoryPage";
 import EconomyPage from "./pages/EconomyPage";
 import NotFound from "./pages/NotFound";
@@ -36,6 +37,7 @@ function AppRoutes() {
         <Route path="/stable" element={<StablePage />} />
         <Route path="/stable/:id" element={<StablePage />} />
         <Route path="/rikishi/:id" element={<RikishiPage />} />
+        <Route path="/oyakata/:id" element={<OyakataPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/economy" element={<EconomyPage />} />
         <Route path="/governance" element={<Dashboard />} />

@@ -302,8 +302,12 @@ function inferIntensity(
   funds: number,
   injuryRate: number,
   avgFatigue: number,
-  rng: seedrandom.PRNG
+  rng: seedrandom.PRNG,
+  personality?: OyakataPersonality
 ): TrainingIntensity {
+  // Oyakata personality influences intensity preferences
+  const intensityBias = personality?.traits?.intensityBias ?? 50;
+  const riskTolerance = personality?.traits?.riskTolerance ?? 50;
   const stature = (heya as any).statureBand as string | undefined;
   const prestige = (heya as any).prestigeBand as string | undefined;
 
@@ -343,8 +347,11 @@ function inferRecovery(
   intensity: TrainingIntensity,
   injuryRate: number,
   avgFatigue: number,
-  rng: seedrandom.PRNG
+  rng: seedrandom.PRNG,
+  personality?: OyakataPersonality
 ): RecoveryEmphasis {
+  // Oyakata personality influences recovery preferences
+  const recoveryBias = personality?.traits?.recoveryBias ?? 50;
   // If hurting, recover more.
   if (injuryRate >= 0.12 || avgFatigue >= 65) return "high";
 
@@ -460,7 +467,8 @@ function buildNotes(
   roster: Rikishi[],
   profile: TrainingProfile,
   focusSlots: IndividualFocus[],
-  scouting: ScoutingInvestment
+  scouting: ScoutingInvestment,
+  personality?: OyakataPersonality
 ): string[] {
   const notes: string[] = [];
 
