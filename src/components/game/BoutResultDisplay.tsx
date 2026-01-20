@@ -36,7 +36,7 @@ function titleCase(s: string): string {
 function formatStance(raw: unknown): string {
   const s = safeString(raw, "");
   if (!s) return "—";
-  return titleCase(s.replaceAll("-", " "));
+  return titleCase(s.split("-").join(" "));
 }
 
 export function BoutResultDisplay({

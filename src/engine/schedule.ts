@@ -1,14 +1,7 @@
 // schedule.ts
 // =======================================================
-// Schedule Builder v1.1 — Deterministic daily torikumi generation for ALL divisions
-//
-// Uses matchmaking.ts candidate scoring + greedy maximum matching (good-enough, deterministic).
-//
-// Division bout counts (default):
-// - makuuchi, juryo: 15 days, daily bouts during basho
-// - makushita, sandanme, jonidan, jonokuchi: 7 days (or 7 bouts) baseline
-//
-// This module does NOT simulate bouts; it only produces MatchSchedule entries.
+// Schedule Builder v1.1 — Deterministic torikumi pairing for ALL divisions
+// Uses matchmaking.ts for candidate generation and scoring.
 // =======================================================
 
 import seedrandom from "seedrandom";
@@ -19,19 +12,16 @@ export interface DivisionScheduleConfig {
   division: Division;
   /** number of bouts on a given day (usually roster/2) */
   boutsPerDay?: number;
-  /** optional cap on roster used (e.g., if you later model kyujo differently) */
+  /** max active rikishi to consider (for huge lower divisions) */
   maxActiveRikishi?: number;
 }
 
 export interface ScheduleRules {
   matchmaking?: Partial<MatchmakingRules>;
-  /**
-   * If true, allow creating a match even when repeat-opponent avoidance blocks full card.
-   * (Still respects same-heya hard rule.)
-   */
   allowForcedRepeats?: boolean;
 }
 
+/** Default bout days per division (sekitori = 15, lower = 7) */
 export const DEFAULT_DIVISION_DAYS: Record<Division, number> = {
   makuuchi: 15,
   juryo: 15,
@@ -41,15 +31,20 @@ export const DEFAULT_DIVISION_DAYS: Record<Division, number> = {
   jonokuchi: 7
 };
 
+// === HELPERS ===
+
 function stableSort<T>(arr: T[], keyFn: (x: T) => string): T[] {
   return [...arr].sort((a, b) => keyFn(a).localeCompare(keyFn(b)));
 }
 
 function activeDivisionRoster(world: WorldState, division: Division): Rikishi[] {
-  return stableSort(
-    Array.from(world.rikishi.values()).filter(r => r.division === division && !(r as any).injured),
-    r => r.id
-  );
+  const pool: Rikishi[] = [];
+  for (const r of world.rikishi.values()) {
+    if (r.division === division && !r.injured) {
+      pool.push(r);
+    }
+  }
+  return stableSort(pool, r => r.id);
 }
 
 function previousOpponentsSet(basho: BashoState): Map<string, Set<string>> {
@@ -57,31 +52,41 @@ function previousOpponentsSet(basho: BashoState): Map<string, Set<string>> {
   for (const m of basho.matches) {
     const e = m.eastRikishiId;
     const w = m.westRikishiId;
+    
     if (!map.has(e)) map.set(e, new Set());
     if (!map.has(w)) map.set(w, new Set());
+    
     map.get(e)!.add(w);
     map.get(w)!.add(e);
   }
   return map;
 }
 
-function greedySelectPairs(candidates: MatchPairing[], requiredPairs: number): MatchPairing[] {
-  const selected: MatchPairing[] = [];
+/**
+ * Greedy selection of non-overlapping pairs.
+ * Candidates should be pre-sorted by score (descending).
+ */
+function greedySelectPairs(candidates: MatchPairing[], maxPairs: number): MatchPairing[] {
   const used = new Set<string>();
-
+  const selected: MatchPairing[] = [];
+  
   for (const c of candidates) {
-    if (selected.length >= requiredPairs) break;
+    if (selected.length >= maxPairs) break;
     if (used.has(c.eastId) || used.has(c.westId)) continue;
+    
     selected.push(c);
     used.add(c.eastId);
     used.add(c.westId);
   }
-
+  
   return selected;
 }
 
+// === CORE SCHEDULING ===
+
 /**
- * Builds matchups for a single division/day and appends to basho.matches.
+ * Schedule bouts for a single division on a single day.
+ * Appends matches to basho.matches and returns the new matches.
  */
 export function scheduleDivisionDay(args: {
   world: WorldState;
@@ -174,8 +179,7 @@ export function scheduleDivisionDay(args: {
 }
 
 /**
- * Builds schedules for all divisions for a given day.
- * (Useful if your UI shows one combined card; you can still filter by division.)
+ * Schedule all divisions for a single day.
  */
 export function scheduleAllDivisionsDay(args: {
   world: WorldState;
@@ -207,9 +211,8 @@ export function scheduleAllDivisionsDay(args: {
 }
 
 /**
- * Optional helper: generate the full basho schedule up to the max day across divisions.
- * - makuuchi/juryo: 15
- * - others: 7
+ * Generate the complete schedule for a basho (all days, all divisions).
+ * For lower divisions that only fight 7 days, this only schedules on odd days.
  */
 export function generateFullBashoSchedule(args: {
   world: WorldState;
@@ -220,16 +223,18 @@ export function generateFullBashoSchedule(args: {
 }): void {
   const divisions: Division[] =
     args.divisions ??
-    (["jonokuchi", "jonidan", "sandanme", "makushita", "juryo", "makuuchi"] as Division[]);
+    (["makuuchi", "juryo", "makushita", "sandanme", "jonidan", "jonokuchi"] as Division[]);
 
-  // Determine max days to generate (15 if any sekitori divisions included)
-  let maxDays = 0;
-  for (const d of divisions) maxDays = Math.max(maxDays, DEFAULT_DIVISION_DAYS[d]);
+  const maxDays = Math.max(...divisions.map(d => DEFAULT_DIVISION_DAYS[d]));
 
   for (let day = 1; day <= maxDays; day++) {
     for (const div of divisions) {
       const divDays = DEFAULT_DIVISION_DAYS[div];
+      
+      // Lower divisions (7 days) only fight on odd days: 1, 3, 5, 7, 9, 11, 13
+      if (divDays === 7 && day % 2 === 0) continue;
       if (day > divDays) continue;
+
       scheduleDivisionDay({
         world: args.world,
         basho: args.basho,
@@ -240,4 +245,24 @@ export function generateFullBashoSchedule(args: {
       });
     }
   }
+}
+
+/**
+ * Check if a specific day needs scheduling for a division.
+ */
+export function needsScheduleForDay(division: Division, day: number): boolean {
+  const maxDays = DEFAULT_DIVISION_DAYS[division];
+  if (day > maxDays) return false;
+  
+  // Lower divisions fight on odd days only
+  if (maxDays === 7 && day % 2 === 0) return false;
+  
+  return true;
+}
+
+/**
+ * Get total expected bouts for a division in a basho.
+ */
+export function getTotalBashodays(division: Division): number {
+  return DEFAULT_DIVISION_DAYS[division];
 }

@@ -37,6 +37,7 @@ import {
   getMaxFocusSlots
 } from "./training";
 import type { ScoutingInvestment } from "./types";
+import { getOrCreateOyakataPersonality, type OyakataPersonality } from "./oyakataPersonalities";
 
 /** Minimal training state shape stored on heya (kept local to avoid type coupling). */
 export interface HeyaTrainingState {
@@ -68,6 +69,9 @@ export function runNpcWeeklyAI(world: WorldState, time: { weekIndexGlobal: numbe
     const weekSeed = `${world.seed}-npcai-week-${time.weekIndexGlobal}-heya-${heyaId}`;
     const rng = seedrandom(weekSeed);
 
+    // Get or create oyakata personality for this heya
+    const personality = getOrCreateOyakataPersonality(world, heya);
+
     const roster = getHeyaRoster(world, heya);
     const rosterIds = roster.map(r => r.id);
 
@@ -75,14 +79,14 @@ export function runNpcWeeklyAI(world: WorldState, time: { weekIndexGlobal: numbe
     const prestigeTier = estimatePrestigeTier(heya);
     const maxSlots = getMaxFocusSlots(prestigeTier);
 
-    // Decide profile
-    const profile = decideTrainingProfile(heya, roster, rng);
+    // Decide profile (now influenced by oyakata personality)
+    const profile = decideTrainingProfile(heya, roster, rng, personality);
 
     // Decide focus slots
-    const focusSlots = decideFocusSlots(heya, roster, maxSlots, rng);
+    const focusSlots = decideFocusSlots(heya, roster, maxSlots, rng, personality);
 
-    // Decide scouting investment
-    const scoutingInvestment = decideScoutingInvestment(heya, roster, rng);
+    // Decide scouting investment (now influenced by oyakata personality)
+    const scoutingInvestment = decideScoutingInvestment(heya, roster, rng, personality);
 
     // Apply to heya
     const nextTrainingState: HeyaTrainingState = {
@@ -99,7 +103,7 @@ export function runNpcWeeklyAI(world: WorldState, time: { weekIndexGlobal: numbe
       profile,
       focusSlots: nextTrainingState.focusSlots,
       scoutingInvestment,
-      notes: buildNotes(heya, roster, profile, nextTrainingState.focusSlots, scoutingInvestment)
+      notes: buildNotes(heya, roster, profile, nextTrainingState.focusSlots, scoutingInvestment, personality)
     });
   }
 
@@ -125,7 +129,7 @@ export function initializeNpcAIState(world: WorldState): void {
 // Decision Logic
 // =======================================================
 
-function decideTrainingProfile(heya: Heya, roster: Rikishi[], rng: seedrandom.PRNG): TrainingProfile {
+function decideTrainingProfile(heya: Heya, roster: Rikishi[], rng: seedrandom.PRNG, personality?: OyakataPersonality): TrainingProfile {
   // If stable is financially stressed => safer training (protect assets)
   const runway = (heya as any).runwayBand as string | undefined;
   const funds = typeof heya.funds === "number" ? heya.funds : ((heya as any).funds || 0);
@@ -140,24 +144,21 @@ function decideTrainingProfile(heya: Heya, roster: Rikishi[], rng: seedrandom.PR
   // Focus selection: pick weakest average attribute, lightly biased by style
   const focus = inferHeyaFocus(roster, styleBias, rng);
 
-  // Intensity: depends on prestige and risk/funds
-  const intensity = inferIntensity(heya, runway, funds, injuryRate, avgFatigue, rng);
+  // Intensity: depends on prestige and risk/funds (and oyakata personality)
+  const intensity = inferIntensity(heya, runway, funds, injuryRate, avgFatigue, rng, personality);
 
-  // Recovery: depends on injury/fatigue + intensity
-  const recovery = inferRecovery(intensity, injuryRate, avgFatigue, rng);
+  // Recovery: depends on injury/fatigue + intensity (and oyakata personality)
+  const recovery = inferRecovery(intensity, injuryRate, avgFatigue, rng, personality);
 
   return { intensity, focus, styleBias, recovery };
 }
 
-function decideFocusSlots(heya: Heya, roster: Rikishi[], maxSlots: number, rng: seedrandom.PRNG): IndividualFocus[] {
+function decideFocusSlots(heya: Heya, roster: Rikishi[], maxSlots: number, rng: seedrandom.PRNG, personality?: OyakataPersonality): IndividualFocus[] {
   if (maxSlots <= 0 || roster.length === 0) return [];
 
-  // Priority list:
-  // 1) currently injured => rebuild (if you allow training focus while injured, else it will matter after return)
-  // 2) low stamina / high fatigue => protect
-  // 3) high momentum / high rank => push
-  // 4) youth / low experience => develop
-  // Ensure deterministic ordering: score then sort by (score desc, id asc)
+  // Oyakata personality influences focus priorities
+  const youthBias = personality?.traits?.youthBias ?? 50;
+
   const scored = roster.map(r => {
     const fatigue = getFatigue(r);
     const injured = !!(r as any).injured;
@@ -177,10 +178,10 @@ function decideFocusSlots(heya: Heya, roster: Rikishi[], maxSlots: number, rng: 
       score += 650 + momentum * 10 + rankScore * 20;
       mode = "push";
     } else if (r.experience < 45) {
-      score += 500 + (45 - r.experience) * 6;
+      // Youth bias from personality increases priority for developing young talent
+      score += 500 + (45 - r.experience) * 6 + (youthBias > 60 ? 50 : 0);
       mode = "develop";
     } else {
-      // baseline: pick a small chance to push a contender
       score += 200 + rankScore * 10 + momentum * 5;
       mode = rng() < 0.15 ? "push" : "develop";
     }
@@ -193,24 +194,21 @@ function decideFocusSlots(heya: Heya, roster: Rikishi[], maxSlots: number, rng: 
   return scored.slice(0, maxSlots).map(s => ({ rikishiId: s.rikishiId, mode: s.mode }));
 }
 
-function decideScoutingInvestment(heya: Heya, roster: Rikishi[], rng: seedrandom.PRNG): ScoutingInvestment {
-  // Budget-aware: don't spend if desperate.
+function decideScoutingInvestment(heya: Heya, roster: Rikishi[], rng: seedrandom.PRNG, personality?: OyakataPersonality): ScoutingInvestment {
   const runway = (heya as any).runwayBand as string | undefined;
   const funds = typeof heya.funds === "number" ? heya.funds : ((heya as any).funds || 0);
-
-  // Strong stables invest more; fragile stables conserve.
   const stature = (heya as any).statureBand as string | undefined;
   const prestigeBand = (heya as any).prestigeBand as string | undefined;
-
-  // If roster has high-ranked sekitori, scouting matters more
   const hasTop = roster.some(r => r.rank === "yokozuna" || r.rank === "ozeki" || r.rank === "sekiwake" || r.rank === "komusubi");
 
-  // Base preference
+  // Oyakata scouting bias influences investment
+  const scoutBias = personality?.traits?.scoutingBias ?? 50;
+
   let base: ScoutingInvestment = "none";
 
   if (runway === "desperate" || runway === "critical" || funds < 12_000_000) {
     base = rng() < 0.2 ? "light" : "none";
-  } else if (stature === "legendary" || prestigeBand === "elite") {
+  } else if (stature === "legendary" || prestigeBand === "elite" || scoutBias > 70) {
     base = hasTop ? (rng() < 0.6 ? "deep" : "standard") : (rng() < 0.5 ? "standard" : "light");
   } else if (stature === "powerful" || prestigeBand === "respected") {
     base = hasTop ? (rng() < 0.35 ? "deep" : "standard") : (rng() < 0.6 ? "standard" : "light");
@@ -220,7 +218,6 @@ function decideScoutingInvestment(heya: Heya, roster: Rikishi[], rng: seedrandom
     base = rng() < 0.55 ? "light" : "standard";
   }
 
-  // Slight random wobble for variety (deterministic)
   const wobble = rng();
   if (base === "standard" && wobble < 0.08) return "deep";
   if (base === "light" && wobble < 0.08) return "standard";

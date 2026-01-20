@@ -24,6 +24,8 @@ import { computeTrainingMultipliers, getIndividualFocusMode, createDefaultTraini
 import { calculateMonthlyIncome, calculateRetirementContribution } from "./economics";
 import { calculateKoenkaiIncome, type KoenkaiBandType } from "./sponsors";
 import { RANK_HIERARCHY } from "./banzuke";
+import { runNpcWeeklyAI, initializeNpcAIState } from "./npcAI";
+import { initializeAllOyakataPersonalities } from "./oyakataPersonalities";
 
 // === TIME STATE ===
 
@@ -510,8 +512,17 @@ export function advanceWeeks(world: WorldState, weeks: number, startTimeState: T
   let currentTime: TimeState = { ...startTimeState };
   const totalWeeks = Math.max(0, Math.floor(weeks));
 
+  // Initialize NPC AI states if not already done
+  initializeNpcAIState(world);
+  
+  // Initialize Oyakata personalities if not already done
+  initializeAllOyakataPersonalities(world);
+
   for (let w = 0; w < totalWeeks; w++) {
     const weekSeed = `${world.seed}-week-${currentTime.weekIndexGlobal}`;
+
+    // Run NPC AI decisions BEFORE training tick (so training state is set for the week)
+    runNpcWeeklyAI(world, { weekIndexGlobal: currentTime.weekIndexGlobal });
 
     const weekResult = processWeeklyBoundary(world, weekSeed);
     weeklyResults.push(weekResult);
