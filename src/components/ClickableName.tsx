@@ -15,7 +15,7 @@ interface ClickableNameProps {
 const routeMap: Record<NameType, string> = {
   rikishi: "/rikishi",
   stable: "/stable",
-  oyakata: "/stable", // Oyakata links to their stable for now
+  oyakata: "/oyakata", // Oyakata links to their profile page
 };
 
 export function ClickableName({ 

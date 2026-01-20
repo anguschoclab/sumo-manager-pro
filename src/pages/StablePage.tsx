@@ -55,6 +55,7 @@ import {
   Sparkles
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { OyakataName } from "@/components/ClickableName";
 
 // Narrative band displays (no raw numbers)
 const STATURE_DISPLAY: Record<StatureBand, { label: string; labelJa: string; color: string }> = {
@@ -196,6 +197,9 @@ export default function StablePage() {
             </div>
             <p className="text-muted-foreground">
               {rikishiList.length} wrestlers • {sekitori.length} sekitori
+              {heya.oyakataId && (
+                <span> • Oyakata: <OyakataName id={heya.oyakataId} name="View Profile" className="font-medium" /></span>
+              )}
             </p>
             {heya.descriptor && <p className="text-sm text-muted-foreground italic mt-1">{heya.descriptor}</p>}
           </div>
