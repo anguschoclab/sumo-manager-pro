@@ -1,4 +1,4 @@
-// Game State Context - Central state management for Stable Lords
+// Game State Context - Central state management for Basho
 // Provides world state, basho control, and game actions
 
 import React, { createContext, useContext, useReducer, useCallback, ReactNode } from "react";

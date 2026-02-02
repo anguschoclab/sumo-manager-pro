@@ -42,6 +42,7 @@ import {
   type ScoutingInvestment
 } from "@/engine/scouting";
 import { ArrowLeft, Ruler, Scale, Swords, Activity, Flame, Zap, Shield, Target, Search } from "lucide-react";
+import { StableName } from "@/components/ClickableName";
 
 function findKimariteById(id: string) {
   const anyReg = KIMARITE_REGISTRY as any;
@@ -164,7 +165,7 @@ export default function RikishiPage() {
                 {rikishi.rankNumber ? ` ${rikishi.rankNumber}` : ""}
               </span>
               <span className="text-muted-foreground">{rikishi.side === "east" ? "東 East" : "西 West"}</span>
-              {heya && <span className="text-muted-foreground">• {heya.name}</span>}
+              {heya && <span className="text-muted-foreground">• <StableName id={heya.id} name={heya.name} /></span>}
             </div>
 
             <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">

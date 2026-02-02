@@ -1,17 +1,16 @@
-// App Sidebar - Main navigation for Stable Lords
+// App Sidebar - Main navigation for Basho
 // Traditional Japanese aesthetic with sumo terminology
 
 import { 
   Home, 
   Trophy, 
   Users, 
-  Sword, 
   Wallet, 
   Scale, 
   History, 
-  Settings,
   CircleDot,
-  Swords
+  Swords,
+  Flame
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useGame } from "@/contexts/GameContext";
@@ -40,6 +39,7 @@ const mainNavItems = [
 ];
 
 const secondaryNavItems = [
+  { title: "Rivalries", url: "/rivalries", icon: Flame, phase: "rivalries" as const },
   { title: "Economy", url: "/economy", icon: Wallet, phase: "economy" as const },
   { title: "Governance", url: "/governance", icon: Scale, phase: "governance" as const },
   { title: "History", url: "/history", icon: History, phase: "history" as const },
@@ -75,7 +75,7 @@ export function AppSidebar() {
           </div>
           {!collapsed && (
             <div className="flex flex-col">
-              <span className="font-display text-lg font-semibold">Stable Lords</span>
+              <span className="font-display text-lg font-semibold">Basho</span>
               <span className="text-xs text-muted-foreground">相撲経営</span>
             </div>
           )}
