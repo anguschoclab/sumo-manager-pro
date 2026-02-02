@@ -16,6 +16,7 @@ import RikishiPage from "./pages/RikishiPage";
 import OyakataPage from "./pages/OyakataPage";
 import HistoryPage from "./pages/HistoryPage";
 import EconomyPage from "./pages/EconomyPage";
+import RivalriesPage from "./pages/RivalriesPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -38,6 +39,7 @@ function AppRoutes() {
         <Route path="/stable/:id" element={<StablePage />} />
         <Route path="/rikishi/:id" element={<RikishiPage />} />
         <Route path="/oyakata/:id" element={<OyakataPage />} />
+        <Route path="/rivalries" element={<RivalriesPage />} />
         <Route path="/history" element={<HistoryPage />} />
         <Route path="/economy" element={<EconomyPage />} />
         <Route path="/governance" element={<Dashboard />} />
