@@ -10,7 +10,9 @@
 // - Ensures rankNames fallback + avoids undefined lookups
 // - Keeps favored kimarite lookup compatible with registry being array OR record
 // - Keeps non-owned narratives fogged without crashing
+// - Added bout history from almanac
 
+import seedrandom from "seedrandom";
 import { Helmet } from "react-helmet";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
@@ -18,9 +20,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import { KIMARITE_REGISTRY } from "@/engine/kimarite";
 import { getCareerPhase } from "@/engine/training";
+import { generateCareerRecord, type RikishiCareerRecord, type BashoPerformance } from "@/engine/almanac";
 import {
   describeAttributeVerbose,
   describeAggressionVerbose,
@@ -41,7 +45,7 @@ import {
   describeScoutingLevel,
   type ScoutingInvestment
 } from "@/engine/scouting";
-import { ArrowLeft, Ruler, Scale, Swords, Activity, Flame, Zap, Shield, Target, Search } from "lucide-react";
+import { ArrowLeft, Ruler, Scale, Swords, Activity, Flame, Zap, Shield, Target, Search, History, Trophy, Award } from "lucide-react";
 import { StableName } from "@/components/ClickableName";
 
 function findKimariteById(id: string) {
@@ -97,6 +101,10 @@ export default function RikishiPage() {
   const seed = (world as any).seed || `world-${(world as any).id || "unknown"}`;
   const scoutedAttrs = getScoutedAttributes(scouted, rikishi, seed);
   const scoutingInfo = describeScoutingLevel(scouted.scoutingLevel);
+
+  // Generate career record for bout history (almanac integration)
+  const rng = seedrandom(seed + "-career-" + rikishi.id);
+  const careerRecord: RikishiCareerRecord = generateCareerRecord(rikishi, world, () => rng());
 
   // Favored kimarite names (safe)
   const favoredMoves =
@@ -348,6 +356,113 @@ export default function RikishiPage() {
                   {rikishi.currentBashoWins}-{rikishi.currentBashoLosses}
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Bout History - Almanac Integration */}
+          <Card className="paper lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <History className="h-5 w-5" />
+                Basho History
+              </CardTitle>
+              <CardDescription>
+                {careerRecord.yushoCount > 0 && (
+                  <span className="flex items-center gap-1 text-gold">
+                    <Trophy className="h-3 w-3" />
+                    {careerRecord.yushoCount} Yūshō
+                  </span>
+                )}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {/* Career Achievements Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="p-3 rounded-lg bg-secondary/50 text-center">
+                  <div className="text-xl font-bold">{careerRecord.totalWins}</div>
+                  <div className="text-xs text-muted-foreground">Career Wins</div>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/50 text-center">
+                  <div className="text-xl font-bold">{careerRecord.totalLosses}</div>
+                  <div className="text-xs text-muted-foreground">Career Losses</div>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/50 text-center">
+                  <div className="text-xl font-bold">{careerRecord.junYushoCount}</div>
+                  <div className="text-xs text-muted-foreground">Jun-Yūshō</div>
+                </div>
+                <div className="p-3 rounded-lg bg-secondary/50 text-center">
+                  <div className="text-xl font-bold">{careerRecord.kinboshiCount}</div>
+                  <div className="text-xs text-muted-foreground">Kinboshi</div>
+                </div>
+              </div>
+
+              {/* Sansho Awards */}
+              {(careerRecord.sanshoCounts.ginoSho > 0 || 
+                careerRecord.sanshoCounts.kantosho > 0 || 
+                careerRecord.sanshoCounts.shukunsho > 0) && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {careerRecord.sanshoCounts.ginoSho > 0 && (
+                    <Badge variant="outline" className="text-xs">
+                      <Award className="h-3 w-3 mr-1" />
+                      技能賞 Gino-shō ×{careerRecord.sanshoCounts.ginoSho}
+                    </Badge>
+                  )}
+                  {careerRecord.sanshoCounts.kantosho > 0 && (
+                    <Badge variant="outline" className="text-xs">
+                      <Award className="h-3 w-3 mr-1" />
+                      敢闘賞 Kantō-shō ×{careerRecord.sanshoCounts.kantosho}
+                    </Badge>
+                  )}
+                  {careerRecord.sanshoCounts.shukunsho > 0 && (
+                    <Badge variant="outline" className="text-xs">
+                      <Award className="h-3 w-3 mr-1" />
+                      殊勲賞 Shukunshō ×{careerRecord.sanshoCounts.shukunsho}
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              {/* Recent Basho Performance */}
+              <div className="text-sm font-medium mb-2">Recent Tournaments</div>
+              <ScrollArea className="h-[200px]">
+                <div className="space-y-2 pr-2">
+                  {careerRecord.bashoHistory.slice(-12).reverse().map((basho: BashoPerformance, idx: number) => (
+                    <div 
+                      key={`${basho.year}-${basho.bashoNumber}`}
+                      className="flex items-center justify-between p-2 rounded-lg bg-secondary/30"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="text-xs text-muted-foreground w-20">
+                          {basho.bashoName.charAt(0).toUpperCase() + basho.bashoName.slice(1)} {basho.year}
+                        </div>
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {basho.rank}{basho.rankNumber ? ` ${basho.rankNumber}` : ""}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-mono text-sm ${
+                          basho.wins > basho.losses ? "text-success" : 
+                          basho.wins < basho.losses ? "text-destructive" : ""
+                        }`}>
+                          {basho.wins}-{basho.losses}
+                        </span>
+                        {basho.yusho && (
+                          <Badge className="bg-gold/20 text-gold border-gold/30 text-xs">
+                            <Trophy className="h-3 w-3 mr-1" />
+                            Yūshō
+                          </Badge>
+                        )}
+                        {basho.junYusho && (
+                          <Badge variant="secondary" className="text-xs">Jun</Badge>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {careerRecord.bashoHistory.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No tournament history available yet.</p>
+                  )}
+                </div>
+              </ScrollArea>
             </CardContent>
           </Card>
         </div>

@@ -11,6 +11,7 @@ import { BASHO_CALENDAR, getBashoInfo, getSeasonalFlavor } from "@/engine/calend
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import type { StatureBand, PrestigeBand, RunwayBand, KoenkaiBandType, FacilitiesBand } from "@/engine/types";
 import { StableName, RikishiName } from "@/components/ClickableName";
+import { WeeklyDigest, createPlaceholderDigest } from "@/components/game/WeeklyDigest";
 import {
   Swords,
   Trophy,
@@ -301,6 +302,12 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Weekly Digest */}
+        <WeeklyDigest 
+          digest={(world as any).lastWeeklyDigest || createPlaceholderDigest()} 
+          className="paper"
+        />
 
         {/* Sekitori List */}
         {sekitori.length > 0 && (
