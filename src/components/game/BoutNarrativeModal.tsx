@@ -1,13 +1,15 @@
 // Bout Narrative Modal - Shows dramatic play-by-play
 // Per PBP System v2.0: "Bouts are presented as one flowing narrative"
+// Now enhanced with pbp.ts buildPbpFromBoutResult for richer commentary
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { generateNarrative } from "@/engine/narrative";
+import { buildPbpFromBoutResult, type PbpLine } from "@/engine/pbp";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import type { Rikishi, BoutResult, BashoName } from "@/engine/types";
-import { Trophy } from "lucide-react";
+import { Trophy, Mic2 } from "lucide-react";
 import { RikishiName } from "@/components/ClickableName";
 
 interface BoutNarrativeModalProps {
@@ -31,8 +33,31 @@ export function BoutNarrativeModal({
   day,
   isPlayerBout
 }: BoutNarrativeModalProps) {
+  // Generate rich narrative using narrative.ts
   const narrative = generateNarrative(east, west, result, bashoName, day);
   const winner = result.winner === "east" ? east : west;
+
+  // Generate PBP commentary for additional color
+  const pbpLines: PbpLine[] = buildPbpFromBoutResult(result, {
+    seed: `${bashoName}-${day}-${east.id}-${west.id}`,
+    day,
+    bashoName,
+    east: {
+      id: east.id,
+      shikona: east.shikona,
+      style: east.style,
+      archetype: east.archetype,
+      rankLabel: RANK_HIERARCHY[east.rank]?.nameJa || east.rank,
+    },
+    west: {
+      id: west.id,
+      shikona: west.shikona,
+      style: west.style,
+      archetype: west.archetype,
+      rankLabel: RANK_HIERARCHY[west.rank]?.nameJa || west.rank,
+    },
+    isKinboshiBout: result.upset && RANK_HIERARCHY[east.rank]?.tier === 1 || RANK_HIERARCHY[west.rank]?.tier === 1,
+  });
 
   // Identify special lines for styling
   const isExclamation = (line: string) => line.includes("!");
@@ -101,6 +126,34 @@ export function BoutNarrativeModal({
               </p>
             ))}
           </div>
+
+          {/* PBP Commentary Section */}
+          {pbpLines.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-border/50">
+              <div className="flex items-center gap-2 mb-3">
+                <Mic2 className="h-4 w-4 text-muted-foreground" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Play-by-Play
+                </span>
+              </div>
+              <div className="space-y-2">
+                {pbpLines.map((line, idx) => (
+                  <div key={idx} className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[10px] shrink-0 capitalize">
+                      {line.phase}
+                    </Badge>
+                    <p className={`text-sm ${
+                      line.tags?.includes("crowd_roar") || line.tags?.includes("upset")
+                        ? "text-foreground font-medium"
+                        : "text-muted-foreground"
+                    }`}>
+                      {line.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </ScrollArea>
 
         <Separator />
