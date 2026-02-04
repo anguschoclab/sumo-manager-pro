@@ -1,4 +1,4 @@
-import { GameState, Basho, Rikishi } from "./types";
+import { GameState, Basho } from "./types";
 import { generateH2HCommentary } from "./h2h";
 
 export interface DigestItem {
@@ -6,7 +6,7 @@ export interface DigestItem {
   type: "matchup" | "news" | "stat";
   title: string;
   description: string;
-  icon?: string; // e.g., "sword", "trophy", "skull"
+  icon?: string; // e.g., "sword", "trophy", "skull", "fire", "bandage", "star", "calendar"
 }
 
 export function generateWeeklyDigest(state: GameState): DigestItem[] {
@@ -34,6 +34,8 @@ export function generateWeeklyDigest(state: GameState): DigestItem[] {
     const west = state.rikishi.find((r) => r.id === bout.rikishiWestId);
 
     if (east && west) {
+      if (!east.h2h) east.h2h = {};
+      
       const h2h = east.h2h[west.id];
       if (h2h) {
         const total = h2h.wins + h2h.losses;
@@ -99,6 +101,7 @@ export function generateWeeklyDigest(state: GameState): DigestItem[] {
       type: "news",
       title: `Day ${today} of ${basho.name}`,
       description: "The wrestlers are preparing for today's bouts. Check the schedule for details.",
+      icon: "calendar",
     });
   }
 
