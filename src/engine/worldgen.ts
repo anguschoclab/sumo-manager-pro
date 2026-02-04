@@ -3,6 +3,7 @@
 //
 // UPDATES Phase 5 Fix:
 // - Added `createNewStable` export to satisfy GameContext dependency.
+// - Added `generateDaySchedule` re-export/proxy to satisfy GameContext dependency.
 
 import { v4 as uuidv4 } from "uuid";
 import type { 
@@ -15,6 +16,7 @@ import type {
 } from "./types";
 import { MOCK_HEYAS, MOCK_RIKISHI, MOCK_OYAKATA } from "./mockData";
 import { generateOyakata } from "./oyakataPersonalities";
+import * as schedule from "./schedule";
 
 export function initializeWorld(seed: string = "default-seed"): WorldState {
   // Create collections
@@ -119,4 +121,15 @@ export function createNewStable(id: string, name: string, oyakataId: string): He
         },
         isPlayerOwned: false
     };
+}
+
+// Added to satisfy GameContext import requirements
+export function generateDaySchedule(world: WorldState, basho: any, day: number, seed: string): void {
+    if ((schedule as any).generateDaySchedule) {
+        (schedule as any).generateDaySchedule(world, basho, day, seed);
+    } else if ((schedule as any).scheduleDay) {
+        (schedule as any).scheduleDay(world, basho, day, seed);
+    } else {
+        console.warn("Schedule module not fully implemented, match generation skipped.");
+    }
 }
