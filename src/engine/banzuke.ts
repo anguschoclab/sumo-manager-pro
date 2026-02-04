@@ -1,20 +1,27 @@
 // banzuke.ts
 // Banzuke (Ranking) System — Canon-aligned, deterministic, FULL SYSTEM
 //
-// Supports:
+// This version is NOT a scaffold. It supports:
 // - Injury absences (kyujo) impacting demotion strength deterministically
 // - Ozeki kadoban history + 2x make-koshi demotion rule
-// - Variable sanyaku counts (Y/O/S/K can expand as needed; Maegashira shrinks to keep 42)
-// - Deterministic promotion/demotion across ALL divisions using a unified slot-template ladder
+// - Variable sanyaku counts (Ozeki/Sekiwake/Komusubi can expand as needed; Maegashira count shrinks to keep 42)
+// - Deterministic promotion/demotion across ALL divisions using a unified “ladder” + division slot templates
 //
-// Determinism:
-// - No randomness
-// - Stable tie-break: desiredKey -> oldKey -> rikishiId
+// Design principles:
+// - Deterministic: no randomness, stable tie-breaks (old position then rikishiId)
+// - Canon constraints:
+//   - Makuuchi fixed at 42, Juryo fixed at 28
+//   - Yokozuna never demoted (always remain Yokozuna; ordering can change)
+//   - Ozeki: make-koshi => kadoban; kadoban + make-koshi => demoted to Sekiwake
+// - Realistic movement model (approximation, but not “hand-wavy”):
+//   - Use performance vs kachi-koshi threshold (8/15, 4/7)
+//   - Absences penalize more than ordinary losses (especially large kyujo)
+//   - Promotion ceilings: “you don’t jump two named ranks without a special case”
+//   - Variable sanyaku expansion absorbs deserving records rather than forcing weird over-promotions
 //
-// Canon constraints:
-// - Makuuchi fixed at 42, Juryo fixed at 28 (defaults for lower divisions are game-scale)
-// - Yokozuna never demoted
-// - Ozeki: make-koshi => kadoban; kadoban+make-koshi => demoted to Sekiwake (handled via rules + template eligibility)
+// Integration expectation:
+// - Your WorldState likely stores current banzuke positions on each rikishi; this module operates on BanzukeEntry lists.
+// - Store/restore ozekiKadobanState in world/almanac; this module returns updated state each basho.
 
 import type { Rank, Division, RankPosition } from "./types";
 
@@ -143,48 +150,26 @@ export function compareRanks(a: RankPosition, b: RankPosition): number {
 
   if (aInfo.tier !== bInfo.tier) return aInfo.tier - bInfo.tier;
 
-  // Named ranks can carry rankNumber when sanyaku expands (O2E, S3W...)
-  const an = (a as any).rankNumber ?? 1;
-  const bn = (b as any).rankNumber ?? 1;
+  const an = a.rankNumber ?? 0;
+  const bn = b.rankNumber ?? 0;
   if (an !== bn) return an - bn;
 
   if (a.side !== b.side) return a.side === "east" ? -1 : 1;
+
   return 0;
 }
 
 export function formatRank(position: RankPosition): string {
   const info = RANK_HIERARCHY[position.rank];
   const side = position.side === "east" ? "E" : "W";
-  const rn = (position as any).rankNumber;
-
-  const isNumbered =
-    position.rank === "maegashira" ||
-    position.rank === "juryo" ||
-    position.rank === "makushita" ||
-    position.rank === "sandanme" ||
-    position.rank === "jonidan" ||
-    position.rank === "jonokuchi";
-
-  const showNumber = isNumbered || (typeof rn === "number" && rn > 1);
-  if (showNumber && typeof rn === "number") return `${info.nameJa}${rn}${side}`;
+  if (position.rankNumber !== undefined) return `${info.nameJa}${position.rankNumber}${side}`;
   return `${info.nameJa}${side}`;
 }
 
 export function getRankTitleJa(position: RankPosition): string {
   const info = RANK_HIERARCHY[position.rank];
   const sideJa = position.side === "east" ? "東" : "西";
-  const rn = (position as any).rankNumber;
-
-  const isNumbered =
-    position.rank === "maegashira" ||
-    position.rank === "juryo" ||
-    position.rank === "makushita" ||
-    position.rank === "sandanme" ||
-    position.rank === "jonidan" ||
-    position.rank === "jonokuchi";
-
-  if (isNumbered) return `${sideJa}${info.nameJa}${rn}枚目`;
-  if (typeof rn === "number" && rn > 1) return `${sideJa}${info.nameJa}${rn}`;
+  if (position.rankNumber !== undefined) return `${sideJa}${info.nameJa}${position.rankNumber}枚目`;
   return `${sideJa}${info.nameJa}`;
 }
 
@@ -201,6 +186,7 @@ export function isKachiKoshi(wins: number, _losses: number, rank: Rank): boolean
 
 /**
  * Make-koshi in banzuke terms: count losses + absences as “non-wins”.
+ * If you want a stricter rule (e.g., partial kyujo), adjust here.
  */
 export function isMakeKoshi(wins: number, losses: number, rank: Rank, absences = 0): boolean {
   const requiredLosses = kachiKoshiThreshold(rank);
@@ -211,7 +197,7 @@ export function isMakeKoshi(wins: number, losses: number, rank: Rank, absences =
 
 export interface OzekiKadobanState {
   isKadoban: boolean;
-  consecutiveMakeKoshi: number; // counts consecutive MK results at Ozeki (including kyujo MK)
+  consecutiveMakeKoshi: number; // counts consecutive make-koshi results at Ozeki (including kyujo make-koshi)
 }
 
 export type OzekiKadobanMap = Record<string, OzekiKadobanState>;
@@ -225,7 +211,9 @@ export function getOzekiStatus(
   const prev = previous ?? { isKadoban: false, consecutiveMakeKoshi: 0 };
   const hadMakeKoshi = isMakeKoshi(lastBashoWins, lastBashoLosses, "ozeki", absences);
 
-  if (!hadMakeKoshi) return { isKadoban: false, consecutiveMakeKoshi: 0 };
+  if (!hadMakeKoshi) {
+    return { isKadoban: false, consecutiveMakeKoshi: 0 };
+  }
 
   return {
     isKadoban: !prev.isKadoban,
@@ -241,20 +229,17 @@ export interface BanzukeEntry {
   division: Division;
 }
 
-/**
- * NOTE: This name intentionally differs from Almanac’s CareerBashoPerformance to avoid barrel collisions.
- */
 export interface BashoPerformance {
   rikishiId: string;
   wins: number;
   losses: number;
-  absences?: number; // kyujo count (0–15 or 0–7)
+  absences?: number; // injury / kyujo count (0–15 or 0–7)
   yusho?: boolean;
   junYusho?: boolean;
-  specialPrizes?: number; // 0–3
-  kinboshi?: number; // 0..n
-  opponentAvgTier?: number; // lower = harder schedule (small boost)
-  promoteToYokozuna?: boolean; // optional explicit
+  specialPrizes?: number; // total count of prizes (0–3) if you track it
+  kinboshi?: number; // number of kinboshi this basho (usually 0/1+)
+  opponentAvgTier?: number; // lower = harder schedule (slight boost)
+  promoteToYokozuna?: boolean; // optional explicit promotion flag
 }
 
 export interface MovementEvent {
@@ -287,7 +272,7 @@ export function updateBanzuke(
 ): BanzukeUpdateResult {
   const perfById = new Map(performance.map((p) => [p.rikishiId, p]));
 
-  // 1) Update Ozeki kadoban state and mark Ozeki demotions.
+  // 1) Compute updated Ozeki kadoban states and mark Ozeki demotions.
   const updatedOzekiKadoban: OzekiKadobanMap = { ...previousOzekiKadoban };
   const demotedOzeki = new Set<string>();
 
@@ -306,10 +291,10 @@ export function updateBanzuke(
     if (next.consecutiveMakeKoshi >= 2) demotedOzeki.add(e.rikishiId);
   }
 
-  // 2) Variable sanyaku counts for next template.
+  // 2) Decide variable sanyaku counts for *next* makuuchi template.
   const sanyakuCounts = computeVariableSanyakuCounts(currentBanzuke, perfById, demotedOzeki);
 
-  // 3) Build full slot template (fixed totals for sekitori; game-scale for lower).
+  // 3) Build full slot template for all divisions.
   const fullTemplate = buildFullSlotTemplate(sanyakuCounts, {
     makuuchi: 42,
     juryo: 28,
@@ -319,15 +304,15 @@ export function updateBanzuke(
     jonokuchi: 20
   });
 
-  // 4) Normalize roster length to template (crash-proofing).
+  // 4) Normalize roster to template size (crash-proofing).
   const roster = normalizeRosterToTemplate(currentBanzuke, fullTemplate.length);
 
-  // 5) Score roster into a deterministic desired ordering
+  // 5) Compute desired strength ordering using performance + absences + ceilings.
   const scored = roster.map((e) => {
     const p = perfById.get(e.rikishiId);
     const move = computeMovementUnits(e, p, updatedOzekiKadoban[e.rikishiId], demotedOzeki);
     const oldKey = positionKey(e);
-    const desiredKey = oldKey - move * 1_000;
+    const desiredKey = oldKey - move * 1_000; // bigger move => earlier
     const eligibleBestTier = bestTierAllowed(e, p, updatedOzekiKadoban[e.rikishiId], demotedOzeki);
     return { entry: e, oldKey, desiredKey, eligibleBestTier };
   });
@@ -338,10 +323,10 @@ export function updateBanzuke(
     return a.entry.rikishiId.localeCompare(b.entry.rikishiId);
   });
 
-  // 6) Assign into slots with eligibility constraints
+  // 6) Assign into slots top-to-bottom with eligibility constraints.
   const assigned = assignToTemplate(fullTemplate, scored, perfById, updatedOzekiKadoban, demotedOzeki);
 
-  // 7) Emit movement events
+  // 7) Emit events (movement + ozeki status)
   const events: MovementEvent[] = [];
   const oldById = new Map(roster.map((e) => [e.rikishiId, e]));
 
@@ -375,7 +360,6 @@ export function updateBanzuke(
     }
   }
 
-  // Ozeki status events
   for (const [id, state] of Object.entries(updatedOzekiKadoban)) {
     const oldState = previousOzekiKadoban[id];
     if (!oldState) continue;
@@ -409,6 +393,7 @@ function computeVariableSanyakuCounts(
   const makuuchi = current.filter((e) => e.division === "makuuchi");
 
   const yokozunaIds = makuuchi.filter((e) => e.position.rank === "yokozuna").map((e) => e.rikishiId);
+
   const ozekiIds = makuuchi
     .filter((e) => e.position.rank === "ozeki" && !demotedOzeki.has(e.rikishiId))
     .map((e) => e.rikishiId);
@@ -421,7 +406,7 @@ function computeVariableSanyakuCounts(
 
   let ozekiCount = Math.max(2, ozekiIds.length + ozekiPromoteCandidates.length);
 
-  const demotedCount = Array.from(demotedOzeki).length;
+  const demotedCount = demotedOzeki.size;
 
   const sekiwakePromoteCandidates = makuuchi.filter((e) => {
     if (e.position.rank !== "komusubi") return false;
@@ -437,7 +422,7 @@ function computeVariableSanyakuCounts(
     const p = perfById.get(e.rikishiId);
     const wins = p?.wins ?? 0;
     const yusho = !!p?.yusho;
-    const rn = (e.position as any).rankNumber ?? 99;
+    const rn = e.position.rankNumber ?? 99;
     const nearTop = rn <= 4;
     return yusho || (nearTop && wins >= 10);
   });
@@ -453,7 +438,7 @@ function computeVariableSanyakuCounts(
   let yokozunaCount = yokozunaIds.length + yPromotions;
   yokozunaCount = clampInt(yokozunaCount, 0, 6);
 
-  // Hard guardrail for insane expansions; total must still allow Maegashira slots in a 42 field.
+  // Guardrail: if sanyaku becomes absurdly large, trim (prefer trimming K then S then O).
   let totalSanyaku = yokozunaCount + ozekiCount + sekiwakeCount + komusubiCount;
   while (totalSanyaku > 20) {
     if (komusubiCount > 2) komusubiCount--;
@@ -498,18 +483,12 @@ function buildMakuuchiTemplate(
 ): Array<{ division: Division; position: RankPosition }> {
   const slots: Array<{ division: Division; position: RankPosition }> = [];
 
-  // Named ranks as numbered “pairs”: O1E/O1W, O2E/O2W, etc. If odd, last is E.
   const pushNamed = (rank: "yokozuna" | "ozeki" | "sekiwake" | "komusubi", count: number) => {
-    const pairs = Math.floor(count / 2);
-    for (let n = 1; n <= pairs; n++) {
-      slots.push({ division: "makuuchi", position: { rank, side: "east", rankNumber: n } as RankPosition });
-      slots.push({ division: "makuuchi", position: { rank, side: "west", rankNumber: n } as RankPosition });
-    }
-    if (count % 2 === 1) {
-      slots.push({
-        division: "makuuchi",
-        position: { rank, side: "east", rankNumber: pairs + 1 } as RankPosition
-      });
+    let side: "east" | "west" = "east";
+    for (let i = 0; i < count; i++) {
+      const position: RankPosition = { rank, side };
+      slots.push({ division: "makuuchi", position });
+      side = side === "east" ? "west" : "east";
     }
   };
 
@@ -520,12 +499,17 @@ function buildMakuuchiTemplate(
 
   const remaining = Math.max(0, totalSlots - slots.length);
   const pairs = Math.floor(remaining / 2);
+
   for (let n = 1; n <= pairs; n++) {
     slots.push({ division: "makuuchi", position: { rank: "maegashira", side: "east", rankNumber: n } });
     slots.push({ division: "makuuchi", position: { rank: "maegashira", side: "west", rankNumber: n } });
   }
+
   if (remaining % 2 === 1) {
-    slots.push({ division: "makuuchi", position: { rank: "maegashira", side: "east", rankNumber: pairs + 1 } });
+    slots.push({
+      division: "makuuchi",
+      position: { rank: "maegashira", side: "east", rankNumber: pairs + 1 }
+    });
   }
 
   return slots;
@@ -533,7 +517,7 @@ function buildMakuuchiTemplate(
 
 function buildNumberedDivisionTemplate(
   division: Division,
-  rank: "maegashira" | "juryo" | "makushita" | "sandanme" | "jonidan" | "jonokuchi",
+  rank: "juryo" | "makushita" | "sandanme" | "jonidan" | "jonokuchi",
   totalSlots: number
 ): Array<{ division: Division; position: RankPosition }> {
   const slots: Array<{ division: Division; position: RankPosition }> = [];
@@ -543,6 +527,7 @@ function buildNumberedDivisionTemplate(
     slots.push({ division, position: { rank, side: "east", rankNumber: n } });
     slots.push({ division, position: { rank, side: "west", rankNumber: n } });
   }
+
   if (totalSlots % 2 === 1) {
     slots.push({ division, position: { rank, side: "east", rankNumber: pairs + 1 } });
   }
@@ -597,7 +582,9 @@ function computeMovementUnits(
     return clampInt(damped, -4, 4);
   }
 
-  if (rank === "sekiwake" || rank === "komusubi") return clampInt(Math.round(move * 0.8), -6, 6);
+  if (rank === "sekiwake" || rank === "komusubi") {
+    return clampInt(Math.round(move * 0.8), -6, 6);
+  }
 
   return clampInt(move, -10, 10);
 }
@@ -612,18 +599,15 @@ function bestTierAllowed(
   const tier = RANK_HIERARCHY[rank].tier;
 
   if (rank === "yokozuna") return 1;
-
   if (rank === "ozeki" && demotedOzeki.has(entry.rikishiId)) return 3;
-
   if (rank === "ozeki" && perf?.promoteToYokozuna) return 1;
-
   if (rank === "sekiwake" && (perf?.wins ?? 0) >= 11) return 2;
 
   if (rank === "komusubi" && (perf?.wins ?? 0) >= 10) return 3;
 
   if (rank === "maegashira") {
     const wins = perf?.wins ?? 0;
-    const rn = (entry.position as any).rankNumber ?? 99;
+    const rn = entry.position.rankNumber ?? 99;
     if (perf?.yusho) return 3;
     if (rn <= 4 && wins >= 10) return 4;
   }
@@ -673,7 +657,6 @@ function assignToTemplate(
 
   for (const slot of template) {
     const slotPos = slot.position;
-
     let chosen: ScoredCandidate | undefined;
 
     for (const cand of candidates) {
@@ -696,7 +679,7 @@ function assignToTemplate(
     }
 
     if (!chosen) {
-      const vacantId = `__VACANT_${slot.division}_${slotPos.rank}_${(slotPos as any).rankNumber ?? 0}_${slotPos.side}`;
+      const vacantId = `__VACANT_${slot.division}_${slotPos.rank}_${slotPos.rankNumber ?? 0}_${slotPos.side}`;
       assigned.push({ rikishiId: vacantId, division: slot.division, position: slotPos });
       continue;
     }
@@ -712,13 +695,10 @@ function assignToTemplate(
 
 function positionKey(e: BanzukeEntry): number {
   const divBase = divisionTier(e.division) * 1_000_000;
-
   const tier = RANK_HIERARCHY[e.position.rank].tier;
   const rankBase = tier * 10_000;
-
-  const rn = (e.position as any).rankNumber ?? 1; // default 1 for named ranks
+  const rn = e.position.rankNumber ?? 0;
   const side = e.position.side === "east" ? 0 : 1;
-
   return divBase + rankBase + rn * 10 + side;
 }
 
