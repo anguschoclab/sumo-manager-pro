@@ -1,9 +1,9 @@
 // types.ts
 // Clean, corrected, drop-in core types for Basho
 //
-// UPDATES Phase 2:
-// - Added `playoffMatches` to BashoResult for history tracking.
-// - Retains `birthYear` from Phase 1.
+// UPDATES Phase 4:
+// - Added `CyclePhase` enum
+// - Added `cyclePhase` to WorldState
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
@@ -262,7 +262,7 @@ export interface BashoState {
 }
 
 /** =========================
- * Economics
+ * Economics & Governance
  * ========================= */
 
 export interface KenshoRecord {
@@ -281,6 +281,23 @@ export interface RikishiEconomics {
   totalEarnings: number;
   currentBashoEarnings: number;
   popularity: number;
+}
+
+// Governance Types
+export type GovernanceStatus = "good_standing" | "warning" | "probation" | "sanctioned";
+
+export interface GovernanceRuling {
+  id: string;
+  date: string;
+  heyaId: string;
+  type: "fine" | "suspension" | "warning" | "closure";
+  severity: "low" | "medium" | "high" | "terminal";
+  reason: string;
+  effects: {
+    fineAmount?: number;
+    prestigePenalty?: number;
+    scandalScoreDelta?: number;
+  };
 }
 
 /** =========================
@@ -402,6 +419,11 @@ export interface Heya {
 
   reputation: number;
   funds: number;
+  
+  // Governance
+  scandalScore: number;
+  governanceStatus: GovernanceStatus;
+  governanceHistory?: GovernanceRuling[];
 
   facilities: {
     training: number;
@@ -434,7 +456,6 @@ export interface BashoResult {
   kantosho?: Id;
   shukunsho?: Id;
 
-  // Playoff history (if any occurred)
   playoffMatches?: MatchSchedule[];
 
   prizes: {
@@ -446,10 +467,16 @@ export interface BashoResult {
   nextBanzuke?: BanzukeSnapshot;
 }
 
+export type CyclePhase = "active_basho" | "post_basho" | "interim";
+
 export interface WorldState {
   seed: string;
   year: number;
   week: number;
+  
+  // The global state of the game loop
+  cyclePhase: CyclePhase; 
+
   currentBashoName?: BashoName;
 
   heyas: IdMapRuntime<Heya>;
@@ -457,6 +484,8 @@ export interface WorldState {
 
   currentBasho?: BashoState;
   history: BashoResult[];
+
+  governanceLog?: GovernanceRuling[];
 
   ftue: FTUEState;
   playerHeyaId?: Id;
@@ -481,6 +510,7 @@ export interface SerializedWorldState {
   seed: string;
   year: number;
   week: number;
+  cyclePhase: CyclePhase;
   currentBashoName?: BashoName;
 
   heyas: IdMap<Heya>;
