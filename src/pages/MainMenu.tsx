@@ -257,10 +257,13 @@ export default function MainMenu() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Get stables from world state
-  const stables = useMemo(() => {
+  // State for heya preview dialog
+  const [previewHeya, setPreviewHeya] = useState<Heya | null>(null);
+
+  // Get stables from world state - properly typed
+  const stables = useMemo((): Heya[] => {
     if (!state?.world) return [];
-    return Array.from(state.world.heyas.values());
+    return Array.from(state.world.heyas.values()) as Heya[];
   }, [state?.world]);
 
   // Map heyaId -> sekitoriCount (computed from current world roster)
@@ -268,7 +271,7 @@ export default function MainMenu() {
     const map = new Map<string, number>();
     if (!state?.world) return map;
 
-    for (const h of state.world.heyas.values()) {
+    for (const h of state.world.heyas.values() as IterableIterator<Heya>) {
       let count = 0;
       for (const rid of (h.rikishiIds ?? []) as string[]) {
         const r = state.world.rikishi.get(rid);
@@ -279,18 +282,32 @@ export default function MainMenu() {
     return map;
   }, [state?.world]);
 
+  // Get roster for a heya
+  const getHeyaRoster = useCallback((heya: Heya) => {
+    if (!state?.world) return [];
+    return (heya.rikishiIds ?? [])
+      .map((id: string) => state.world.rikishi.get(id))
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        const rankA = (RANK_HIERARCHY as any)?.[a.rank]?.order ?? 999;
+        const rankB = (RANK_HIERARCHY as any)?.[b.rank]?.order ?? 999;
+        if (rankA !== rankB) return rankA - rankB;
+        return (a.rankNumber ?? 0) - (b.rankNumber ?? 0);
+      });
+  }, [state?.world]);
+
   // Recommended stables: prefer established/powerful; sort by sekitori count then funds then name
-  const recommendedStables = useMemo(() => {
+  const recommendedStables = useMemo((): Heya[] => {
     return stables
-      .filter((h) => h.statureBand === "established" || h.statureBand === "powerful")
+      .filter((h: Heya) => h.statureBand === "established" || h.statureBand === "powerful")
       .slice()
-      .sort((a, b) => {
+      .sort((a: Heya, b: Heya) => {
         const sa = sekitoriCounts.get(a.id) ?? 0;
         const sb = sekitoriCounts.get(b.id) ?? 0;
         if (sb !== sa) return sb - sa;
 
-        const fa = Number.isFinite((a as any).funds) ? (a as any).funds : 0;
-        const fb = Number.isFinite((b as any).funds) ? (b as any).funds : 0;
+        const fa = Number.isFinite(a.funds) ? a.funds : 0;
+        const fb = Number.isFinite(b.funds) ? b.funds : 0;
         if (fb !== fa) return fb - fa;
 
         return a.name.localeCompare(b.name);
@@ -308,11 +325,11 @@ export default function MainMenu() {
       fragile: [],
       new: []
     };
-    stables.forEach((h) => {
+    stables.forEach((h: Heya) => {
       groups[h.statureBand]?.push(h);
     });
     (Object.keys(groups) as StatureBand[]).forEach((k) => {
-      groups[k].sort((a, b) => (sekitoriCounts.get(b.id) ?? 0) - (sekitoriCounts.get(a.id) ?? 0));
+      groups[k].sort((a: Heya, b: Heya) => (sekitoriCounts.get(b.id) ?? 0) - (sekitoriCounts.get(a.id) ?? 0));
     });
     return groups;
   }, [stables, sekitoriCounts]);
@@ -651,12 +668,12 @@ export default function MainMenu() {
               </Card>
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {recommendedStables.map((heya) => (
+                {recommendedStables.map((heya: Heya) => (
                   <StableCard
                     key={heya.id}
                     heya={heya}
                     isSelected={selectedHeyaId === heya.id}
-                    onSelect={() => setSelectedHeyaId(heya.id)}
+                    onSelect={() => setPreviewHeya(heya)}
                     isRecommended
                     sekitoriCount={sekitoriCounts.get(heya.id) ?? 0}
                   />
@@ -694,12 +711,12 @@ export default function MainMenu() {
                           </span>
                         </h3>
                         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                          {stablesInGroup.map((heya) => (
+                          {stablesInGroup.map((heya: Heya) => (
                             <StableCard
                               key={heya.id}
                               heya={heya}
                               isSelected={selectedHeyaId === heya.id}
-                              onSelect={() => setSelectedHeyaId(heya.id)}
+                              onSelect={() => setPreviewHeya(heya)}
                               sekitoriCount={sekitoriCounts.get(heya.id) ?? 0}
                             />
                           ))}
@@ -752,13 +769,122 @@ export default function MainMenu() {
             </TabsContent>
           </Tabs>
 
-          {/* Confirm Button */}
-          <div className="mt-8 flex justify-center">
-            <Button size="lg" className="gap-2 min-w-[200px]" onClick={handleConfirmStable} disabled={!canConfirm}>
-              {selectionMode === "found_new" ? "Found Heya" : "Begin Journey"}
-              <ArrowRight className="w-4 h-4" />
-            </Button>
-          </div>
+          {/* Confirm Button for Found New mode only */}
+          {selectionMode === "found_new" && (
+            <div className="mt-8 flex justify-center">
+              <Button size="lg" className="gap-2 min-w-[200px]" onClick={handleConfirmStable} disabled={!canConfirm}>
+                Found Heya
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
+
+          {/* Heya Preview Dialog */}
+          <Dialog open={!!previewHeya} onOpenChange={(open) => !open && setPreviewHeya(null)}>
+            <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+              {previewHeya && (
+                <>
+                  <DialogHeader>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <DialogTitle className="text-xl flex items-center gap-2">
+                          {previewHeya.name}
+                          {previewHeya.nameJa && (
+                            <span className="text-muted-foreground font-display text-lg">
+                              {previewHeya.nameJa}
+                            </span>
+                          )}
+                        </DialogTitle>
+                        <DialogDescription className="mt-1">
+                          {previewHeya.descriptor || "Review the roster before starting your journey."}
+                        </DialogDescription>
+                      </div>
+                      <Badge className={`${STATURE_CONFIG[previewHeya.statureBand].color} border`}>
+                        {React.createElement(STATURE_CONFIG[previewHeya.statureBand].icon, { className: "w-3 h-3 mr-1" })}
+                        {STATURE_CONFIG[previewHeya.statureBand].label}
+                      </Badge>
+                    </div>
+                  </DialogHeader>
+
+                  {/* Stable Stats */}
+                  <div className="flex flex-wrap gap-4 py-2 border-b text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Difficulty: </span>
+                      <span className="font-medium">{STATURE_CONFIG[previewHeya.statureBand].difficulty}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Sekitori: </span>
+                      <span className="font-medium">{sekitoriCounts.get(previewHeya.id) ?? 0}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Total Wrestlers: </span>
+                      <span className="font-medium">{previewHeya.rikishiIds?.length ?? 0}</span>
+                    </div>
+                  </div>
+
+                  {/* Roster */}
+                  <div className="flex-1 overflow-hidden">
+                    <h4 className="font-semibold text-sm mb-2 mt-2">Roster</h4>
+                    <ScrollArea className="h-[280px] pr-4">
+                      <div className="space-y-1">
+                        {getHeyaRoster(previewHeya).map((r: any) => {
+                          const rankInfo = (RANK_HIERARCHY as any)?.[r.rank];
+                          const isSekitori = rankInfo?.isSekitori;
+                          return (
+                            <div
+                              key={r.id}
+                              className={`flex items-center justify-between py-1.5 px-2 rounded text-sm ${
+                                isSekitori ? "bg-primary/5" : "bg-muted/30"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className={`font-medium ${isSekitori ? "text-primary" : ""}`}>
+                                  {r.shikona}
+                                </span>
+                                {isSekitori && (
+                                  <Badge variant="outline" className="text-xs py-0">
+                                    Sekitori
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-muted-foreground text-xs">
+                                {r.side?.charAt(0).toUpperCase()}{r.rank?.charAt(0).toUpperCase()}{r.rank?.slice(1)}
+                                {r.rankNumber ? ` ${r.rankNumber}` : ""}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {getHeyaRoster(previewHeya).length === 0 && (
+                          <p className="text-sm text-muted-foreground text-center py-4">No wrestlers in roster.</p>
+                        )}
+                      </div>
+                    </ScrollArea>
+                  </div>
+
+                  <DialogFooter className="mt-4">
+                    <Button variant="outline" onClick={() => setPreviewHeya(null)}>
+                      Back
+                    </Button>
+                    <Button
+                      className="gap-2"
+                      onClick={() => {
+                        setSelectedHeyaId(previewHeya.id);
+                        setPreviewHeya(null);
+                        // Directly confirm this heya
+                        if (typeof createWorld === "function" && state?.world) {
+                          createWorld(state.world.seed, previewHeya.id);
+                          navigate("/");
+                        }
+                      }}
+                    >
+                      Begin Journey
+                      <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </DialogFooter>
+                </>
+              )}
+            </DialogContent>
+          </Dialog>
 
           {/* Footer */}
           <div className="mt-12 text-center text-sm text-muted-foreground">
