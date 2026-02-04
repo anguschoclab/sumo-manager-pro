@@ -1,19 +1,13 @@
 // types.ts
 // Clean, corrected, drop-in core types for Basho
 //
-// GOALS (drop-in + matches the modules you’ve been building):
-// - Single source of truth for shared types across engine modules
-// - Runtime WorldState uses Maps; SaveGame uses JSON-safe SerializedWorldState
-// - No duplicate interface names (Heya)
-// - RankPosition enforces numbered vs unnumbered at compile time
-// - Kimarite types centralized here (avoid circular imports with kimarite.ts)
-// - Training types included here (training.ts should import these types to avoid drift)
-// - Adds optional hidden fatigue + spendable cash (timeBoundary support)
-// - KoenkaiBandType and RunwayBand aligned to sponsors/timeBoundary
+// Key alignment change vs your previous draft:
+// - RankPosition now allows OPTIONAL rankNumber for named ranks (Y/O/S/K) so variable sanyaku
+//   can be represented deterministically (e.g., O1E/O1W/O2E...).
 //
-// IMPORTANT:
-// - Engine/internal modules should import from leaf modules, not index.ts.
-// - kimarite.ts can refine KimariteId via `as const`, but this file keeps it string-safe.
+// Notes:
+// - Runtime WorldState uses Maps; SaveGame uses JSON-safe SerializedWorldState.
+// - Keep this as the single source of truth for shared types across engine modules.
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
@@ -232,9 +226,13 @@ export type UnnumberedRank = "yokozuna" | "ozeki" | "sekiwake" | "komusubi";
 
 export type Side = "east" | "west";
 
-/** Enforce numbered vs unnumbered ranks at compile time */
+/**
+ * RankPosition:
+ * - Numbered ranks MUST have rankNumber.
+ * - Unnumbered ranks MAY have rankNumber (used for variable sanyaku: O2E, S3W, etc.)
+ */
 export type RankPosition =
-  | { rank: UnnumberedRank; side: Side; rankNumber?: never }
+  | { rank: UnnumberedRank; side: Side; rankNumber?: number }
   | { rank: NumberedRank; rankNumber: number; side: Side };
 
 export function isNumberedRank(rank: Rank): rank is NumberedRank {
@@ -254,7 +252,10 @@ export function toRankPosition(args: { rank: Rank; side: Side; rankNumber?: numb
     if (!rankNumber || rankNumber < 1) throw new Error(`Rank ${rank} requires rankNumber >= 1`);
     return { rank, side, rankNumber };
   }
-  return { rank: rank as UnnumberedRank, side };
+  if (rankNumber !== undefined && rankNumber < 1) {
+    throw new Error(`Rank ${rank} (unnumbered) rankNumber must be >= 1 if provided`);
+  }
+  return { rank: rank as UnnumberedRank, side, rankNumber };
 }
 
 /** Canon banzuke snapshot (ordered slots + assignments) */
@@ -400,12 +401,7 @@ export type ConfidenceLevel = "unknown" | "low" | "medium" | "high" | "certain";
 export type ScoutingInvestment = "none" | "light" | "standard" | "deep";
 
 // Leverage types
-export type LeverageClass =
-  | "CompactAnchor"
-  | "LongLever"
-  | "TopHeavy"
-  | "MobileLight"
-  | "Standard";
+export type LeverageClass = "CompactAnchor" | "LongLever" | "TopHeavy" | "MobileLight" | "Standard";
 
 /** FTUE */
 export interface FTUEState {
