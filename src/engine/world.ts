@@ -14,7 +14,6 @@ import { initializeBasho } from "./worldgen";
 import { getNextBasho } from "./calendar";
 import { simulateBout as simulateBoutEngine } from "./bout";
 
-// Optional subsystems (present in your repo list) — keep imports explicit.
 import * as schedule from "./schedule";
 import * as events from "./events";
 import * as injuries from "./injuries";
@@ -41,7 +40,6 @@ export interface CurrentBashoState {
   standings: Map<Id, { wins: number; losses: number }>;
 }
 
-/** Helper: get the active basho object with a stable shape. */
 function getCurrentBasho(world: WorldState): CurrentBashoState | null {
   const b = (world as any).currentBasho as CurrentBashoState | undefined;
   return b && typeof b.day === "number" && Array.isArray(b.matches) ? b : null;
@@ -61,54 +59,41 @@ export function startBasho(world: WorldState, bashoName?: BashoName): WorldState
 
   const basho = initializeBasho(world as any, name) as any;
 
-  // Ensure minimum fields exist.
   if (!basho.standings) basho.standings = new Map();
   if (!basho.matches) basho.matches = [];
   if (!basho.day) basho.day = 1;
 
   (world as any).currentBasho = basho;
 
-  // Generate day 1 schedule
   ensureDaySchedule(world, basho.day);
-
-  // Emit an event if system exists
   safeCall(() => (events as any).emit?.(world, { type: "BASHO_STARTED", bashoName: name }));
 
   return world;
 }
 
-/**
- * Ensure schedule exists for a given day.
- * This intentionally delegates to schedule.ts if it exposes any known API.
- */
+/** Ensure schedule exists for a given day. Delegates to schedule.ts if it exposes any known API. */
 export function ensureDaySchedule(world: WorldState, day: number): WorldState {
   const basho = getCurrentBasho(world);
   if (!basho) return world;
 
-  // If matches already exist for day, do nothing.
   const already = basho.matches.some((m) => m.day === day);
   if (already) return world;
 
-  // Try schedule APIs in priority order (thin compatibility layer)
-  // 1) schedule.generateDaySchedule(world, basho, day, seed)
   if (typeof (schedule as any).generateDaySchedule === "function") {
     (schedule as any).generateDaySchedule(world, basho, day, world.seed);
     return world;
   }
 
-  // 2) schedule.buildDaySchedule(...) (common naming)
   if (typeof (schedule as any).buildDaySchedule === "function") {
     (schedule as any).buildDaySchedule(world, basho, day, world.seed);
     return world;
   }
 
-  // 3) schedule.scheduleDay(...) (generic)
   if (typeof (schedule as any).scheduleDay === "function") {
     (schedule as any).scheduleDay(world, basho, day, world.seed);
     return world;
   }
 
-  // As last resort, leave empty but safe.
   return world;
 }
 
@@ -120,20 +105,17 @@ export function advanceBashoDay(world: WorldState): WorldState {
   const nextDay = basho.day + 1;
   basho.day = nextDay;
 
-  // If the basho is over, caller should call endBasho()
-  if (nextDay <= 15) {
-    ensureDaySchedule(world, nextDay);
-  }
+  if (nextDay <= 15) ensureDaySchedule(world, nextDay);
 
   safeCall(() => (events as any).emit?.(world, { type: "BASHO_DAY_ADVANCED", day: nextDay }));
   return world;
 }
 
-/**
- * Simulate a bout by index among today's (unplayed) bouts, apply results to world.
- * This is a convenience wrapper for UI; you can keep your UI’s simulateBout if you prefer.
- */
-export function simulateBoutForToday(world: WorldState, unplayedIndex: number): { world: WorldState; result?: BoutResult } {
+/** Simulate a bout by index among today's (unplayed) bouts and apply results. */
+export function simulateBoutForToday(
+  world: WorldState,
+  unplayedIndex: number
+): { world: WorldState; result?: BoutResult } {
   const basho = getCurrentBasho(world);
   if (!basho) return { world };
 
@@ -152,25 +134,16 @@ export function simulateBoutForToday(world: WorldState, unplayedIndex: number): 
   return { world, result };
 }
 
-/**
- * Apply a bout result to:
- * - match.result
- * - rikishi W/L
- * - basho standings
- * - optional subsystems: injuries, rivalries, economy (kensho), scouting observation, events
- *
- * Mutates world.
- */
+/** Apply a bout result to match, rikishi W/L, standings, and optional subsystems. */
 export function applyBoutResult(
   world: WorldState,
   match: BashoMatch,
   result: BoutResult,
-  opts?: { boutSeed?: string }
+  _opts?: { boutSeed?: string }
 ): WorldState {
   const basho = getCurrentBasho(world);
   if (!basho) return world;
 
-  // Write result onto the match object that exists in the schedule array.
   match.result = result;
 
   const east = world.rikishi.get(match.eastRikishiId);
@@ -180,13 +153,11 @@ export function applyBoutResult(
   const winner = result.winner === "east" ? east : west;
   const loser = result.winner === "east" ? west : east;
 
-  // Update public-facing records (as used by your pages)
   safeInc(winner as any, "currentBashoWins", 1);
   safeInc(winner as any, "careerWins", 1);
   safeInc(loser as any, "currentBashoLosses", 1);
   safeInc(loser as any, "careerLosses", 1);
 
-  // Standings map
   const standings = basho.standings || new Map<Id, { wins: number; losses: number }>();
   const wRec = standings.get(winner.id) || { wins: 0, losses: 0 };
   const lRec = standings.get(loser.id) || { wins: 0, losses: 0 };
@@ -194,32 +165,20 @@ export function applyBoutResult(
   standings.set(loser.id, { wins: lRec.wins, losses: lRec.losses + 1 });
   basho.standings = standings;
 
-  // Optional systems
   safeCall(() => (injuries as any).onBoutResolved?.(world, { match, result, east, west }));
   safeCall(() => (rivalries as any).onBoutResolved?.(world, { match, result, east, west }));
   safeCall(() => (economics as any).onBoutResolved?.(world, { match, result, east, west }));
   safeCall(() => (events as any).onBoutResolved?.(world, { match, result, east, west }));
-
-  // Scouting: count observation (player watched) — the store decides whether to record it.
   safeCall(() => (scoutingStore as any).onBoutResolved?.(world, { match, result, east, west }));
 
   return world;
 }
 
-/**
- * End the current basho:
- * - determine yusho/jun-yusho
- * - create history record
- * - advance to next basho name/year
- * - clear currentBasho
- *
- * Mutates world.
- */
+/** End the current basho; append a history record and advance to next basho. */
 export function endBasho(world: WorldState): WorldState {
   const basho = getCurrentBasho(world);
   if (!basho) return world;
 
-  // Compute final standings.
   const table = Array.from(basho.standings.entries())
     .map(([id, rec]) => ({ id, wins: rec.wins, losses: rec.losses }))
     .sort((a, b) => b.wins - a.wins || a.losses - b.losses);
@@ -228,14 +187,12 @@ export function endBasho(world: WorldState): WorldState {
   const runnerWins = table[1]?.wins ?? null;
   const junYusho = runnerWins == null ? [] : table.filter((t) => t.wins === runnerWins).map((t) => t.id);
 
-  // Minimal prize record (your HistoryPage expects this shape)
   const bashoResult = {
     year: basho.year,
     bashoNumber: basho.bashoNumber,
     bashoName: basho.bashoName,
     yusho,
     junYusho,
-    // Optional fields some pages expect
     prizes: {
       yushoAmount: 10_000_000,
       junYushoAmount: 2_000_000,
@@ -243,16 +200,13 @@ export function endBasho(world: WorldState): WorldState {
     }
   };
 
-  // Append to world.history (array)
   const hist = (world as any).history;
   if (Array.isArray(hist)) hist.push(bashoResult);
   else (world as any).history = [bashoResult];
 
-  // Update history index if present
   safeCall(() => (historyIndex as any).indexBashoResult?.(world, bashoResult));
   safeCall(() => (events as any).emit?.(world, { type: "BASHO_ENDED", bashoName: basho.bashoName, yusho }));
 
-  // Advance next basho & year
   const next = getNextBasho(basho.bashoName);
   const nextYear = next === "hatsu" ? (world as any).year + 1 : (world as any).year;
 
@@ -263,25 +217,18 @@ export function endBasho(world: WorldState): WorldState {
   return world;
 }
 
-/**
- * Between-basho tick:
- * - apply decay, training, injuries recovery, NPC actions, etc.
- * This delegates to timeBoundary.ts if it exposes a tick.
- */
+/** Between-basho tick. Delegates to timeBoundary.ts if present. */
 export function advanceInterim(world: WorldState, weeks: number = 1): WorldState {
   const w = Math.max(1, Math.trunc(weeks));
 
   for (let i = 0; i < w; i++) {
-    // Common hooks across systems:
     safeCall(() => (injuries as any).tickWeek?.(world));
     safeCall(() => (rivalries as any).tickWeek?.(world));
     safeCall(() => (economics as any).tickWeek?.(world));
     safeCall(() => (events as any).tickWeek?.(world));
     safeCall(() => (scoutingStore as any).tickWeek?.(world));
 
-    // If you have a timeBoundary master tick, let it own the order.
     safeCall(() => {
-      // Lazy import to avoid circular deps if timeBoundary imports world.ts later.
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const tb = require("./timeBoundary");
       if (typeof tb.tickWeek === "function") tb.tickWeek(world);
@@ -306,7 +253,6 @@ function safeCall(fn: () => void) {
   try {
     fn();
   } catch {
-    // Intentionally swallow: world orchestrator should never hard-crash UI
-    // for optional subsystems. Wire errors in dev tools if desired.
+    // Intentionally swallow: world orchestrator should never hard-crash UI for optional subsystems.
   }
 }
