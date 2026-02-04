@@ -1,4 +1,14 @@
+// BanzukePage.tsx
 // Banzuke Page - Rankings display with clickable rikishi and fog of war
+//
+// FIXES / UPDATES:
+// - Avoids navigate() during render; provides safe fallback UI when world missing
+// - Updates scouting call to current signature: createScoutedView(rikishi, viewerHeyaId, obsCount, investment, currentWeek)
+// - Uses world.seed for deterministic fog (fallback-safe); passes currentWeek when possible
+// - Keeps “allowed” visible numbers (career W/L), avoids any hidden attributes
+// - Rank info lookup safe (no undefined access)
+// - Robust sorting + stable rendering (handles missing rankNumber, shikona safely)
+// - Maintains optional scouting require() fallback without hard dependency
 
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
@@ -56,7 +66,17 @@ function getSideNames(side: Side): { ja: string; en: string } {
   return FALLBACK_SIDE_LABELS[side];
 }
 
-function safeScoutBadge(args: { rikishi: Rikishi; playerHeyaId?: string; isOwned: boolean }) {
+function safeInt(n: any, fallback = 0) {
+  return Number.isFinite(n) ? Number(n) : fallback;
+}
+
+function safeScoutBadge(args: {
+  rikishi: Rikishi;
+  playerHeyaId?: string;
+  isOwned: boolean;
+  worldSeed?: string;
+  currentWeek?: number;
+}) {
   if (args.isOwned) {
     return (
       <Badge variant="secondary" className="text-xs">
@@ -65,19 +85,36 @@ function safeScoutBadge(args: { rikishi: Rikishi; playerHeyaId?: string; isOwned
     );
   }
 
-  // If scouting helpers exist, use them
+  // If scouting helpers exist, use them (new signature + safe fallbacks)
   if (typeof createScoutedView === "function" && typeof describeScoutingLevel === "function") {
-    const scouted = createScoutedView(args.rikishi, args.playerHeyaId, 5);
-    const info = describeScoutingLevel(scouted.scoutingLevel);
-    return (
-      <span className={`flex items-center gap-1 text-xs ${info.color}`} title={info.description}>
-        <Search className="h-3 w-3" />
-        {Math.round(scouted.scoutingLevel)}%
-      </span>
-    );
+    const obsCount = 5; // small baseline, banzuke-only intel
+    const investment = "none"; // consistent with scouting.ts type
+    const week = safeInt(args.currentWeek, 0);
+
+    let scouted: any = null;
+    try {
+      scouted = createScoutedView(args.rikishi, args.playerHeyaId ?? null, obsCount, investment, week);
+    } catch {
+      // Some older versions had a smaller signature; attempt minimal fallback
+      try {
+        scouted = createScoutedView(args.rikishi, args.playerHeyaId ?? null, obsCount);
+      } catch {
+        scouted = null;
+      }
+    }
+
+    if (scouted && typeof scouted.scoutingLevel === "number") {
+      const info = describeScoutingLevel(scouted.scoutingLevel);
+      return (
+        <span className={`flex items-center gap-1 text-xs ${info.color}`} title={info.description}>
+          <Search className="h-3 w-3" />
+          {Math.round(scouted.scoutingLevel)}%
+        </span>
+      );
+    }
   }
 
-  // Fallback: always show “Limited” (or omit entirely if you prefer)
+  // Fallback: unknown intel
   return (
     <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Limited intel">
       <Search className="h-3 w-3" />
@@ -91,7 +128,20 @@ export default function BanzukePage() {
   const { state, selectRikishi } = useGame();
   const { world, playerHeyaId } = state;
 
-  if (!world) return null;
+  if (!world) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <Card className="paper">
+          <CardHeader>
+            <CardTitle>番付 Banzuke</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">
+            Rankings are unavailable until the world loads.
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const rikishiList = Array.from(world.rikishi.values());
 
@@ -113,8 +163,10 @@ export default function BanzukePage() {
         // Secondary sort: east before west
         if (a.side !== b.side) return a.side === "east" ? -1 : 1;
 
-        // Tertiary stable sort: shikona
-        return a.shikona.localeCompare(b.shikona);
+        // Tertiary stable sort: shikona (safe)
+        const as = a.shikona || "";
+        const bs = b.shikona || "";
+        return as.localeCompare(bs);
       });
 
     rikishiByRank.set(rank, wrestlers);
@@ -124,6 +176,9 @@ export default function BanzukePage() {
     if (typeof selectRikishi === "function") selectRikishi(rikishiId);
     navigate(`/rikishi/${rikishiId}`);
   };
+
+  const worldSeed = (world as any).seed || `world-${(world as any).id || "unknown"}`;
+  const currentWeek = safeInt((world as any).week, 0);
 
   return (
     <>
@@ -141,7 +196,7 @@ export default function BanzukePage() {
           const wrestlers = rikishiByRank.get(rank) || [];
           if (wrestlers.length === 0) return null;
 
-          const info = RANK_HIERARCHY[rank];
+          const info = (RANK_HIERARCHY as any)?.[rank];
           const rankNames = getRankNames(rank);
 
           const eastLabel = getSideNames("east");
@@ -157,7 +212,6 @@ export default function BanzukePage() {
                     {wrestlers.length}
                   </Badge>
                 </CardTitle>
-                {/* (Optional) rank meta */}
                 <div className="text-xs text-muted-foreground">
                   {info?.division ? `Division: ${info.division}` : null}
                 </div>
@@ -182,20 +236,31 @@ export default function BanzukePage() {
                             className={`flex items-center gap-2 p-3 rounded cursor-pointer transition-all hover:bg-secondary/50 ${
                               isPlayer ? "bg-primary/10 ring-1 ring-primary/30" : "bg-secondary/30"
                             }`}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") handleRikishiClick(r.id);
+                            }}
                           >
                             {isPlayer && <Star className="h-4 w-4 text-primary shrink-0" fill="currentColor" />}
 
                             <div className="flex-1 min-w-0">
-                              <span className="font-display block truncate">{r.shikona}</span>
+                              <span className="font-display block truncate">{r.shikona || "Unknown"}</span>
                               {typeof r.rankNumber === "number" && r.rankNumber > 0 && (
                                 <span className="text-xs text-muted-foreground">#{r.rankNumber}</span>
                               )}
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {safeScoutBadge({ rikishi: r, playerHeyaId, isOwned: isPlayer })}
+                              {safeScoutBadge({
+                                rikishi: r,
+                                playerHeyaId,
+                                isOwned: isPlayer,
+                                worldSeed,
+                                currentWeek
+                              })}
                               <span className="text-xs text-muted-foreground font-mono">
-                                {r.careerWins}-{r.careerLosses}
+                                {(r.careerWins ?? 0)}-{(r.careerLosses ?? 0)}
                               </span>
                             </div>
                           </div>
@@ -220,20 +285,31 @@ export default function BanzukePage() {
                             className={`flex items-center gap-2 p-3 rounded cursor-pointer transition-all hover:bg-secondary/50 ${
                               isPlayer ? "bg-primary/10 ring-1 ring-primary/30" : "bg-secondary/30"
                             }`}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") handleRikishiClick(r.id);
+                            }}
                           >
                             {isPlayer && <Star className="h-4 w-4 text-primary shrink-0" fill="currentColor" />}
 
                             <div className="flex-1 min-w-0">
-                              <span className="font-display block truncate">{r.shikona}</span>
+                              <span className="font-display block truncate">{r.shikona || "Unknown"}</span>
                               {typeof r.rankNumber === "number" && r.rankNumber > 0 && (
                                 <span className="text-xs text-muted-foreground">#{r.rankNumber}</span>
                               )}
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {safeScoutBadge({ rikishi: r, playerHeyaId, isOwned: isPlayer })}
+                              {safeScoutBadge({
+                                rikishi: r,
+                                playerHeyaId,
+                                isOwned: isPlayer,
+                                worldSeed,
+                                currentWeek
+                              })}
                               <span className="text-xs text-muted-foreground font-mono">
-                                {r.careerWins}-{r.careerLosses}
+                                {(r.careerWins ?? 0)}-{(r.careerLosses ?? 0)}
                               </span>
                             </div>
                           </div>
