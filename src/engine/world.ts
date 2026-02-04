@@ -1,12 +1,13 @@
 // world.ts
 // World Orchestrator — single entrypoint for mutating WorldState safely & consistently
 //
-// UPDATES Phase 2:
-// - Implemented Deterministic Playoffs for Yusho ties in `endBasho`
-// - Integrated `determineSpecialPrizes` from `banzuke.ts`
-// - Retains Phase 1 `training.tickWeek` in `advanceInterim`
+// UPDATES Phase 4:
+// - Implemented `publishBanzukeUpdate` to bridge Basho -> Interim
+// - Updated `endBasho` to transition to `post_basho`
+// - Updated `startBasho` to require `interim` phase
+// - Updated `advanceInterim` to increment global weeks
 
-import type { WorldState, BashoName, BoutResult, Id, MatchSchedule } from "./types";
+import type { WorldState, BashoName, BoutResult, Id, MatchSchedule, BashoPerformance, BanzukeEntry, CyclePhase } from "./types";
 import { initializeBasho } from "./worldgen";
 import { getNextBasho } from "./calendar";
 import { simulateBout as simulateBoutEngine } from "./bout";
@@ -16,10 +17,11 @@ import * as events from "./events";
 import * as injuries from "./injuries";
 import * as rivalries from "./rivalries";
 import * as economics from "./economics";
+import * as governance from "./governance";
 import * as scoutingStore from "./scoutingStore";
 import * as historyIndex from "./historyIndex";
-import * as training from "./training"; // From Phase 1
-import { determineSpecialPrizes } from "./banzuke"; // IMPORT AWARDS LOGIC Phase 2
+import * as training from "./training"; 
+import { determineSpecialPrizes, updateBanzuke } from "./banzuke"; // Import ranking engine
 
 /** A match in the current basho schedule (shape inferred from your GameContext usage). */
 export interface BashoMatch {
@@ -51,6 +53,9 @@ export function getBoutSeed(world: WorldState, bashoName: BashoName, day: number
 
 /** Start a basho (initialize + schedule day 1). Mutates world and returns it. */
 export function startBasho(world: WorldState, bashoName?: BashoName): WorldState {
+  // Can only start if we are in INTERIM phase (or first boot)
+  if (world.cyclePhase === "active_basho") return world;
+
   const name: BashoName =
     bashoName || (world as any).currentBashoName || (world as any).currentBasho?.bashoName;
 
@@ -63,6 +68,7 @@ export function startBasho(world: WorldState, bashoName?: BashoName): WorldState
   if (!basho.day) basho.day = 1;
 
   (world as any).currentBasho = basho;
+  world.cyclePhase = "active_basho"; // Set phase
 
   ensureDaySchedule(world, basho.day);
   safeCall(() => (events as any).emit?.(world, { type: "BASHO_STARTED", bashoName: name }));
@@ -187,21 +193,18 @@ export function endBasho(world: WorldState): WorldState {
   const bestWins = table[0].wins;
   const topCandidates = table.filter(t => t.wins === bestWins).map(t => t.id);
   
-  // === PLAYOFF RESOLUTION (Phase 2) ===
+  // === PLAYOFF RESOLUTION ===
   let yusho = topCandidates[0];
   let playoffMatches: MatchSchedule[] = [];
   
   if (topCandidates.length > 1) {
-    // Determine winner via single elimination bracket
-    // Simple iterative pairing for V1 (randomized seed order)
-    let roundCandidates = [...topCandidates].sort((a, b) => a.localeCompare(b)); // Deterministic sort
-    
-    let boutIdx = 100; // Offset for playoff seeds
+    let roundCandidates = [...topCandidates].sort((a, b) => a.localeCompare(b)); 
+    let boutIdx = 100;
     while (roundCandidates.length > 1) {
       const winners: Id[] = [];
       for (let i = 0; i < roundCandidates.length; i += 2) {
         if (i + 1 >= roundCandidates.length) {
-          winners.push(roundCandidates[i]); // Bye
+          winners.push(roundCandidates[i]);
           continue;
         }
         
@@ -217,13 +220,12 @@ export function endBasho(world: WorldState): WorldState {
           winners.push(res.winner === "east" ? eastId : westId);
           
           playoffMatches.push({
-             day: 16, // Virtual day
+             day: 16,
              eastRikishiId: eastId,
              westRikishiId: westId,
              result: res
           });
         } else {
-            // Fallback (shouldn't happen)
             winners.push(eastId);
         }
       }
@@ -233,18 +235,14 @@ export function endBasho(world: WorldState): WorldState {
   }
 
   // === JUN-YUSHO ===
-  // Either those who lost in playoff, or those with (bestWins - 1) if no playoff?
-  // Standard: Jun-Yusho is runner up.
-  // If playoff: All playoff losers are technically Jun-Yusho candidates (or just finalist?)
-  // Simplified: Everyone with `bestWins` who isn't Yusho + everyone with `bestWins - 1`.
   const runnerWins = bestWins - 1;
   const junYusho = table
     .filter(t => (t.wins === bestWins && t.id !== yusho) || t.wins === runnerWins)
     .map(t => t.id);
 
-  // === SPECIAL PRIZES (Phase 2) ===
+  // === SPECIAL PRIZES ===
   const awards = determineSpecialPrizes(
-    basho.matches, // Pass regular matches for analysis
+    basho.matches, 
     world.rikishi as Map<string, any>,
     yusho
   );
@@ -273,41 +271,125 @@ export function endBasho(world: WorldState): WorldState {
   safeCall(() => (historyIndex as any).indexBashoResult?.(world, bashoResult));
   safeCall(() => (events as any).emit?.(world, { type: "BASHO_ENDED", bashoName: basho.bashoName, yusho }));
 
-  const next = getNextBasho(basho.bashoName);
-  const nextYear = next === "hatsu" ? (world as any).year + 1 : (world as any).year;
+  // DO NOT ADVANCE TIME YET
+  // We stay in "post_basho" so player can see awards.
+  world.cyclePhase = "post_basho";
 
-  (world as any).year = nextYear;
-  (world as any).currentBashoName = next;
+  return world;
+}
+
+/** * Publishes the new Banzuke (Rankings) based on last basho results.
+ * Moves phase from 'post_basho' to 'interim'.
+ */
+export function publishBanzukeUpdate(world: WorldState): WorldState {
+  if (world.cyclePhase !== "post_basho") return world;
+
+  const lastBasho = getCurrentBasho(world);
+  if (!lastBasho) return world; // Should not happen
+
+  // 1. Prepare Inputs for Banzuke Engine
+  const currentBanzukeList: BanzukeEntry[] = [];
+  
+  // Reconstruct current banzuke list from rikishi data
+  // We use the `world.rikishi` which holds CURRENT rank
+  for (const r of world.rikishi.values()) {
+    currentBanzukeList.push({
+      rikishiId: r.id,
+      division: r.division,
+      position: { rank: r.rank, rankNumber: r.rankNumber, side: r.side }
+    });
+  }
+
+  const performanceList: BashoPerformance[] = [];
+  for (const [id, stats] of lastBasho.standings.entries()) {
+    // Determine if Yusho/JunYusho (Simplified lookup from history)
+    const history = world.history[world.history.length - 1];
+    const isYusho = history.yusho === id;
+    const isJunYusho = history.junYusho.includes(id);
+
+    // Calc special prize bonus points
+    let prizePoints = 0;
+    if (history.ginoSho === id) prizePoints += 1;
+    if (history.shukunsho === id) prizePoints += 1;
+    if (history.kantosho === id) prizePoints += 1;
+
+    performanceList.push({
+      rikishiId: id,
+      wins: stats.wins,
+      losses: stats.losses,
+      absences: 0, // Need to track this in future
+      yusho: isYusho,
+      junYusho: isJunYusho,
+      specialPrizes: prizePoints
+    });
+  }
+
+  // 2. Run Engine
+  const result = updateBanzuke(currentBanzukeList, performanceList, {}); // TODO: Pass Ozeki Kadoban state
+
+  // 3. Apply Results to World
+  for (const newEntry of result.newBanzuke) {
+    const rikishi = world.rikishi.get(newEntry.rikishiId);
+    if (rikishi) {
+      rikishi.division = newEntry.division;
+      rikishi.rank = newEntry.position.rank;
+      rikishi.rankNumber = newEntry.position.rankNumber;
+      rikishi.side = newEntry.position.side;
+      
+      // Reset Basho stats for next time
+      rikishi.currentBashoWins = 0;
+      rikishi.currentBashoLosses = 0;
+    }
+  }
+
+  // 4. Update Current Banzuke Snapshot
+  // (In full version, convert flat list to nested BanzukeSnapshot)
+  // For V1, we rely on rikishi objects being updated.
+
+  // 5. Clean up & Transition
+  const next = getNextBasho(lastBasho.bashoName);
+  const nextYear = next === "hatsu" ? world.year + 1 : world.year;
+
+  world.year = nextYear;
+  world.currentBashoName = next;
   (world as any).currentBasho = undefined;
+  world.cyclePhase = "interim";
 
   return world;
 }
 
 /** Between-basho tick. Delegates to timeBoundary.ts if present. */
 export function advanceInterim(world: WorldState, weeks: number = 1): WorldState {
+  if (world.cyclePhase !== "interim") return world;
+
   const w = Math.max(1, Math.trunc(weeks));
 
   for (let i = 0; i < w; i++) {
+    world.week += 1; // Increment global week counter
+
     // === EXECUTE SUBSYSTEM TICKS ===
-    // 1. Injuries (Healing / Worsening)
+    // 1. Injuries
     safeCall(() => (injuries as any).tickWeek?.(world));
     
-    // 2. Training (Evolution / Fatigue) - From Phase 1
+    // 2. Training
     safeCall(() => (training as any).tickWeek?.(world));
 
-    // 3. Rivalries (Development / Decay)
+    // 3. Rivalries
     safeCall(() => (rivalries as any).tickWeek?.(world));
 
-    // 4. Economics (Weekly burn / Supporter income)
+    // 4. Governance
+    safeCall(() => (governance as any).tickWeek?.(world));
+
+    // 5. Economics
     safeCall(() => (economics as any).tickWeek?.(world));
 
-    // 5. Events (Random flavor events)
+    // 6. Events
     safeCall(() => (events as any).tickWeek?.(world));
 
-    // 6. Scouting (Updates)
+    // 7. Scouting
     safeCall(() => (scoutingStore as any).tickWeek?.(world));
 
-    // 7. General Time Boundary (Calendar updates if any)
+    // 8. General Time Boundary
     safeCall(() => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const tb = require("./timeBoundary");
