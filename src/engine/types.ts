@@ -1,8 +1,9 @@
 // types.ts
 // Clean, corrected, drop-in core types for Basho
 //
-// UPDATES:
-// - Added `birthYear` to Rikishi interface (Required for Evolution System)
+// UPDATES Phase 2:
+// - Added `playoffMatches` to BashoResult for history tracking.
+// - Retains `birthYear` from Phase 1.
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
@@ -348,7 +349,7 @@ export interface Rikishi {
   realName?: string;
   heyaId: Id;
   nationality: string;
-  birthYear: number; // Added for evolution system
+  birthYear: number;
 
   height: number;
   weight: number;
@@ -428,9 +429,13 @@ export interface BashoResult {
   yusho: Id;
   junYusho: Id[];
 
+  // Awards
   ginoSho?: Id;
   kantosho?: Id;
   shukunsho?: Id;
+
+  // Playoff history (if any occurred)
+  playoffMatches?: MatchSchedule[];
 
   prizes: {
     yushoAmount: number;
