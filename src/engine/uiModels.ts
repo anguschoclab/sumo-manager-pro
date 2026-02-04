@@ -32,7 +32,6 @@ export interface RikishiUIModel {
 
 export function toRikishiUIModel(rikishi: Rikishi, state: GameState): RikishiUIModel {
   const heya = state.heyas.find(h => h.id === rikishi.heyaId);
-  const currentBasho = state.currentBasho;
   
   // Format record
   const wins = rikishi.currentBashoRecord?.wins || 0;
@@ -53,12 +52,14 @@ export function toRikishiUIModel(rikishi: Rikishi, state: GameState): RikishiUIM
   }
 
   // Extract Top Rivalries (Top 3 by total matches fought)
-  const rivalries = Object.entries(rikishi.h2h || {})
+  // Ensure h2h exists
+  const h2hMap = rikishi.h2h || {};
+  const rivalries = Object.entries(h2hMap)
     .map(([oppId, rec]) => {
       const opp = state.rikishi.find(r => r.id === oppId);
       return {
         opponentId: oppId,
-        opponentName: opp ? opp.shikona : "Unknown",
+        opponentName: opp ? opp.shikona : "Retired Rikishi",
         totalBouts: rec.wins + rec.losses,
         record: `${rec.wins}-${rec.losses}`,
       };
