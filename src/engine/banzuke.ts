@@ -1,29 +1,11 @@
 // banzuke.ts
 // Banzuke (Ranking) System — Canon-aligned, deterministic, FULL SYSTEM
 //
-// This version is NOT a scaffold. It supports:
-// - Injury absences (kyujo) impacting demotion strength deterministically
-// - Ozeki kadoban history + 2x make-koshi demotion rule
-// - Variable sanyaku counts (Ozeki/Sekiwake/Komusubi can expand as needed; Maegashira count shrinks to keep 42)
-// - Deterministic promotion/demotion across ALL divisions using a unified “ladder” + division slot templates
-//
-// Design principles:
-// - Deterministic: no randomness, stable tie-breaks (old position then rikishiId)
-// - Canon constraints:
-//   - Makuuchi fixed at 42, Juryo fixed at 28
-//   - Yokozuna never demoted (always remain Yokozuna; ordering can change)
-//   - Ozeki: make-koshi => kadoban; kadoban + make-koshi => demoted to Sekiwake
-// - Realistic movement model (approximation, but not “hand-wavy”):
-//   - Use performance vs kachi-koshi threshold (8/15, 4/7)
-//   - Absences penalize more than ordinary losses (especially large kyujo)
-//   - Promotion ceilings: “you don’t jump two named ranks without a special case”
-//   - Variable sanyaku expansion absorbs deserving records rather than forcing weird over-promotions
-//
-// Integration expectation:
-// - Your WorldState likely stores current banzuke positions on each rikishi; this module operates on BanzukeEntry lists.
-// - Store/restore ozekiKadobanState in world/almanac; this module returns updated state each basho.
+// UPDATES:
+// - Added `determineSpecialPrizes` logic (Shukun-sho, Kanto-sho, Gino-sho)
 
-import type { Rank, Division, RankPosition } from "./types";
+import type { Rank, Division, RankPosition, Rikishi, BoutResult, BashoMatch } from "./types";
+import { KIMARITE_REGISTRY } from "./kimarite";
 
 // === RANK HIERARCHY ===
 
@@ -143,7 +125,6 @@ export const RANK_HIERARCHY: Record<Rank, RankInfo> = {
 
 // === RANK ORDERING / DISPLAY ===
 
-// Returns negative if a is higher (better), positive if b is higher.
 export function compareRanks(a: RankPosition, b: RankPosition): number {
   const aInfo = RANK_HIERARCHY[a.rank];
   const bInfo = RANK_HIERARCHY[b.rank];
@@ -173,7 +154,7 @@ export function getRankTitleJa(position: RankPosition): string {
   return `${sideJa}${info.nameJa}`;
 }
 
-// === KACHI-KOSHI / MAKE-KOSHI (WITH ABSENCES) ===
+// === KACHI-KOSHI / MAKE-KOSHI ===
 
 export function kachiKoshiThreshold(rank: Rank): number {
   const totalBouts = RANK_HIERARCHY[rank].fightsPerBasho;
@@ -184,10 +165,6 @@ export function isKachiKoshi(wins: number, _losses: number, rank: Rank): boolean
   return wins >= kachiKoshiThreshold(rank);
 }
 
-/**
- * Make-koshi in banzuke terms: count losses + absences as “non-wins”.
- * If you want a stricter rule (e.g., partial kyujo), adjust here.
- */
 export function isMakeKoshi(wins: number, losses: number, rank: Rank, absences = 0): boolean {
   const requiredLosses = kachiKoshiThreshold(rank);
   return losses + absences >= requiredLosses;
@@ -197,7 +174,7 @@ export function isMakeKoshi(wins: number, losses: number, rank: Rank, absences =
 
 export interface OzekiKadobanState {
   isKadoban: boolean;
-  consecutiveMakeKoshi: number; // counts consecutive make-koshi results at Ozeki (including kyujo make-koshi)
+  consecutiveMakeKoshi: number;
 }
 
 export type OzekiKadobanMap = Record<string, OzekiKadobanState>;
@@ -233,13 +210,13 @@ export interface BashoPerformance {
   rikishiId: string;
   wins: number;
   losses: number;
-  absences?: number; // injury / kyujo count (0–15 or 0–7)
+  absences?: number;
   yusho?: boolean;
   junYusho?: boolean;
-  specialPrizes?: number; // total count of prizes (0–3) if you track it
-  kinboshi?: number; // number of kinboshi this basho (usually 0/1+)
-  opponentAvgTier?: number; // lower = harder schedule (slight boost)
-  promoteToYokozuna?: boolean; // optional explicit promotion flag
+  specialPrizes?: number;
+  kinboshi?: number;
+  opponentAvgTier?: number;
+  promoteToYokozuna?: boolean;
 }
 
 export interface MovementEvent {
@@ -261,6 +238,127 @@ export interface BanzukeUpdateResult {
     komusubi: number;
     maegashira: number;
   };
+}
+
+// === AWARDS LOGIC ===
+
+export interface SpecialPrizesResult {
+  ginoSho?: string;
+  kantosho?: string;
+  shukunsho?: string;
+}
+
+export function determineSpecialPrizes(
+  matches: BashoMatch[],
+  rikishiMap: Map<string, Rikishi>,
+  yushoId: string
+): SpecialPrizesResult {
+  // 1. Identify Candidates: Makuuchi, below Ozeki, Kachi-koshi (8+ wins)
+  const stats = new Map<string, { wins: number; opponents: string[]; kimarites: string[] }>();
+  const yokozunaIds = new Set<string>();
+
+  for (const r of rikishiMap.values()) {
+    if (r.division === "makuuchi" && r.rank === "yokozuna") {
+      yokozunaIds.add(r.id);
+    }
+  }
+
+  // Aggregate stats from matches
+  for (const m of matches) {
+    if (!m.result) continue;
+    const w = m.result.winnerRikishiId;
+    const l = m.result.loserRikishiId;
+    
+    // Track stats for winner
+    if (!stats.has(w)) stats.set(w, { wins: 0, opponents: [], kimarites: [] });
+    const s = stats.get(w)!;
+    s.wins++;
+    s.opponents.push(l);
+    s.kimarites.push(m.result.kimarite);
+  }
+
+  const candidates: Rikishi[] = [];
+  for (const r of rikishiMap.values()) {
+    if (r.division !== "makuuchi") continue;
+    if (r.rank === "yokozuna" || r.rank === "ozeki") continue; // Not eligible
+    
+    const s = stats.get(r.id);
+    if (s && s.wins >= 8) {
+      candidates.push(r);
+    }
+  }
+
+  if (candidates.length === 0) return {};
+
+  const result: SpecialPrizesResult = {};
+
+  // 2. Shukun-shō (Outstanding Performance)
+  // Logic: Beat the Yusho winner OR Beat a Yokozuna (Kinboshi), + High wins preferred
+  let bestShukun = { id: "", score: -1 };
+  
+  for (const c of candidates) {
+    const s = stats.get(c.id)!;
+    const beatYusho = s.opponents.includes(yushoId);
+    const kinboshiCount = s.opponents.filter(oppId => yokozunaIds.has(oppId)).length;
+    
+    if (beatYusho || kinboshiCount > 0 || s.wins >= 12) {
+      // Simple score: Kinboshi=3, BeatYusho=4, EachWin=0.1
+      let score = (kinboshiCount * 3) + (beatYusho ? 4 : 0) + (s.wins * 0.1);
+      if (score > bestShukun.score) {
+        bestShukun = { id: c.id, score };
+      }
+    }
+  }
+  if (bestShukun.id) result.shukunsho = bestShukun.id;
+
+  // 3. Kantō-shō (Fighting Spirit)
+  // Logic: High wins (usually 10+), or 8-9 wins if underdog story (simplified to wins here)
+  let bestKanto = { id: "", score: -1 };
+  
+  for (const c of candidates) {
+    if (c.id === result.shukunsho) continue; // Try to distribute if possible
+    const s = stats.get(c.id)!;
+    
+    if (s.wins >= 10) {
+      let score = s.wins;
+      if (score > bestKanto.score) {
+        bestKanto = { id: c.id, score };
+      }
+    }
+  }
+  if (bestKanto.id) result.kantosho = bestKanto.id;
+
+  // 4. Ginō-shō (Technique)
+  // Logic: Variety of kimarite OR use of technical kimarite classes (throws, twists, etc vs push/thrust)
+  let bestGino = { id: "", score: -1 };
+  
+  for (const c of candidates) {
+    if (c.id === result.shukunsho || c.id === result.kantosho) continue;
+    const s = stats.get(c.id)!;
+    
+    const uniqueMoves = new Set(s.kimarites).size;
+    
+    // Count "technical" moves (not oshi/tsuki/yori)
+    let technicalMoves = 0;
+    for (const kId of s.kimarites) {
+      const k = KIMARITE_REGISTRY.find(kr => kr.id === kId);
+      if (k && k.category !== "push" && k.category !== "thrust" && k.category !== "forfeit") {
+        technicalMoves++;
+      }
+    }
+
+    // Score: (Unique * 1) + (TechRatio * 10)
+    const techRatio = technicalMoves / s.wins;
+    let score = uniqueMoves + (techRatio * 10);
+    
+    // Minimum threshold for Gino-sho: significant technical usage
+    if (techRatio > 0.4 && score > bestGino.score) {
+      bestGino = { id: c.id, score };
+    }
+  }
+  if (bestGino.id) result.ginoSho = bestGino.id;
+
+  return result;
 }
 
 // === MAIN UPDATE ===
