@@ -52,10 +52,15 @@ import {
   Users2,
   AlertTriangle,
   Shield,
-  Sparkles
+  Sparkles,
+  Trophy,
+  Medal,
+  Crown,
+  History
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { OyakataName } from "@/components/ClickableName";
+import { OyakataName, RikishiName } from "@/components/ClickableName";
+import type { Rikishi } from "@/engine/types";
 
 // Narrative band displays (no raw numbers)
 const STATURE_DISPLAY: Record<StatureBand, { label: string; labelJa: string; color: string }> = {
@@ -149,6 +154,47 @@ export default function StablePage() {
 
   const sekitori = rikishiList.filter((r) => r && RANK_HIERARCHY[r.rank].isSekitori);
 
+  // Compute stable achievements from world history
+  const stableAchievements = useMemo(() => {
+    const stableRikishiIds = new Set(heya.rikishiIds);
+    const achievements: {
+      yusho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+      junYusho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+      ginoSho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+      kantosho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+      shukunsho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+    } = { yusho: [], junYusho: [], ginoSho: [], kantosho: [], shukunsho: [] };
+
+    for (const record of world.history || []) {
+      if (record.yusho && stableRikishiIds.has(record.yusho)) {
+        achievements.yusho.push({ rikishiId: record.yusho, bashoName: record.bashoName, year: record.year });
+      }
+      for (const jy of record.junYusho || []) {
+        if (stableRikishiIds.has(jy)) {
+          achievements.junYusho.push({ rikishiId: jy, bashoName: record.bashoName, year: record.year });
+        }
+      }
+      if (record.ginoSho && stableRikishiIds.has(record.ginoSho)) {
+        achievements.ginoSho.push({ rikishiId: record.ginoSho, bashoName: record.bashoName, year: record.year });
+      }
+      if (record.kantosho && stableRikishiIds.has(record.kantosho)) {
+        achievements.kantosho.push({ rikishiId: record.kantosho, bashoName: record.bashoName, year: record.year });
+      }
+      if (record.shukunsho && stableRikishiIds.has(record.shukunsho)) {
+        achievements.shukunsho.push({ rikishiId: record.shukunsho, bashoName: record.bashoName, year: record.year });
+      }
+    }
+
+    return achievements;
+  }, [heya.rikishiIds, world.history]);
+
+  // Top performers in stable (by career wins)
+  const topPerformers = useMemo(() => {
+    return [...rikishiList]
+      .filter((r): r is Rikishi => r !== undefined)
+      .sort((a, b) => (b.careerWins || 0) - (a.careerWins || 0))
+      .slice(0, 5);
+  }, [rikishiList]);
   // Training state: prefer persisted heya trainingState if present, else default.
   const [trainingState, setTrainingState] = useState<BeyaTrainingState>(() => {
     const existing = (heya as any).trainingState as BeyaTrainingState | undefined;
@@ -270,11 +316,12 @@ export default function StablePage() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="training" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-3">
-            <TabsTrigger value="training">Training</TabsTrigger>
+        <Tabs defaultValue="roster" className="space-y-6">
+          <TabsList className="grid w-full max-w-lg grid-cols-4">
             <TabsTrigger value="roster">Roster</TabsTrigger>
+            <TabsTrigger value="training">Training</TabsTrigger>
             <TabsTrigger value="facilities">Facilities</TabsTrigger>
+            <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
           {/* Training Tab */}
@@ -596,6 +643,142 @@ export default function StablePage() {
                   Facilities influence how quickly wrestlers improve, how well they recover, and how consistently they can hold form
                   across the grueling basho cycle. Upgrades tend to compound over time—especially when paired with smart training profiles.
                 </p>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* History Tab */}
+          <TabsContent value="history" className="space-y-4">
+            <Card className="paper">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <History className="h-5 w-5" />
+                  Stable Achievements
+                </CardTitle>
+                <CardDescription>Championship history and special prizes earned by stable members</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Yusho */}
+                {stableAchievements.yusho.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-gold">
+                      <Trophy className="h-4 w-4" />
+                      <span className="font-medium">Yūshō ({stableAchievements.yusho.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {stableAchievements.yusho.slice(0, 10).map((a, i) => {
+                        const r = world.rikishi.get(a.rikishiId);
+                        return (
+                          <Badge key={i} variant="outline" className="text-xs bg-gold/10 border-gold/30">
+                            {r?.shikona ?? "Unknown"} — {a.bashoName} {a.year}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Jun-Yusho */}
+                {stableAchievements.junYusho.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Medal className="h-4 w-4" />
+                      <span className="font-medium">Jun-Yūshō ({stableAchievements.junYusho.length})</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {stableAchievements.junYusho.slice(0, 8).map((a, i) => {
+                        const r = world.rikishi.get(a.rikishiId);
+                        return (
+                          <Badge key={i} variant="outline" className="text-xs">
+                            {r?.shikona ?? "Unknown"} — {a.bashoName} {a.year}
+                          </Badge>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sansho Awards */}
+                {(stableAchievements.ginoSho.length > 0 || 
+                  stableAchievements.kantosho.length > 0 || 
+                  stableAchievements.shukunsho.length > 0) && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Crown className="h-4 w-4 text-primary" />
+                      <span className="font-medium">Special Prizes (Sanshō)</span>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {stableAchievements.ginoSho.length > 0 && (
+                        <div className="p-3 rounded-lg bg-secondary/50">
+                          <div className="text-sm font-medium mb-1">技能賞 Gino-shō ({stableAchievements.ginoSho.length})</div>
+                          <div className="text-xs text-muted-foreground">Technique Prize</div>
+                        </div>
+                      )}
+                      {stableAchievements.kantosho.length > 0 && (
+                        <div className="p-3 rounded-lg bg-secondary/50">
+                          <div className="text-sm font-medium mb-1">敢闘賞 Kantō-shō ({stableAchievements.kantosho.length})</div>
+                          <div className="text-xs text-muted-foreground">Fighting Spirit Prize</div>
+                        </div>
+                      )}
+                      {stableAchievements.shukunsho.length > 0 && (
+                        <div className="p-3 rounded-lg bg-secondary/50">
+                          <div className="text-sm font-medium mb-1">殊勲賞 Shukunshō ({stableAchievements.shukunsho.length})</div>
+                          <div className="text-xs text-muted-foreground">Outstanding Performance Prize</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty State */}
+                {stableAchievements.yusho.length === 0 && 
+                 stableAchievements.junYusho.length === 0 && 
+                 stableAchievements.ginoSho.length === 0 && 
+                 stableAchievements.kantosho.length === 0 && 
+                 stableAchievements.shukunsho.length === 0 && (
+                  <p className="text-muted-foreground text-center py-6">
+                    No major achievements recorded yet. Glory awaits those who train diligently.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Top Performers */}
+            <Card className="paper">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Star className="h-5 w-5" />
+                  Top Performers
+                </CardTitle>
+                <CardDescription>Leading wrestlers by career wins</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {topPerformers.map((r, idx) => (
+                    <div
+                      key={r.id}
+                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary/30 cursor-pointer transition-colors"
+                      onClick={() => navigate(`/rikishi/${r.id}`)}
+                    >
+                      <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold">
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium">{r.shikona}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {RANK_HIERARCHY[r.rank].nameJa}
+                          {r.rankNumber && ` ${r.rankNumber}枚目`}
+                        </div>
+                      </div>
+                      <div className="text-sm font-mono">
+                        {r.careerWins}-{r.careerLosses}
+                      </div>
+                    </div>
+                  ))}
+                  {topPerformers.length === 0 && (
+                    <p className="text-muted-foreground text-center py-4">No performers to display.</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
