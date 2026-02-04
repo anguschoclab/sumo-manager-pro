@@ -1,42 +1,54 @@
+// AlmanacPage.tsx
 // Almanac Page - Historical records, career summaries, and deep links
 // Per Constitution §8: "The Almanac is the memory of the world."
+//
+// FIXES / UPDATES:
+// - Removes unused imports (RikishiName/StableName if not used; use Link + names directly)
+// - Avoids navigate() during render (prevents React warnings); shows a safe fallback card instead
+// - Makes statureBand sorting & color robust to missing/unknown bands
+// - Search is fully case-safe for JP names + EN text (handles undefined fields safely)
+// - Stable directory links to /stable/:id (matches other pages)
+// - Yusho winner aggregation safe when history has missing/unknown rikishi IDs
+// - Keeps UI narrative-first (no hidden stats), only uses allowed visible records
 
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Helmet } from "react-helmet";
 import { Link, useNavigate } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 import type { Rikishi, Heya } from "@/engine/types";
-import { RikishiName, StableName } from "@/components/ClickableName";
 import {
-  Trophy,
-  Search,
-  Users,
+  Building2,
+  ChevronRight,
   Crown,
   Medal,
-  TrendingUp,
-  Building2,
   Scroll,
+  Search,
   Star,
-  ChevronRight
+  TrendingUp,
+  Trophy,
+  Users
 } from "lucide-react";
 
 // Compute career stats for almanac display
 function computeCareerStats(rikishi: Rikishi) {
-  const totalBouts = (rikishi.careerWins || 0) + (rikishi.careerLosses || 0);
-  const winRate =
-    totalBouts > 0 ? (((rikishi.careerWins || 0) / totalBouts) * 100).toFixed(1) : "0.0";
+  const wins = rikishi.careerWins || 0;
+  const losses = rikishi.careerLosses || 0;
+  const totalBouts = wins + losses;
+
+  const winRate = totalBouts > 0 ? ((wins / totalBouts) * 100).toFixed(1) : "0.0";
   const estimatedBasho = Math.floor(totalBouts / 15);
+
   return { winRate, totalBouts, estimatedBasho };
 }
 
-// Get stable tier color
-function getStableTierColor(statureBand: string): string {
+// Get stable tier color (robust)
+function getStableTierColor(statureBand: string | undefined): string {
   const colors: Record<string, string> = {
     legendary: "text-amber-400",
     powerful: "text-purple-400",
@@ -45,7 +57,11 @@ function getStableTierColor(statureBand: string): string {
     fragile: "text-red-400",
     new: "text-emerald-400"
   };
-  return colors[statureBand] || "text-muted-foreground";
+  return colors[String(statureBand || "")] || "text-muted-foreground";
+}
+
+function normalizeQuery(q: string) {
+  return (q || "").trim().toLowerCase();
 }
 
 export default function AlmanacPage() {
@@ -57,8 +73,19 @@ export default function AlmanacPage() {
   const [activeTab, setActiveTab] = useState("rikishi");
 
   if (!world) {
-    navigate("/");
-    return null;
+    return (
+      <div className="p-6 max-w-5xl mx-auto space-y-4">
+        <Card className="paper">
+          <CardHeader>
+            <CardTitle>Almanac unavailable</CardTitle>
+            <CardDescription>The world state is not loaded yet.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex gap-2">
+            <ButtonLikeLink onClick={() => navigate("/")}>Return to Dashboard</ButtonLikeLink>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const getRikishiById = (id: string): Rikishi | null => {
@@ -75,12 +102,14 @@ export default function AlmanacPage() {
     });
   }, [world.rikishi]);
 
-  // Get all heya sorted by stature
+  // Get all heya sorted by stature (robust if band missing)
   const allHeya = useMemo(() => {
     const statureOrder = ["legendary", "powerful", "established", "rebuilding", "fragile", "new"];
     return Array.from(world.heyas.values()).sort((a, b) => {
-      const orderA = statureOrder.indexOf(a.statureBand);
-      const orderB = statureOrder.indexOf(b.statureBand);
+      const bandA = (a as any).statureBand ?? "new";
+      const bandB = (b as any).statureBand ?? "new";
+      const orderA = statureOrder.indexOf(bandA);
+      const orderB = statureOrder.indexOf(bandB);
       return (orderA === -1 ? 999 : orderA) - (orderB === -1 ? 999 : orderB);
     });
   }, [world.heyas]);
@@ -88,21 +117,38 @@ export default function AlmanacPage() {
   // Filter by search
   const filteredRikishi = useMemo(() => {
     if (!searchQuery) return allRikishi;
-    const query = searchQuery.toLowerCase();
+    const query = normalizeQuery(searchQuery);
+
     return allRikishi.filter((r) => {
-      const shikona = (r.shikona || "").toLowerCase();
-      const nat = (r.nationality || "").toLowerCase();
-      return shikona.includes(query) || nat.includes(query);
+      const shikona = normalizeQuery(r.shikona || "");
+      const nat = normalizeQuery((r as any).nationality || "");
+      const heya = world.heyas.get(r.heyaId);
+      const heyaName = normalizeQuery(heya?.name || "");
+      const heyaJa = (heya?.nameJa || "").trim(); // JA: keep case/kanji
+
+      // JA search should also match exact substring on original query
+      const raw = searchQuery.trim();
+      const jaMatch = raw.length > 0 && (r.shikona?.includes(raw) || heyaJa.includes(raw));
+
+      return (
+        shikona.includes(query) ||
+        nat.includes(query) ||
+        heyaName.includes(query) ||
+        jaMatch
+      );
     });
-  }, [allRikishi, searchQuery]);
+  }, [allRikishi, searchQuery, world.heyas]);
 
   const filteredHeya = useMemo(() => {
     if (!searchQuery) return allHeya;
-    const query = searchQuery.toLowerCase();
+    const query = normalizeQuery(searchQuery);
+    const raw = searchQuery.trim();
+
     return allHeya.filter((h) => {
-      const name = (h.name || "").toLowerCase();
-      const ja = h.nameJa || "";
-      return name.includes(query) || ja.includes(searchQuery);
+      const name = normalizeQuery(h.name || "");
+      const ja = (h.nameJa || "").trim();
+      const descriptor = normalizeQuery((h as any).descriptor || "");
+      return name.includes(query) || descriptor.includes(query) || (raw.length > 0 && ja.includes(raw));
     });
   }, [allHeya, searchQuery]);
 
@@ -115,13 +161,19 @@ export default function AlmanacPage() {
   const yushoWinners = useMemo(() => {
     const counts = new Map<string, number>();
     for (const record of world.history || []) {
-      if (record?.yusho) counts.set(record.yusho, (counts.get(record.yusho) || 0) + 1);
+      const id = (record as any)?.yusho;
+      if (typeof id === "string" && id.length > 0) {
+        counts.set(id, (counts.get(id) || 0) + 1);
+      }
     }
+
     return Array.from(counts.entries())
-      .map(([id, count]) => ({ rikishi: getRikishiById(id), count }))
-      .filter((e) => e.rikishi)
+      .map(([rid, count]) => ({ rikishi: getRikishiById(rid), count, rikishiId: rid }))
+      .filter((e) => e.rikishi) // keep only those we can resolve
       .sort((a, b) => b.count - a.count);
   }, [world.history, world.rikishi]);
+
+  const activeYokozunaCount = allRikishi.filter((r) => r.rank === "yokozuna").length;
 
   return (
     <>
@@ -198,7 +250,7 @@ export default function AlmanacPage() {
               <div className="flex items-center gap-3">
                 <Crown className="h-8 w-8 text-amber-400" />
                 <div>
-                  <div className="text-2xl font-bold">{allRikishi.filter((r) => r.rank === "yokozuna").length}</div>
+                  <div className="text-2xl font-bold">{activeYokozunaCount}</div>
                   <div className="text-sm text-muted-foreground">Active Yokozuna</div>
                 </div>
               </div>
@@ -227,7 +279,7 @@ export default function AlmanacPage() {
                     {filteredRikishi.map((rikishi) => {
                       const stats = computeCareerStats(rikishi);
                       const heya = world.heyas.get(rikishi.heyaId);
-                      const rankJa = RANK_HIERARCHY[rikishi.rank]?.nameJa ?? rikishi.rank;
+                      const rankJa = RANK_HIERARCHY[rikishi.rank]?.nameJa ?? String(rikishi.rank);
 
                       return (
                         <Link
@@ -248,7 +300,7 @@ export default function AlmanacPage() {
                             <div className="text-xs text-muted-foreground flex items-center gap-2">
                               {heya ? <span className="hover:text-primary">{heya.name}</span> : <span>—</span>}
                               <span>•</span>
-                              <span>{rikishi.nationality}</span>
+                              <span>{(rikishi as any).nationality || "—"}</span>
                             </div>
                           </div>
 
@@ -280,12 +332,15 @@ export default function AlmanacPage() {
                 <ScrollArea className="h-[500px]">
                   <div className="space-y-2">
                     {filteredHeya.map((heya: Heya) => {
-                      const rosterIds = heya.rikishiIds || [];
+                      const rosterIds = (heya as any).rikishiIds || [];
                       const rosterCount = rosterIds.length;
+
                       const sekitoriCount = rosterIds
-                        .map((id) => world.rikishi.get(id))
-                        .filter((r) => r && RANK_HIERARCHY[r.rank]?.isSekitori)
+                        .map((rid: string) => world.rikishi.get(rid))
+                        .filter((r: Rikishi | undefined) => r && RANK_HIERARCHY[r.rank]?.isSekitori)
                         .length;
+
+                      const band = (heya as any).statureBand ?? "new";
 
                       return (
                         <Link
@@ -293,7 +348,7 @@ export default function AlmanacPage() {
                           to={`/stable/${heya.id}`}
                           className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/60 transition-colors group"
                         >
-                          <Building2 className={`h-8 w-8 ${getStableTierColor(heya.statureBand)}`} />
+                          <Building2 className={`h-8 w-8 ${getStableTierColor(band)}`} />
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
@@ -301,7 +356,7 @@ export default function AlmanacPage() {
                               {heya.nameJa && <span className="text-muted-foreground text-sm">{heya.nameJa}</span>}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {heya.descriptor || `${heya.statureBand} stable`}
+                              {(heya as any).descriptor || `${band} stable`}
                             </div>
                           </div>
 
@@ -399,11 +454,12 @@ export default function AlmanacPage() {
                     (() => {
                       const candidates = [...allRikishi].filter((r) => (r.careerWins || 0) + (r.careerLosses || 0) >= 30);
                       const best =
-                        candidates.sort((a, b) => {
-                          const ra = (a.careerWins || 0) / Math.max(1, (a.careerWins || 0) + (a.careerLosses || 0));
-                          const rb = (b.careerWins || 0) / Math.max(1, (b.careerWins || 0) + (b.careerLosses || 0));
-                          return rb - ra;
-                        })[0] ?? null;
+                        candidates
+                          .sort((a, b) => {
+                            const ra = (a.careerWins || 0) / Math.max(1, (a.careerWins || 0) + (a.careerLosses || 0));
+                            const rb = (b.careerWins || 0) / Math.max(1, (b.careerWins || 0) + (b.careerLosses || 0));
+                            return rb - ra;
+                          })[0] ?? null;
 
                       if (!best) return null;
 
@@ -414,9 +470,9 @@ export default function AlmanacPage() {
                         <div className="p-4 rounded-lg bg-secondary/50">
                           <div className="text-sm text-muted-foreground">Best Career Win Rate (min 30 bouts)</div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="font-display font-bold text-lg">
-                              <RikishiName id={best.id} name={best.shikona} />
-                            </span>
+                            <Link to={`/rikishi/${best.id}`} className="font-display font-bold text-lg hover:text-primary">
+                              {best.shikona}
+                            </Link>
                             <span className="font-mono text-success">{rate}%</span>
                           </div>
                         </div>
@@ -426,10 +482,15 @@ export default function AlmanacPage() {
                   {/* Most Experienced */}
                   {allRikishi.length > 0 &&
                     (() => {
-                      const most = [...allRikishi].sort(
-                        (a, b) =>
-                          ((b.careerWins || 0) + (b.careerLosses || 0)) - ((a.careerWins || 0) + (a.careerLosses || 0))
-                      )[0];
+                      const most =
+                        [...allRikishi].sort(
+                          (a, b) =>
+                            (b.careerWins || 0) +
+                            (b.careerLosses || 0) -
+                            ((a.careerWins || 0) + (a.careerLosses || 0))
+                        )[0] ?? null;
+
+                      if (!most) return null;
 
                       const bouts = (most.careerWins || 0) + (most.careerLosses || 0);
 
@@ -437,9 +498,9 @@ export default function AlmanacPage() {
                         <div className="p-4 rounded-lg bg-secondary/50">
                           <div className="text-sm text-muted-foreground">Most Career Bouts</div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="font-display font-bold text-lg">
-                              <RikishiName id={most.id} name={most.shikona} />
-                            </span>
+                            <Link to={`/rikishi/${most.id}`} className="font-display font-bold text-lg hover:text-primary">
+                              {most.shikona}
+                            </Link>
                             <span className="font-mono">{bouts} bouts</span>
                           </div>
                         </div>
@@ -449,16 +510,22 @@ export default function AlmanacPage() {
                   {/* Largest Stable */}
                   {allHeya.length > 0 &&
                     (() => {
-                      const largest = [...allHeya].sort((a, b) => (b.rikishiIds?.length || 0) - (a.rikishiIds?.length || 0))[0];
+                      const largest =
+                        [...allHeya].sort((a, b) => ((b as any).rikishiIds?.length || 0) - ((a as any).rikishiIds?.length || 0))[0] ??
+                        null;
+
+                      if (!largest) return null;
+
+                      const count = (largest as any).rikishiIds?.length || 0;
 
                       return (
                         <div className="p-4 rounded-lg bg-secondary/50">
                           <div className="text-sm text-muted-foreground">Largest Active Stable</div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="font-display font-bold text-lg">
-                              <StableName id={largest.id} name={largest.name} />
-                            </span>
-                            <span className="font-mono">{largest.rikishiIds?.length || 0} wrestlers</span>
+                            <Link to={`/stable/${largest.id}`} className="font-display font-bold text-lg hover:text-primary">
+                              {largest.name}
+                            </Link>
+                            <span className="font-mono">{count} wrestlers</span>
                           </div>
                         </div>
                       );
@@ -470,5 +537,21 @@ export default function AlmanacPage() {
         </Tabs>
       </div>
     </>
+  );
+}
+
+/**
+ * Tiny internal helper so we don't import Button here just for a fallback screen.
+ * (Keeps the file self-contained and avoids unused imports in projects without Button.)
+ */
+function ButtonLikeLink(props: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={props.onClick}
+      className="inline-flex items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm hover:bg-accent hover:text-accent-foreground"
+      type="button"
+    >
+      {props.children}
+    </button>
   );
 }
