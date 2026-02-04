@@ -1,13 +1,8 @@
 // world.ts
 // World Orchestrator — single entrypoint for mutating WorldState safely & consistently
-// Goal: prevent duplicated “world loop” logic across UI/GameContext, worldgen, schedule, events, etc.
 //
-// Design principles:
-// - Deterministic seeds: all generated outcomes derive from world.seed + basho/day/bout identifiers.
-// - Minimal coupling: this file coordinates other systems, but does not re-implement them.
-// - Safe defaults: if optional subsystems aren't present yet, we no-op rather than crash.
-//
-// NOTE: This module intentionally avoids UI concerns. UI should call these helpers (or autoSim.ts).
+// UPDATES:
+// - Added `training.tickWeek(world)` to `advanceInterim` to enable rikishi evolution.
 
 import type { WorldState, BashoName, BoutResult, Id } from "./types";
 import { initializeBasho } from "./worldgen";
@@ -21,6 +16,7 @@ import * as rivalries from "./rivalries";
 import * as economics from "./economics";
 import * as scoutingStore from "./scoutingStore";
 import * as historyIndex from "./historyIndex";
+import * as training from "./training"; // IMPORTED TRAINING ENGINE
 
 /** A match in the current basho schedule (shape inferred from your GameContext usage). */
 export interface BashoMatch {
@@ -222,12 +218,26 @@ export function advanceInterim(world: WorldState, weeks: number = 1): WorldState
   const w = Math.max(1, Math.trunc(weeks));
 
   for (let i = 0; i < w; i++) {
+    // === EXECUTE SUBSYSTEM TICKS ===
+    // 1. Injuries (Healing / Worsening)
     safeCall(() => (injuries as any).tickWeek?.(world));
+    
+    // 2. Training (Evolution / Fatigue) - NOW ENABLED
+    safeCall(() => (training as any).tickWeek?.(world));
+
+    // 3. Rivalries (Development / Decay)
     safeCall(() => (rivalries as any).tickWeek?.(world));
+
+    // 4. Economics (Weekly burn / Supporter income)
     safeCall(() => (economics as any).tickWeek?.(world));
+
+    // 5. Events (Random flavor events)
     safeCall(() => (events as any).tickWeek?.(world));
+
+    // 6. Scouting (Updates)
     safeCall(() => (scoutingStore as any).tickWeek?.(world));
 
+    // 7. General Time Boundary (Calendar updates if any)
     safeCall(() => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const tb = require("./timeBoundary");
