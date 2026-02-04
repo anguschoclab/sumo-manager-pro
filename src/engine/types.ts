@@ -1,23 +1,16 @@
 // types.ts
 // Clean, corrected, drop-in core types for Basho
 //
-// GOALS (drop-in + matches the modules you’ve been building):
-// - Single source of truth for shared types across engine modules
-// - Runtime WorldState uses Maps; SaveGame uses JSON-safe SerializedWorldState
-// - No duplicate interface names (Heya)
-// - RankPosition enforces numbered vs unnumbered at compile time
-// - Kimarite types centralized here (avoid circular imports with kimarite.ts)
-// - Training types included here (training.ts should import these types to avoid drift)
-// - Adds optional hidden fatigue + spendable cash (timeBoundary support)
-// - KoenkaiBandType and RunwayBand aligned to sponsors/timeBoundary
+// UPDATES:
+// - Added `birthYear` to Rikishi interface (Required for Evolution System)
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
 export type IdMapRuntime<T> = Map<Id, T>;
 
 /** =========================
- *  Combat / Style
- *  ========================= */
+ * Combat / Style
+ * ========================= */
 
 export type Style = "oshi" | "yotsu" | "hybrid";
 
@@ -134,8 +127,8 @@ export const ARCHETYPE_PROFILES: Record<
 };
 
 /** =========================
- *  Division / Rank / Banzuke
- *  ========================= */
+ * Division / Rank / Banzuke
+ * ========================= */
 
 export type Division = "makuuchi" | "juryo" | "makushita" | "sandanme" | "jonidan" | "jonokuchi";
 
@@ -210,8 +203,8 @@ export interface RikishiBashoPerformance {
 }
 
 /** =========================
- *  Basho (Tournament)
- *  ========================= */
+ * Basho (Tournament)
+ * ========================= */
 
 export type BashoName = "hatsu" | "haru" | "natsu" | "nagoya" | "aki" | "kyushu";
 export type Season = "winter" | "spring" | "summer" | "autumn";
@@ -268,8 +261,8 @@ export interface BashoState {
 }
 
 /** =========================
- *  Economics
- *  ========================= */
+ * Economics
+ * ========================= */
 
 export interface KenshoRecord {
   bashoName: BashoName;
@@ -290,8 +283,8 @@ export interface RikishiEconomics {
 }
 
 /** =========================
- *  Narrative bands (stable)
- *  ========================= */
+ * Narrative bands (stable)
+ * ========================= */
 
 export type StatureBand = "legendary" | "powerful" | "established" | "rebuilding" | "fragile" | "new";
 export type PrestigeBand = "elite" | "respected" | "modest" | "struggling" | "unknown";
@@ -318,8 +311,8 @@ export interface FTUEState {
 export type StableSelectionMode = "found_new" | "take_over" | "recommended";
 
 /** =========================
- *  Training (shared types)
- *  ========================= */
+ * Training (shared types)
+ * ========================= */
 
 export type TrainingIntensity = "conservative" | "balanced" | "intensive" | "punishing";
 export type TrainingFocus = "power" | "speed" | "technique" | "balance" | "neutral";
@@ -346,8 +339,8 @@ export interface BeyaTrainingState {
 }
 
 /** =========================
- *  Rikishi / Heya / World
- *  ========================= */
+ * Rikishi / Heya / World
+ * ========================= */
 
 export interface Rikishi {
   id: Id;
@@ -355,6 +348,7 @@ export interface Rikishi {
   realName?: string;
   heyaId: Id;
   nationality: string;
+  birthYear: number; // Added for evolution system
 
   height: number;
   weight: number;
@@ -466,8 +460,8 @@ export interface WorldState {
 }
 
 /** =========================
- *  JSON-SAFE SERIALIZED TYPES
- *  ========================= */
+ * JSON-SAFE SERIALIZED TYPES
+ * ========================= */
 
 export interface SerializedBashoState {
   year: number;
@@ -497,8 +491,8 @@ export interface SerializedWorldState {
 }
 
 /** =========================
- *  Save Format (persisted)
- *  ========================= */
+ * Save Format (persisted)
+ * ========================= */
 
 export type SaveVersion = "1.0.0";
 export const CURRENT_SAVE_VERSION: SaveVersion = "1.0.0";
