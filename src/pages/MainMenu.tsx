@@ -1,16 +1,24 @@
+// MainMenu.tsx
 // Main Menu - Unified FTUE stable selection flow
 // Follows Foundations Canon v2.0: World Entry & Stable Selection
 //
-// UPDATES APPLIED:
+// DROP-IN FIXES (runtime + canon):
 // - Canon rename: Stable Lords -> Basho (titles + copy)
 // - Removed Math.random() from seed generation (deterministic-friendly)
 // - Fixed "Sekitori: Yes/None" to actual sekitori count
-// - Fixed createWorld import usage on importSave: now loads imported world directly (no reseeding)
+// - Fixed createWorld usage on importSave: loads imported world directly when supported; safe fallback otherwise
 // - Improved recommended stables selection to avoid relying on reputation if missing
 // - Safer reroll seed + seed display (no substring crash)
 // - Stronger type alignment: selectionMode uses StableSelectionMode from engine types when available
+//
+// ADDITIONAL HARDENING:
+// - Never calls hooks inside handlers (removed illegal useGame() call in import handler)
+// - Uses optional loadWorldDirect / loadImportedWorld / setWorld style APIs if present
+// - If none exist, falls back to createWorld(imported.seed, imported.playerHeyaId) and warns via console
+// - Avoids double-worldgen loops by syncing local seed state with world seed
+// - Guards optional heya.riskIndicators and heya.rikishiIds
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
@@ -122,6 +130,10 @@ function StableCard({ heya, isSelected, onSelect, isRecommended, sekitoriCount }
   const config = STATURE_CONFIG[heya.statureBand];
   const Icon = config.icon;
 
+  const financial = !!(heya as any)?.riskIndicators?.financial;
+  const governance = !!(heya as any)?.riskIndicators?.governance;
+  const rivalry = !!(heya as any)?.riskIndicators?.rivalry;
+
   return (
     <Card
       className={`cursor-pointer transition-all hover:border-primary/50 ${
@@ -163,19 +175,19 @@ function StableCard({ heya, isSelected, onSelect, isRecommended, sekitoriCount }
         </div>
 
         {/* Risk indicators */}
-        {(heya.riskIndicators?.financial || heya.riskIndicators?.governance || heya.riskIndicators?.rivalry) && (
+        {(financial || governance || rivalry) && (
           <div className="flex gap-1 pt-1 flex-wrap">
-            {heya.riskIndicators.financial && (
+            {financial && (
               <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/30">
                 💴 Financial Risk
               </Badge>
             )}
-            {heya.riskIndicators.governance && (
+            {governance && (
               <Badge variant="outline" className="text-xs bg-yellow-500/10 text-yellow-400 border-yellow-500/30">
                 ⚖️ Governance Watch
               </Badge>
             )}
-            {heya.riskIndicators.rivalry && (
+            {rivalry && (
               <Badge variant="outline" className="text-xs bg-purple-500/10 text-purple-400 border-purple-500/30">
                 🔥 Active Rivalry
               </Badge>
@@ -199,7 +211,18 @@ function makeDeterministicSeed(prefix = "world"): string {
 
 export default function MainMenu() {
   const navigate = useNavigate();
-  const { createWorld, state, loadFromSlot, loadFromAutosave, hasAutosave, getSaveSlots } = useGame();
+
+  // Pull everything we might need ONCE (no hooks inside handlers)
+  const game = useGame();
+  const { createWorld, state, loadFromSlot, loadFromAutosave, hasAutosave, getSaveSlots } = game as any;
+
+  // Optional direct-load APIs (best effort, no assumptions)
+  const loadWorldDirect =
+    (game as any).loadWorldDirect ||
+    (game as any).loadImportedWorld ||
+    (game as any).setWorld ||
+    (game as any).hydrateWorld ||
+    null;
 
   const [seed, setSeed] = useState("");
   const [showSeedInput, setShowSeedInput] = useState(false);
@@ -212,42 +235,49 @@ export default function MainMenu() {
 
   // Check for existing saves on mount
   useEffect(() => {
-    setSaveSlots(getSaveSlots());
+    try {
+      setSaveSlots(getSaveSlots());
+    } catch {
+      setSaveSlots([]);
+    }
   }, [getSaveSlots]);
 
-  const canContinue = hasAutosave() || saveSlots.length > 0;
+  const canContinue = (typeof hasAutosave === "function" && hasAutosave()) || saveSlots.length > 0;
 
   // Auto-generate world on mount if none exists
   useEffect(() => {
-    if (!state.world) {
+    if (!state?.world) {
       const worldSeed = makeDeterministicSeed("world");
       setSeed(worldSeed);
-      createWorld(worldSeed);
+      if (typeof createWorld === "function") createWorld(worldSeed);
+      return;
     }
+    // Sync seed UI to the currently loaded world (avoids confusing mismatch after load/import)
+    if (state.world?.seed && !seed) setSeed(state.world.seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Get stables from world state
   const stables = useMemo(() => {
-    if (!state.world) return [];
+    if (!state?.world) return [];
     return Array.from(state.world.heyas.values());
-  }, [state.world]);
+  }, [state?.world]);
 
   // Map heyaId -> sekitoriCount (computed from current world roster)
   const sekitoriCounts = useMemo(() => {
     const map = new Map<string, number>();
-    if (!state.world) return map;
+    if (!state?.world) return map;
 
     for (const h of state.world.heyas.values()) {
       let count = 0;
-      for (const rid of h.rikishiIds) {
+      for (const rid of (h.rikishiIds ?? []) as string[]) {
         const r = state.world.rikishi.get(rid);
-        if (r && RANK_HIERARCHY[r.rank]?.isSekitori) count += 1;
+        if (r && (RANK_HIERARCHY as any)?.[r.rank]?.isSekitori) count += 1;
       }
       map.set(h.id, count);
     }
     return map;
-  }, [state.world]);
+  }, [state?.world]);
 
   // Recommended stables: prefer established/powerful; sort by sekitori count then funds then name
   const recommendedStables = useMemo(() => {
@@ -258,9 +288,11 @@ export default function MainMenu() {
         const sa = sekitoriCounts.get(a.id) ?? 0;
         const sb = sekitoriCounts.get(b.id) ?? 0;
         if (sb !== sa) return sb - sa;
-        const fa = Number.isFinite(a.funds) ? a.funds : 0;
-        const fb = Number.isFinite(b.funds) ? b.funds : 0;
+
+        const fa = Number.isFinite((a as any).funds) ? (a as any).funds : 0;
+        const fb = Number.isFinite((b as any).funds) ? (b as any).funds : 0;
         if (fb !== fa) return fb - fa;
+
         return a.name.localeCompare(b.name);
       })
       .slice(0, 6);
@@ -277,40 +309,66 @@ export default function MainMenu() {
       new: []
     };
     stables.forEach((h) => {
-      groups[h.statureBand].push(h);
+      groups[h.statureBand]?.push(h);
     });
-    // Stable ordering inside each group
     (Object.keys(groups) as StatureBand[]).forEach((k) => {
       groups[k].sort((a, b) => (sekitoriCounts.get(b.id) ?? 0) - (sekitoriCounts.get(a.id) ?? 0));
     });
     return groups;
   }, [stables, sekitoriCounts]);
 
-  // Handle continue from autosave
   const handleContinue = () => {
-    if (hasAutosave()) {
-      loadFromAutosave();
+    if (typeof hasAutosave === "function" && hasAutosave()) {
+      if (typeof loadFromAutosave === "function") loadFromAutosave();
       navigate("/");
       return;
     }
     if (saveSlots.length > 0) setShowLoadDialog(true);
   };
 
-  // Handle load from slot
   const handleLoadSlot = (slotName: string) => {
-    if (loadFromSlot(slotName)) {
+    if (typeof loadFromSlot === "function" && loadFromSlot(slotName)) {
       setShowLoadDialog(false);
       navigate("/");
     }
   };
 
-  // Handle delete save
   const handleDeleteSlot = (slotName: string) => {
-    deleteSave(slotName);
-    setSaveSlots(getSaveSlots());
+    try {
+      deleteSave(slotName);
+    } finally {
+      try {
+        setSaveSlots(getSaveSlots());
+      } catch {
+        setSaveSlots([]);
+      }
+    }
   };
 
-  // Handle import save
+  const applyImportedWorld = useCallback(
+    (importedWorld: any) => {
+      if (!importedWorld) return;
+
+      // Best path: load the imported world directly into state
+      if (typeof loadWorldDirect === "function") {
+        loadWorldDirect(importedWorld);
+        return;
+      }
+
+      // Fallback path: create world using imported identifiers (may not match imported contents)
+      if (typeof createWorld === "function") {
+        // This is a best-effort fallback only.
+        // If you see this warning, add a GameContext helper like loadWorldDirect(world).
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[MainMenu] No loadWorldDirect/loadImportedWorld/setWorld API found. Falling back to createWorld(seed, playerHeyaId). Imported data may not be preserved."
+        );
+        createWorld(importedWorld.seed, importedWorld.playerHeyaId);
+      }
+    },
+    [createWorld, loadWorldDirect]
+  );
+
   const handleImportSave = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -319,16 +377,9 @@ export default function MainMenu() {
     try {
       const importedWorld = await importSave(file);
       if (importedWorld) {
-        // IMPORTANT: importedWorld already contains full world state + playerHeyaId
-        // The correct action is to load it into state via your context helper.
-        // If your GameContext uses createWorld(seed, playerHeyaId) only, it would discard imported data.
-        // So we prefer: createWorldFromImportedWorld if available; otherwise fall back to createWorld then overwrite.
-        if (typeof (useGame() as any).loadWorldDirect === "function") {
-          (useGame() as any).loadWorldDirect(importedWorld);
-        } else {
-          // Fallback (best-effort): create using same seed & player heya id (worldgen will differ, but avoids crash)
-          createWorld(importedWorld.seed, importedWorld.playerHeyaId);
-        }
+        applyImportedWorld(importedWorld);
+        // Sync seed display to imported seed (safe)
+        setSeed(importedWorld.seed || "");
         navigate("/");
       }
     } finally {
@@ -337,7 +388,6 @@ export default function MainMenu() {
     }
   };
 
-  // Format date for display
   const formatSaveDate = (isoDate: string) => {
     const date = new Date(isoDate);
     return date.toLocaleDateString(undefined, {
@@ -348,37 +398,36 @@ export default function MainMenu() {
     });
   };
 
-  // Get basho display name
   const getBashoDisplay = (bashoName?: BashoName) => {
     if (!bashoName) return "";
-    const info = BASHO_CALENDAR[bashoName];
-    return info ? `${info.nameEn}` : bashoName;
+    const info = (BASHO_CALENDAR as any)?.[bashoName];
+    return info ? `${info.nameEn}` : String(bashoName);
   };
 
-  // Dispatch for founding new stable
   const foundNewStable = (name: string) => {
-    if (!state.world) return;
+    if (!state?.world) return;
     const newHeya = createNewStable(state.world, name);
-    createWorld(state.world.seed, newHeya.id);
+    // createWorld(seed, playerHeyaId)
+    if (typeof createWorld === "function") createWorld(state.world.seed, newHeya.id);
   };
 
   const handleRerollWorld = () => {
     const newSeed = seed?.trim() ? seed.trim() : makeDeterministicSeed("world");
     setSeed(newSeed);
     setSelectedHeyaId(null);
-    createWorld(newSeed);
+    if (typeof createWorld === "function") createWorld(newSeed);
   };
 
   const handleSetSeed = () => {
-    if (seed.trim()) {
-      setSelectedHeyaId(null);
-      createWorld(seed.trim());
-      setShowSeedInput(false);
-    }
+    const s = seed.trim();
+    if (!s) return;
+    setSelectedHeyaId(null);
+    if (typeof createWorld === "function") createWorld(s);
+    setShowSeedInput(false);
   };
 
   const handleConfirmStable = () => {
-    if (!state.world) return;
+    if (!state?.world) return;
 
     if (selectionMode === "found_new" && newStableName.trim()) {
       foundNewStable(newStableName.trim());
@@ -387,7 +436,7 @@ export default function MainMenu() {
     }
 
     if (selectedHeyaId) {
-      createWorld(state.world.seed, selectedHeyaId);
+      if (typeof createWorld === "function") createWorld(state.world.seed, selectedHeyaId);
       navigate("/");
     }
   };
@@ -395,8 +444,7 @@ export default function MainMenu() {
   const canConfirm =
     selectionMode === "found_new" ? newStableName.trim().length > 0 : selectedHeyaId !== null;
 
-  // Show loading state while world is being generated
-  if (!state.world) {
+  if (!state?.world) {
     return (
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary shadow-lg mb-6 animate-pulse">
@@ -469,7 +517,7 @@ export default function MainMenu() {
                             <CardContent className="p-3 flex items-center justify-between">
                               <div className="flex-1 cursor-pointer" onClick={() => handleLoadSlot(slot.slotName)}>
                                 <div className="flex items-center gap-2">
-                                  <span className="font-medium">{slot.playerHeyaName || "Unknown Stable"}</span>
+                                  <span className="font-medium">{slot.playerHeyaName || "Unknown Heya"}</span>
                                   <Badge variant="secondary" className="text-xs">
                                     {slot.slotName === "autosave" ? "Auto" : slot.slotName}
                                   </Badge>
@@ -537,11 +585,13 @@ export default function MainMenu() {
                 World: <code className="bg-muted px-2 py-0.5 rounded">{safeShortSeed(state.world.seed)}</code>
               </span>
               <span className="text-xs text-muted-foreground">•</span>
-              <span className="text-xs text-muted-foreground">{stables.length} Stables</span>
+              <span className="text-xs text-muted-foreground">{stables.length} Heyas</span>
+
               <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={handleRerollWorld}>
                 <RefreshCw className="w-3 h-3" />
                 Reroll World
               </Button>
+
               <Button
                 variant="ghost"
                 size="sm"
@@ -553,7 +603,6 @@ export default function MainMenu() {
               </Button>
             </div>
 
-            {/* Seed input (collapsible) */}
             {showSeedInput && (
               <div className="mt-4 flex items-center justify-center gap-2 max-w-md mx-auto">
                 <Input
@@ -596,7 +645,7 @@ export default function MainMenu() {
                 <CardContent className="pt-4">
                   <p className="text-sm text-muted-foreground">
                     <Shield className="inline w-4 h-4 mr-1" />
-                    These stables offer a balanced start with room to grow. Good for learning the systems.
+                    These heyas offer a balanced start with room to grow. Good for learning the systems.
                   </p>
                 </CardContent>
               </Card>
@@ -640,7 +689,9 @@ export default function MainMenu() {
                         <h3 className="font-display text-lg font-semibold mb-3 flex items-center gap-2">
                           <GroupIcon className="w-5 h-5" />
                           {config.label} ({config.difficulty})
-                          <span className="text-muted-foreground font-normal text-sm">— {stablesInGroup.length} stables</span>
+                          <span className="text-muted-foreground font-normal text-sm">
+                            — {stablesInGroup.length} heyas
+                          </span>
                         </h3>
                         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                           {stablesInGroup.map((heya) => (
@@ -703,12 +754,7 @@ export default function MainMenu() {
 
           {/* Confirm Button */}
           <div className="mt-8 flex justify-center">
-            <Button
-              size="lg"
-              className="gap-2 min-w-[200px]"
-              onClick={handleConfirmStable}
-              disabled={!canConfirm}
-            >
+            <Button size="lg" className="gap-2 min-w-[200px]" onClick={handleConfirmStable} disabled={!canConfirm}>
               {selectionMode === "found_new" ? "Found Heya" : "Begin Journey"}
               <ArrowRight className="w-4 h-4" />
             </Button>
