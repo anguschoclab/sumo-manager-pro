@@ -1,22 +1,3 @@
-// App Sidebar - Main navigation for Basho
-// Traditional Japanese aesthetic with sumo terminology
-
-import { 
-  Home, 
-  Trophy, 
-  Users, 
-  Wallet, 
-  Scale, 
-  History, 
-  CircleDot,
-  Swords,
-  Flame
-} from "lucide-react";
-import { NavLink } from "@/components/NavLink";
-import { useGame } from "@/contexts/GameContext";
-import { BASHO_CALENDAR } from "@/engine/calendar";
-import { RANK_HIERARCHY } from "@/engine/banzuke";
-
 import {
   Sidebar,
   SidebarContent,
@@ -27,125 +8,118 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarHeader,
-  SidebarFooter,
-  useSidebar,
 } from "@/components/ui/sidebar";
+import { 
+  LayoutDashboard, 
+  Home, 
+  Users, 
+  Trophy, 
+  ScrollText, 
+  Swords, 
+  Coins, 
+  History, 
+  BookOpen, 
+  Menu,
+  Scale 
+} from "lucide-react";
+import { NavLink } from "react-router-dom";
+import { useGame } from "@/contexts/GameContext";
+import { formatCurrency } from "@/lib/utils";
 
-const mainNavItems = [
-  { title: "Dashboard", url: "/", icon: Home, phase: "interim" as const },
-  { title: "Basho", url: "/basho", icon: Swords, phase: "basho" as const },
-  { title: "Banzuke", url: "/banzuke", icon: Trophy, phase: "banzuke" as const },
-  { title: "Stable", url: "/stable", icon: Users, phase: "stable" as const },
-];
-
-const secondaryNavItems = [
-  { title: "Rivalries", url: "/rivalries", icon: Flame, phase: "rivalries" as const },
-  { title: "Economy", url: "/economy", icon: Wallet, phase: "economy" as const },
-  { title: "Governance", url: "/governance", icon: Scale, phase: "governance" as const },
-  { title: "History", url: "/history", icon: History, phase: "history" as const },
+// Menu items.
+const items = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    title: "Stable",
+    url: "/stable",
+    icon: Home,
+  },
+  {
+    title: "Rikishi",
+    url: "/rikishi",
+    icon: Users,
+  },
+  {
+    title: "Basho",
+    url: "/basho",
+    icon: Trophy,
+  },
+  {
+    title: "Banzuke",
+    url: "/banzuke",
+    icon: ScrollText,
+  },
+  {
+    title: "Rivalries",
+    url: "/rivalries",
+    icon: Swords,
+  },
+  {
+    title: "Economy",
+    url: "/economy",
+    icon: Coins,
+  },
+  {
+    title: "Governance", // NEW MENU ITEM
+    url: "/governance",
+    icon: Scale,
+  },
+  {
+    title: "History",
+    url: "/history",
+    icon: History,
+  },
+  {
+    title: "Almanac",
+    url: "/almanac",
+    icon: BookOpen,
+  },
 ];
 
 export function AppSidebar() {
-  const { state } = useSidebar();
-  const { state: gameState } = useGame();
-  const collapsed = state === "collapsed";
+  const { state, isLoaded } = useGame();
   
-  const currentBasho = gameState.world?.currentBashoName 
-    ? BASHO_CALENDAR[gameState.world.currentBashoName] 
+  const playerHeya = isLoaded && state.playerHeyaId 
+    ? state.heyas.get(state.playerHeyaId) 
     : null;
-  
-  const playerHeya = gameState.playerHeyaId && gameState.world
-    ? gameState.world.heyas.get(gameState.playerHeyaId)
-    : null;
-
-  // Count sekitori in player's stable
-  const sekitoriCount = playerHeya 
-    ? playerHeya.rikishiIds.filter(id => {
-        const r = gameState.world?.rikishi.get(id);
-        return r && RANK_HIERARCHY[r.rank]?.isSekitori;
-      }).length
-    : 0;
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-border">
-      <SidebarHeader className="border-b border-border px-4 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary">
-            <CircleDot className="h-5 w-5 text-primary-foreground" />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="font-display text-lg font-semibold">Basho</span>
-              <span className="text-xs text-muted-foreground">相撲経営</span>
-            </div>
-          )}
+    <Sidebar>
+      <SidebarHeader className="p-4 border-b">
+        <div className="flex items-center gap-2 font-bold text-xl">
+          <Menu className="h-6 w-6" />
+          <span>Sumo Manager</span>
         </div>
-      </SidebarHeader>
-
-      <SidebarContent>
-        {/* Current Status */}
-        {!collapsed && gameState.world && (
-          <div className="border-b border-border px-4 py-3">
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Year</span>
-                <span className="font-medium">{gameState.world.year}</span>
-              </div>
-              {currentBasho && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Basho</span>
-                  <span className="font-display">{currentBasho.nameJa}</span>
-                </div>
-              )}
-              {gameState.world.currentBasho && (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Day</span>
-                  <span className="font-medium">{gameState.world.currentBasho.day}日目</span>
-                </div>
-              )}
+        {playerHeya && (
+          <div className="mt-4">
+            <div className="text-sm font-medium text-muted-foreground">My Stable</div>
+            <div className="font-bold truncate">{playerHeya.name}</div>
+            <div className="text-xs text-green-600 font-mono mt-1">
+              {formatCurrency(playerHeya.funds)}
             </div>
           </div>
         )}
-
-        {/* Main Navigation */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {mainNavItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url} 
-                      end={item.url === "/"} 
-                      className="flex items-center gap-3 hover:bg-accent/50 transition-colors"
-                      activeClassName="bg-accent text-accent-foreground font-medium"
-                    >
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Management */}
+      </SidebarHeader>
+      <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Management</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {secondaryNavItems.map((item) => (
+              {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
+                  <SidebarMenuButton asChild tooltip={item.title}>
                     <NavLink 
-                      to={item.url} 
-                      className="flex items-center gap-3 hover:bg-accent/50 transition-colors"
-                      activeClassName="bg-accent text-accent-foreground font-medium"
+                      to={item.url}
+                      className={({ isActive }) => 
+                        isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : ""
+                      }
                     >
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
+                      <item.icon />
+                      <span>{item.title}</span>
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -154,21 +128,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-
-      <SidebarFooter className="border-t border-border">
-        {/* Player Stable Info */}
-        {!collapsed && playerHeya && (
-          <div className="px-4 py-3">
-            <div className="text-xs text-muted-foreground mb-1">Your Stable</div>
-            <div className="font-display text-sm font-medium">{playerHeya.name}</div>
-            <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-              <span>{sekitoriCount} sekitori</span>
-              <span>•</span>
-              <span>¥{(playerHeya.funds / 1_000_000).toFixed(1)}M</span>
-            </div>
-          </div>
-        )}
-      </SidebarFooter>
     </Sidebar>
   );
 }
