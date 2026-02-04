@@ -1,351 +1,127 @@
-// BanzukePage.tsx
-// Banzuke Page - Rankings display with clickable rikishi and fog of war
-//
-// FIXES / UPDATES:
-// - Avoids navigate() during render; provides safe fallback UI when world missing
-// - Updates scouting call to current signature: createScoutedView(rikishi, viewerHeyaId, obsCount, investment, currentWeek)
-// - Uses world.seed for deterministic fog (fallback-safe); passes currentWeek when possible
-// - Keeps “allowed” visible numbers (career W/L), avoids any hidden attributes
-// - Rank info lookup safe (no undefined access)
-// - Robust sorting + stable rendering (handles missing rankNumber, shikona safely)
-// - Maintains optional scouting require() fallback without hard dependency
-
-import { Helmet } from "react-helmet";
-import { useNavigate } from "react-router-dom";
+import React from "react";
+import { AppLayout } from "@/components/layout/AppLayout";
 import { useGame } from "@/contexts/GameContext";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { RANK_HIERARCHY } from "@/engine/banzuke";
-import { Star, Search } from "lucide-react";
-import type { Rank, Rikishi, Side } from "@/engine/types";
-
-// Optional scouting imports (graceful fallback if your scouting module changes)
-let RANK_NAMES: any = null;
-let SIDE_NAMES: any = null;
-let createScoutedView: any = null;
-let describeScoutingLevel: any = null;
-
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const scouting = require("@/engine/scouting");
-  RANK_NAMES = scouting.RANK_NAMES;
-  SIDE_NAMES = scouting.SIDE_NAMES;
-  createScoutedView = scouting.createScoutedView;
-  describeScoutingLevel = scouting.describeScoutingLevel;
-} catch {
-  // No-op: fallbacks below will be used.
-}
-
-const DISPLAY_RANKS: Rank[] = ["yokozuna", "ozeki", "sekiwake", "komusubi", "maegashira", "juryo"];
-
-const FALLBACK_RANK_LABELS: Record<Rank, { ja: string; en: string }> = {
-  yokozuna: { ja: "横綱", en: "Yokozuna" },
-  ozeki: { ja: "大関", en: "Ōzeki" },
-  sekiwake: { ja: "関脇", en: "Sekiwake" },
-  komusubi: { ja: "小結", en: "Komusubi" },
-  maegashira: { ja: "前頭", en: "Maegashira" },
-  juryo: { ja: "十両", en: "Jūryō" },
-  makushita: { ja: "幕下", en: "Makushita" },
-  sandanme: { ja: "三段目", en: "Sandanme" },
-  jonidan: { ja: "序二段", en: "Jonidan" },
-  jonokuchi: { ja: "序ノ口", en: "Jonokuchi" }
-};
-
-const FALLBACK_SIDE_LABELS: Record<Side, { ja: string; en: string }> = {
-  east: { ja: "東", en: "East" },
-  west: { ja: "西", en: "West" }
-};
-
-function getRankNames(rank: Rank): { ja: string; en: string } {
-  if (RANK_NAMES && RANK_NAMES[rank]) return RANK_NAMES[rank];
-  return FALLBACK_RANK_LABELS[rank];
-}
-
-function getSideNames(side: Side): { ja: string; en: string } {
-  if (SIDE_NAMES && SIDE_NAMES[side]) return SIDE_NAMES[side];
-  return FALLBACK_SIDE_LABELS[side];
-}
-
-function safeInt(n: any, fallback = 0) {
-  return Number.isFinite(n) ? Number(n) : fallback;
-}
-
-function safeScoutBadge(args: {
-  rikishi: Rikishi;
-  playerHeyaId?: string;
-  isOwned: boolean;
-  worldSeed?: string;
-  currentWeek?: number;
-}) {
-  if (args.isOwned) {
-    return (
-      <Badge variant="secondary" className="text-xs">
-        Your Stable
-      </Badge>
-    );
-  }
-
-  // If scouting helpers exist, use them (new signature + safe fallbacks)
-  if (typeof createScoutedView === "function" && typeof describeScoutingLevel === "function") {
-    const obsCount = 5; // small baseline, banzuke-only intel
-    const investment = "none"; // consistent with scouting.ts type
-    const week = safeInt(args.currentWeek, 0);
-
-    let scouted: any = null;
-    try {
-      scouted = createScoutedView(args.rikishi, args.playerHeyaId ?? null, obsCount, investment, week);
-    } catch {
-      // Some older versions had a smaller signature; attempt minimal fallback
-      try {
-        scouted = createScoutedView(args.rikishi, args.playerHeyaId ?? null, obsCount);
-      } catch {
-        scouted = null;
-      }
-    }
-
-    if (scouted && typeof scouted.scoutingLevel === "number") {
-      const info = describeScoutingLevel(scouted.scoutingLevel);
-      return (
-        <span className={`flex items-center gap-1 text-xs ${info.color}`} title={info.description}>
-          <Search className="h-3 w-3" />
-          {Math.round(scouted.scoutingLevel)}%
-        </span>
-      );
-    }
-  }
-
-  // Fallback: unknown intel
-  return (
-    <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Limited intel">
-      <Search className="h-3 w-3" />
-      ?
-    </span>
-  );
-}
+import { formatRank, getRankTitleJa } from "@/engine/banzuke";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ClickableName } from "@/components/ClickableName";
 
 export default function BanzukePage() {
-  const navigate = useNavigate();
-  const { state, selectRikishi } = useGame();
-  const { world, playerHeyaId } = state;
+  const { state, isLoaded } = useGame();
 
-  if (!world) {
-    return (
-      <div className="p-6 max-w-3xl mx-auto">
-        <Card className="paper">
-          <CardHeader>
-            <CardTitle>番付 Banzuke</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Rankings are unavailable until the world loads.
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  if (!isLoaded || !state) return null;
 
-  const rikishiList = Array.from(world.rikishi.values());
+  // We group rikishi by division and sort them
+  const rikishiList = Array.from(state.rikishi.values());
+  
+  // Sort by rank value (we need a helper, but for now we can rely on division + rank string sort approx)
+  // Ideally use `positionKey` from banzuke.ts logic, but here we can just filter.
+  
+  const makuuchi = rikishiList
+    .filter(r => r.division === "makuuchi")
+    .sort((a, b) => {
+        // Simplified sort for UI: 
+        // 1. Rank Tier (Y, O, S, K, M)
+        // 2. Rank Number
+        // 3. Side (East < West)
+        const tier = (r: string) => {
+            if (r === "yokozuna") return 1;
+            if (r === "ozeki") return 2;
+            if (r === "sekiwake") return 3;
+            if (r === "komusubi") return 4;
+            return 5;
+        };
+        const ta = tier(a.rank);
+        const tb = tier(b.rank);
+        if (ta !== tb) return ta - tb;
+        if (a.rankNumber !== b.rankNumber) return (a.rankNumber || 0) - (b.rankNumber || 0);
+        return a.side === "east" ? -1 : 1;
+    });
 
-  const playerRikishiIds = new Set<string>(
-    playerHeyaId ? world.heyas.get(playerHeyaId)?.rikishiIds ?? [] : []
-  );
-
-  const rikishiByRank = new Map<Rank, Rikishi[]>();
-
-  for (const rank of DISPLAY_RANKS) {
-    const wrestlers = rikishiList
-      .filter((r) => r.rank === rank)
-      .sort((a, b) => {
-        // Primary sort: rankNumber (numbered ranks only)
-        const an = typeof a.rankNumber === "number" ? a.rankNumber : 0;
-        const bn = typeof b.rankNumber === "number" ? b.rankNumber : 0;
-        if (an !== bn) return an - bn;
-
-        // Secondary sort: east before west
-        if (a.side !== b.side) return a.side === "east" ? -1 : 1;
-
-        // Tertiary stable sort: shikona (safe)
-        const as = a.shikona || "";
-        const bs = b.shikona || "";
-        return as.localeCompare(bs);
-      });
-
-    rikishiByRank.set(rank, wrestlers);
-  }
-
-  const handleRikishiClick = (rikishiId: string) => {
-    if (typeof selectRikishi === "function") selectRikishi(rikishiId);
-    navigate(`/rikishi/${rikishiId}`);
-  };
-
-  const worldSeed = (world as any).seed || `world-${(world as any).id || "unknown"}`;
-  const currentWeek = safeInt((world as any).week, 0);
+  const divisions = ["makuuchi", "juryo", "makushita", "sandanme", "jonidan", "jonokuchi"];
 
   return (
-    <>
-      <Helmet>
-        <title>番付 Banzuke (Rankings) - Basho</title>
-      </Helmet>
-
-      <div className="p-6 max-w-5xl mx-auto space-y-6">
-        <div>
-          <h1 className="font-display text-3xl font-bold">番付 Banzuke</h1>
-          <p className="text-muted-foreground">Official Rankings</p>
+    <AppLayout>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Official Banzuke</h1>
+            <p className="text-muted-foreground">
+              {state.year} {state.currentBashoName?.toUpperCase() || "UPCOMING"} Rankings
+            </p>
+          </div>
         </div>
 
-        {DISPLAY_RANKS.map((rank) => {
-          const wrestlers = rikishiByRank.get(rank) || [];
-          if (wrestlers.length === 0) return null;
+        <Tabs defaultValue="makuuchi" className="w-full">
+          <TabsList>
+            {divisions.map(d => (
+                <TabsTrigger key={d} value={d} className="capitalize">{d}</TabsTrigger>
+            ))}
+          </TabsList>
+          
+          {divisions.map(div => {
+              const list = rikishiList.filter(r => r.division === div).sort((a, b) => {
+                  // Re-use simple sort logic
+                   const tier = (r: string) => {
+                        if (r === "yokozuna") return 1;
+                        if (r === "ozeki") return 2;
+                        if (r === "sekiwake") return 3;
+                        if (r === "komusubi") return 4;
+                        return 5;
+                    };
+                    const ta = tier(a.rank);
+                    const tb = tier(b.rank);
+                    if (ta !== tb) return ta - tb;
+                    if (a.rankNumber !== b.rankNumber) return (a.rankNumber || 0) - (b.rankNumber || 0);
+                    return a.side === "east" ? -1 : 1;
+              });
 
-          const info = (RANK_HIERARCHY as any)?.[rank];
-          const rankNames = getRankNames(rank);
-
-          const eastLabel = getSideNames("east");
-          const westLabel = getSideNames("west");
-
-          return (
-            <Card key={rank} className="paper">
-              <CardHeader className="pb-2">
-                <CardTitle className="font-display flex items-center gap-2">
-                  {rankNames.ja}
-                  <span className="text-muted-foreground font-normal text-base">{rankNames.en}</span>
-                  <Badge variant="outline" className="ml-auto">
-                    {wrestlers.length}
-                  </Badge>
-                </CardTitle>
-                <div className="text-xs text-muted-foreground">
-                  {info?.division ? `Division: ${info.division}` : null}
-                </div>
-              </CardHeader>
-
-              <CardContent>
-                <div className="grid md:grid-cols-2 gap-4">
-                  {/* East Side */}
-                  <div className="space-y-2">
-                    <div className="text-xs text-muted-foreground font-medium">
-                      {eastLabel.ja} {eastLabel.en}
-                    </div>
-
-                    {wrestlers
-                      .filter((r) => r.side === "east")
-                      .map((r) => {
-                        const isPlayer = playerRikishiIds.has(r.id);
-                        return (
-                          <div
-                            key={r.id}
-                            onClick={() => handleRikishiClick(r.id)}
-                            className={`flex items-center gap-2 p-3 rounded cursor-pointer transition-all hover:bg-secondary/50 ${
-                              isPlayer ? "bg-primary/10 ring-1 ring-primary/30" : "bg-secondary/30"
-                            }`}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") handleRikishiClick(r.id);
-                            }}
-                          >
-                            {isPlayer && <Star className="h-4 w-4 text-primary shrink-0" fill="currentColor" />}
-
-                            <div className="flex-1 min-w-0">
-                              <span className="font-display block truncate">{r.shikona || "Unknown"}</span>
-                              {typeof r.rankNumber === "number" && r.rankNumber > 0 && (
-                                <span className="text-xs text-muted-foreground">#{r.rankNumber}</span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {safeScoutBadge({
-                                rikishi: r,
-                                playerHeyaId,
-                                isOwned: isPlayer,
-                                worldSeed,
-                                currentWeek
-                              })}
-                              <span className="text-xs text-muted-foreground font-mono">
-                                {(r.careerWins ?? 0)}-{(r.careerLosses ?? 0)}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-
-                  {/* West Side */}
-                  <div className="space-y-2">
-                    <div className="text-xs text-muted-foreground font-medium">
-                      {westLabel.ja} {westLabel.en}
-                    </div>
-
-                    {wrestlers
-                      .filter((r) => r.side === "west")
-                      .map((r) => {
-                        const isPlayer = playerRikishiIds.has(r.id);
-                        return (
-                          <div
-                            key={r.id}
-                            onClick={() => handleRikishiClick(r.id)}
-                            className={`flex items-center gap-2 p-3 rounded cursor-pointer transition-all hover:bg-secondary/50 ${
-                              isPlayer ? "bg-primary/10 ring-1 ring-primary/30" : "bg-secondary/30"
-                            }`}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") handleRikishiClick(r.id);
-                            }}
-                          >
-                            {isPlayer && <Star className="h-4 w-4 text-primary shrink-0" fill="currentColor" />}
-
-                            <div className="flex-1 min-w-0">
-                              <span className="font-display block truncate">{r.shikona || "Unknown"}</span>
-                              {typeof r.rankNumber === "number" && r.rankNumber > 0 && (
-                                <span className="text-xs text-muted-foreground">#{r.rankNumber}</span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {safeScoutBadge({
-                                rikishi: r,
-                                playerHeyaId,
-                                isOwned: isPlayer,
-                                worldSeed,
-                                currentWeek
-                              })}
-                              <span className="text-xs text-muted-foreground font-mono">
-                                {(r.careerWins ?? 0)}-{(r.careerLosses ?? 0)}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-
-        {/* Legend */}
-        <Card className="paper">
-          <CardContent className="pt-4">
-            <div className="flex flex-wrap gap-6 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <Star className="h-3.5 w-3.5 text-primary" fill="currentColor" />
-                <span>Your stable (100% intel)</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Search className="h-3.5 w-3.5 text-success" />
-                <span>70%+ Well scouted</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Search className="h-3.5 w-3.5 text-warning" />
-                <span>40–69% Moderate intel</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Search className="h-3.5 w-3.5 text-muted-foreground" />
-                <span>&lt;40% Limited data</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+              return (
+                <TabsContent key={div} value={div}>
+                    <Card>
+                        <CardContent className="p-0">
+                            <ScrollArea className="h-[600px]">
+                                <table className="w-full text-sm">
+                                    <thead className="bg-muted/50 sticky top-0 z-10">
+                                        <tr className="text-left border-b">
+                                            <th className="p-3 font-medium">Rank</th>
+                                            <th className="p-3 font-medium">East</th>
+                                            <th className="p-3 font-medium">West</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {/* Render in pairs if possible, or list. List is easier for V1 */}
+                                        {list.map((r) => (
+                                            <tr key={r.id} className="border-b hover:bg-muted/50 transition-colors">
+                                                <td className="p-3 font-mono text-muted-foreground w-32">
+                                                    {formatRank({ rank: r.rank, rankNumber: r.rankNumber, side: r.side })}
+                                                </td>
+                                                <td className="p-3" colSpan={2}>
+                                                    <div className="flex items-center gap-3">
+                                                        <ClickableName id={r.id} name={r.shikona} type="rikishi" className="font-bold text-base" />
+                                                        <span className="text-xs text-muted-foreground">{state.heyas.get(r.heyaId)?.name}</span>
+                                                        {r.rank === "ozeki" && (
+                                                            <Badge variant="outline" className="ml-auto text-[10px] border-yellow-500 text-yellow-600">OZEKI</Badge>
+                                                        )}
+                                                        {r.rank === "yokozuna" && (
+                                                            <Badge variant="default" className="ml-auto text-[10px] bg-purple-900 hover:bg-purple-800">YOKOZUNA</Badge>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </ScrollArea>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+              );
+          })}
+        </Tabs>
       </div>
-    </>
+    </AppLayout>
   );
 }
