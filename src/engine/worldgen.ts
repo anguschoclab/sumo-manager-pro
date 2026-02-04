@@ -1,4 +1,4 @@
-// worldGen.ts
+// worldgen.ts
 // World Generation System — Deterministic seed-based world creation
 //
 // Realism v2: "Records that feel like real sumo"
@@ -34,9 +34,6 @@ import type {
 import { BASHO_ORDER } from "./calendar";
 import { initializeEconomics } from "./economics";
 
-// If you want: swap to your robust shikona generator by importing it.
-// import { generateShikonaBatch } from "./shikona";
-
 // === SHIKONA REGISTRY (simple fallback) ===
 
 const SHIKONA_PARTS = {
@@ -54,7 +51,6 @@ const SHIKONA_PARTS = {
 } as const;
 
 // === HEYA LIST ===
-// (Your list preserved — note: some real-world stables merge/rename over time; here we treat as fictionalized canon set.)
 const HEYA_NAMES = [
   { id: "miyagino", name: "Miyagino-beya", nameJa: "宮城野部屋", tier: "elite" },
   { id: "kasugano", name: "Kasugano-beya", nameJa: "春日野部屋", tier: "elite" },
@@ -154,8 +150,6 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-// === REALISM: BOUT COUNTS PER DIVISION ===
-// Sekitori (makuuchi + juryo) fight 15; makushita and below fight 7.
 function boutsPerBasho(division: Division): number {
   return division === "makuuchi" || division === "juryo" ? 15 : 7;
 }
@@ -168,7 +162,6 @@ interface RikishiGenerationConfig {
   heyaId: string;
 }
 
-/** Simple fallback shikona generator (deterministic, uniqueness enforced) */
 function generateSimpleShikona(rng: seedrandom.PRNG, usedNames: Set<string>): string {
   for (let attempts = 0; attempts < 200; attempts++) {
     const prefix = seededChoice(SHIKONA_PARTS.prefix, rng);
@@ -259,26 +252,9 @@ function determineWeaknesses(style: Style, rng: seedrandom.PRNG): Style[] {
   return weaknesses[style] || [];
 }
 
-// === REALISM: CAREER/RECORD MODEL ===
-//
-// We want "records that feel right":
-// - sekitori careers accumulate many 15-bout basho, lower divisions accumulate 7-bout basho
-// - top ranks tend to be older/longer-tenured, but absences/injuries accumulate
-// - win rates depend on rank *and* career phase
-//
-// Approach:
-// 1) Choose a plausible "careerBasho" based on rank (with variance)
-// 2) Choose a "peak window" inside that career (when win rate is highest)
-// 3) Compute an average effective win rate using the arc
-// 4) Convert basho -> total bouts (15 or 7) -> wins/losses, with absences reducing fought bouts a bit
+// === CAREER/RECORD MODEL HELPERS ===
 
 function careerBashoByRank(rank: Rank, rng: seedrandom.PRNG): number {
-  // Rough texture:
-  // - top ranks: long careers are common
-  // - mid: moderate
-  // - lower: many are relatively new, some journeymen exist
-  //
-  // This is intentionally not “historical exact”; it produces believable distributions.
   const base: Record<Rank, { mean: number; sd: number; min: number; max: number }> = {
     yokozuna: { mean: 70, sd: 18, min: 35, max: 110 },
     ozeki: { mean: 60, sd: 18, min: 25, max: 105 },
@@ -298,19 +274,13 @@ function careerBashoByRank(rank: Rank, rng: seedrandom.PRNG): number {
 }
 
 function baselineWinRateByRank(rank: Rank): { mean: number; sd: number } {
-  // Important: lower divisions are “closer to coinflip” because talent spread is narrower in our sim snapshot.
-  // Sekitori should be modestly above .500, especially at the top.
-  //
-  // (These are means for a neutral “mid-career” point; arc will push above/below.)
   const table: Record<Rank, { mean: number; sd: number }> = {
     yokozuna: { mean: 0.74, sd: 0.06 },
     ozeki: { mean: 0.64, sd: 0.06 },
     sekiwake: { mean: 0.58, sd: 0.06 },
     komusubi: { mean: 0.55, sd: 0.06 },
     maegashira: { mean: 0.51, sd: 0.06 },
-
     juryo: { mean: 0.52, sd: 0.06 },
-
     makushita: { mean: 0.50, sd: 0.05 },
     sandanme: { mean: 0.50, sd: 0.05 },
     jonidan: { mean: 0.50, sd: 0.05 },
@@ -320,19 +290,10 @@ function baselineWinRateByRank(rank: Rank): { mean: number; sd: number } {
 }
 
 function careerArcAverageWinRate(rng: seedrandom.PRNG, rank: Rank, careerBasho: number): number {
-  // Create a simple arc:
-  // - peakBasho ~ 35% to 65% into career
-  // - peakBoost: top ranks get stronger peak; lower ranks small
-  // - declinePenalty: grows after peak
   const base = baselineWinRateByRank(rank);
   const baseRate = clamp(gaussianRandom(rng, base.mean, base.sd), 0.35, 0.90);
 
-  const peakAt = clamp(
-    Math.round(careerBasho * (0.35 + rng() * 0.30)),
-    1,
-    Math.max(1, careerBasho)
-  );
-
+  const peakAt = clamp(Math.round(careerBasho * (0.35 + rng() * 0.30)), 1, Math.max(1, careerBasho));
   const peakWidth = clamp(Math.round(8 + rng() * 10), 6, 20);
 
   const peakBoostByRank: Record<Rank, number> = {
@@ -364,14 +325,11 @@ function careerArcAverageWinRate(rng: seedrandom.PRNG, rank: Rank, careerBasho: 
   const peakBoost = peakBoostByRank[rank] ?? 0.03;
   const decline = declineByRank[rank] ?? 0.04;
 
-  // Average across career using a triangular-ish peak.
-  // We don’t need per-basho storage; we just want believable totals.
   let sum = 0;
   for (let i = 1; i <= careerBasho; i++) {
     const dist = Math.abs(i - peakAt);
-    const peakFactor = clamp(1 - dist / peakWidth, 0, 1); // 0..1
+    const peakFactor = clamp(1 - dist / peakWidth, 0, 1);
     const postPeak = i > peakAt ? (i - peakAt) / Math.max(1, careerBasho - peakAt) : 0;
-
     const rate = clamp(baseRate + peakFactor * peakBoost - postPeak * decline, 0.20, 0.92);
     sum += rate;
   }
@@ -379,8 +337,6 @@ function careerArcAverageWinRate(rng: seedrandom.PRNG, rank: Rank, careerBasho: 
 }
 
 function estimatedAbsences(rng: seedrandom.PRNG, rank: Rank, careerBasho: number, division: Division): number {
-  // Absences are more common as careers get long and at the very top (wear and tear / kyujo)
-  // We model absences as missed bouts (not missed basho), because types track career wins/losses only.
   const perBashoBouts = boutsPerBasho(division);
 
   const baseMissRateByRank: Record<Rank, number> = {
@@ -397,12 +353,8 @@ function estimatedAbsences(rng: seedrandom.PRNG, rank: Rank, careerBasho: number
   };
 
   const baseMissRate = baseMissRateByRank[rank] ?? 0.02;
-
-  // Longer careers => more cumulative missed bouts, but not linearly crazy.
   const longevityFactor = clamp(careerBasho / 60, 0.3, 1.6);
-
-  // Randomize a bit; most rikishi have few absences, some have many.
-  const skew = rng() < 0.12 ? 2.4 : 1.0; // small chance of injury-prone outlier
+  const skew = rng() < 0.12 ? 2.4 : 1.0;
   const missRate = clamp(baseMissRate * longevityFactor * skew, 0, 0.20);
 
   const totalScheduled = careerBasho * perBashoBouts;
@@ -421,11 +373,9 @@ function generateRikishi(
 
   const rankMultiplier = getRankMultiplier(config.targetRank);
 
-  // Anthropometrics
   const height = clamp(Math.round(gaussianRandom(rng, 180, 8)), 155, 205);
   const weight = clamp(Math.round(gaussianRandom(rng, 135 + rankMultiplier * 16, 22)), 95, 235);
 
-  // Ability stats: rank-linked mean + personal variance
   const baseStats = 38 + rankMultiplier * 12;
   const statVariance = 14;
 
@@ -435,7 +385,6 @@ function generateRikishi(
   const technique = clamp(Math.round(gaussianRandom(rng, baseStats, statVariance)), 20, 100);
   const aggression = clamp(Math.round(gaussianRandom(rng, 52, 18)), 20, 100);
 
-  // Experience as "polish": higher ranks tend older/longer in the sport
   const expBase = clamp(35 + rankMultiplier * 10, 25, 90);
   const experience = clamp(Math.round(gaussianRandom(rng, expBase, 14)), 20, 100);
 
@@ -443,29 +392,24 @@ function generateRikishi(
   const archetype = determineArchetype(style, power, speed, technique, balance, rng);
   const favoredKimarite = selectFavoredKimarite(style, archetype, rng);
 
-  // Career / records
   const careerBasho = careerBashoByRank(config.targetRank, rng);
   const perBasho = boutsPerBasho(config.division);
 
   const avgWinRate = careerArcAverageWinRate(rng, config.targetRank, careerBasho);
   const absences = estimatedAbsences(rng, config.targetRank, careerBasho, config.division);
 
-  // Convert to totals. We treat "missed bouts" as simply reducing fought bouts.
   const totalScheduled = careerBasho * perBasho;
   const fought = clamp(totalScheduled - absences, 0, totalScheduled);
 
-  // Add a little “close tournament randomness” without per-basho storage.
   const noise = clamp(gaussianRandom(rng, 0, 0.02), -0.05, 0.05);
   const effective = clamp(avgWinRate + noise, 0.20, 0.92);
 
   const careerWins = clamp(Math.round(fought * effective), 0, fought);
   const careerLosses = fought - careerWins;
 
-  // Present-day injury state (short-term), separate from lifetime absences.
   const currentlyInjured = rng() < (config.division === "makuuchi" ? 0.07 : 0.045);
   const injuryWeeksRemaining = currentlyInjured ? clamp(Math.round(gaussianRandom(rng, 3, 2)), 1, 12) : 0;
 
-  // Popularity tends to be higher at the top but not uniform.
   const popularityBase =
     config.targetRank === "yokozuna" ? 85 :
     config.targetRank === "ozeki" ? 75 :
@@ -688,9 +632,6 @@ interface BanzukeSlot {
   count: number;
 }
 
-// Default snapshot sizes (your existing balance-friendly counts).
-// If you ever want “full realism scale”, you can raise makushita/sandanme/jonidan/jonokuchi heavily,
-// but that’s a performance/product choice.
 const BANZUKE_TEMPLATE: BanzukeSlot[] = [
   { rank: "yokozuna", division: "makuuchi", count: 2 },
   { rank: "ozeki", division: "makuuchi", count: 3 },
@@ -721,7 +662,7 @@ export function generateWorld(config: WorldGenConfig): WorldState {
   const year = config.startYear ?? 2024;
   const startBasho = config.startBasho ?? "hatsu";
 
-  const targetStableCount = 40 + Math.floor(rng() * 9); // 40–48
+  const targetStableCount = 40 + Math.floor(rng() * 9);
   const heyaList = seededShuffle(HEYA_NAMES, rng).slice(0, Math.min(targetStableCount, HEYA_NAMES.length));
 
   const heyas = new Map<string, Heya>();
@@ -729,11 +670,9 @@ export function generateWorld(config: WorldGenConfig): WorldState {
 
   let rikishiCounter = 0;
 
-  // Distribute rikishi across heya and ranks
   for (const slot of BANZUKE_TEMPLATE) {
     let remaining = slot.count;
 
-    // Weight upper ranks toward higher-tier stables deterministically
     const sortedHeya =
       slot.rank === "yokozuna" || slot.rank === "ozeki" || slot.rank === "sekiwake" || slot.rank === "komusubi"
         ? [...heyaList].sort((a, b) => {
@@ -763,23 +702,17 @@ export function generateWorld(config: WorldGenConfig): WorldState {
     }
   }
 
-  // Assign east/west and rankNumbers deterministically
   assignBanzukePositions(allRikishi);
 
-  // Create heya with their rikishi
   for (const heyaInfo of heyaList) {
     const rikishiIds = Array.from(allRikishi.values())
-      .filter(r => r.heyaId === heyaInfo.id)
-      .map(r => r.id);
+      .filter((r) => r.heyaId === heyaInfo.id)
+      .map((r) => r.id);
 
     heyas.set(heyaInfo.id, generateHeya(rng, heyaInfo, rikishiIds));
   }
 
-  const ftue: FTUEState = {
-    isActive: true,
-    bashoCompleted: 0,
-    suppressedEvents: []
-  };
+  const ftue: FTUEState = { isActive: true, bashoCompleted: 0, suppressedEvents: [] };
 
   return {
     seed: config.seed,
@@ -815,13 +748,7 @@ function assignBanzukePositions(rikishi: Map<string, Rikishi>): void {
 
     for (const w of sorted) {
       w.side = side;
-
-      if (isNumberedRank(rank)) {
-        w.rankNumber = rankNum;
-      } else {
-        w.rankNumber = undefined;
-      }
-
+      w.rankNumber = isNumberedRank(rank) ? rankNum : undefined;
       if (side === "west") rankNum++;
       side = side === "east" ? "west" : "east";
     }
@@ -833,7 +760,6 @@ function assignBanzukePositions(rikishi: Map<string, Rikishi>): void {
 export function initializeBasho(world: WorldState, bashoName: BashoName): BashoState {
   const bashoNumber = (BASHO_ORDER.indexOf(bashoName) + 1) as 1 | 2 | 3 | 4 | 5 | 6;
 
-  // Reset rikishi basho stats
   for (const r of world.rikishi.values()) {
     r.currentBashoWins = 0;
     r.currentBashoLosses = 0;
@@ -849,7 +775,6 @@ export function initializeBasho(world: WorldState, bashoName: BashoName): BashoS
     standings: new Map()
   };
 
-  // Initialize standings for sekitori (makuuchi + juryo)
   for (const r of world.rikishi.values()) {
     if (r.division === "makuuchi" || r.division === "juryo") {
       basho.standings.set(r.id, { wins: 0, losses: 0 });
@@ -864,18 +789,14 @@ export function initializeBasho(world: WorldState, bashoName: BashoName): BashoS
 export function generateDaySchedule(world: WorldState, basho: BashoState, day: number, seed: string): void {
   const rng = seedrandom(`${seed}-day-${day}`);
 
-  const makuuchi = Array.from(world.rikishi.values()).filter(r => r.division === "makuuchi" && !r.injured);
-  const juryo = Array.from(world.rikishi.values()).filter(r => r.division === "juryo" && !r.injured);
+  const makuuchi = Array.from(world.rikishi.values()).filter((r) => r.division === "makuuchi" && !r.injured);
+  const juryo = Array.from(world.rikishi.values()).filter((r) => r.division === "juryo" && !r.injured);
 
   const juryoMatches = createMatchups(juryo, basho, rng);
   const makuuchiMatches = createMatchups(makuuchi, basho, rng);
 
   for (const match of [...juryoMatches, ...makuuchiMatches]) {
-    basho.matches.push({
-      day,
-      eastRikishiId: match.east,
-      westRikishiId: match.west
-    });
+    basho.matches.push({ day, eastRikishiId: match.east, westRikishiId: match.west });
   }
 }
 
@@ -901,7 +822,6 @@ function createMatchups(
     }
   }
 
-  // Deterministic sort: current wins desc, then rank strength, then id
   const sorted = [...rikishi].sort((a, b) => {
     const aWins = basho.standings.get(a.id)?.wins || 0;
     const bWins = basho.standings.get(b.id)?.wins || 0;
@@ -921,7 +841,7 @@ function createMatchups(
         jonokuchi: 100
       };
       const n = r.rankNumber ? clamp(r.rankNumber, 1, 100) : 1;
-      const numBonus = isNumberedRank(r.rank) ? (200 - n) : 0;
+      const numBonus = isNumberedRank(r.rank) ? 200 - n : 0;
       return (base[r.rank] ?? 0) + numBonus;
     };
 
@@ -951,7 +871,6 @@ function createMatchups(
       break;
     }
 
-    // Relax previous-opponent rule last
     if (!paired) {
       for (let j = i + 1; j < sorted.length; j++) {
         const west = sorted[j];
@@ -989,13 +908,9 @@ export function createNewStable(world: WorldState, stableName: string, stableNam
     runwayBand: "critical",
 
     reputation: 10,
-
-    // Align with your monthly expense model:
-    // ~4.5m/month baseline => 12m ≈ 2–3 months runway at start
     funds: 12_000_000,
 
     facilities: { training: 20, recovery: 15, nutrition: 20 },
-
     riskIndicators: { financial: true, governance: false, rivalry: false },
 
     descriptor: "A brand new stable, starting from nothing. Everything must be built from scratch.",
@@ -1003,7 +918,7 @@ export function createNewStable(world: WorldState, stableName: string, stableNam
   };
 
   world.heyas.set(id, newHeya);
-  world.playerHeyaId = id;
+  (world as any).playerHeyaId = id;
 
   return newHeya;
 }
