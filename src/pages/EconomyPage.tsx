@@ -1,7 +1,8 @@
+// EconomyPage.tsx
 // Economy Page - Financial overview with narrative language
 // Economy Canon: minimize raw numbers in player-facing UI (use bands + descriptions)
 //
-// UPDATES APPLIED:
+// DROP-IN FIXES (runtime + canon):
 // - Canon rename: Basho (remove “Stable Lords” from titles)
 // - Fix playerHeya lookup: use state.playerHeyaId (not state.world.playerHeyaId)
 // - Guard optional fields (riskIndicators, bands, economics)
@@ -9,6 +10,11 @@
 // - Avoid raw kenshō counts in UI (convert to banded labels + “rising/strong/legendary” tiers)
 // - Keep Progress bar as a narrative meter (no currency numbers shown)
 // - Add safe fallbacks when bands are missing in older saves
+//
+// ADDITIONAL HARDENING:
+// - Works even if RunwayBand / KoenkaiBandType types are missing/changed (safe string fallbacks)
+// - Never assumes playerHeya.rikishiIds exists
+// - No hook usage outside component scope
 
 import { useMemo } from "react";
 import { Helmet } from "react-helmet";
@@ -72,7 +78,7 @@ const RUNWAY_CONFIG: Record<
   },
   desperate: {
     label: "Desperate",
-    description: "Immediate intervention required. The stable’s survival is at stake.",
+    description: "Immediate intervention required. The heya’s survival is at stake.",
     color: "text-red-400",
     icon: AlertTriangle,
     progressValue: 10
@@ -123,74 +129,92 @@ const KOENKAI_CONFIG: Record<
 
 // Expense categories (narrative)
 const EXPENSE_CATEGORIES = [
-  { name: "Wrestler Support", description: "Food, housing, and daily needs for the roster" },
-  { name: "Stable Operations", description: "Utilities, maintenance, and administration" },
-  { name: "Training & Equipment", description: "Dohyo upkeep, supplies, and coaching costs" },
-  { name: "Medical & Recovery", description: "Treatment, rehab, and injury prevention" },
-  { name: "Travel & Appearances", description: "Tours, events, and official obligations" }
+  { name: "Wrestler Support", description: "Food, housing, and daily needs for the roster." },
+  { name: "Heya Operations", description: "Utilities, maintenance, and administration." },
+  { name: "Training & Equipment", description: "Dohyo upkeep, supplies, and coaching costs." },
+  { name: "Medical & Recovery", description: "Treatment, rehab, and injury prevention." },
+  { name: "Travel & Appearances", description: "Tours, events, and official obligations." }
 ];
 
 // Income sources (narrative)
 const INCOME_SOURCES = [
-  { name: "League Distributions", description: "Official payments influenced by stable strength and rank presence" },
-  { name: "Kōenkai Contributions", description: "Recurring supporter donations and patronage" },
-  { name: "Kenshō Winnings", description: "Sponsor banner prizes earned through headline bouts" },
-  { name: "Prize Money", description: "Tournament awards and special prizes" },
-  { name: "Appearances", description: "Exhibitions, tours, and sanctioned events" }
+  { name: "League Distributions", description: "Official payments influenced by rank presence and prestige." },
+  { name: "Kōenkai Contributions", description: "Recurring supporter donations and patronage." },
+  { name: "Kenshō Winnings", description: "Sponsor banner prizes earned through headline bouts." },
+  { name: "Prize Money", description: "Tournament awards and special prizes." },
+  { name: "Appearances", description: "Exhibitions, tours, and sanctioned events." }
 ];
 
+// Kensho tiering (narrative). This function uses counts internally but never shows them.
 function kenshoTierLabel(total: number): { label: string; detail: string } {
-  // Narrative tiering; no need to expose totals, but we can derive a qualitative label.
-  if (total >= 200) return { label: "Legendary", detail: "A magnet for banners and sponsors" };
-  if (total >= 80) return { label: "Star Earner", detail: "Frequently featured in sponsor bouts" };
-  if (total >= 25) return { label: "Noticed", detail: "Sponsors are beginning to follow" };
-  if (total >= 5) return { label: "Emerging", detail: "Occasional sponsor attention" };
-  return { label: "Unproven", detail: "Little sponsor draw so far" };
+  if (total >= 200) return { label: "Legendary", detail: "A magnet for banners and sponsors." };
+  if (total >= 80) return { label: "Star Earner", detail: "Frequently featured in sponsor bouts." };
+  if (total >= 25) return { label: "Noticed", detail: "Sponsors are beginning to follow." };
+  if (total >= 5) return { label: "Emerging", detail: "Occasional sponsor attention." };
+  return { label: "Unproven", detail: "Little sponsor draw so far." };
+}
+
+// Safe access helpers for older saves
+function safeRunwayBand(v: unknown): RunwayBand {
+  const s = typeof v === "string" ? v : "";
+  if (s === "secure" || s === "comfortable" || s === "tight" || s === "critical" || s === "desperate") return s;
+  return "tight";
+}
+
+function safeKoenkaiBand(v: unknown): KoenkaiBandType {
+  const s = typeof v === "string" ? v : "";
+  if (s === "powerful" || s === "strong" || s === "moderate" || s === "weak" || s === "none") return s;
+  return "none";
 }
 
 export default function EconomyPage() {
   const { state } = useGame();
 
+  const world = state.world;
+
   const playerHeya = useMemo(() => {
-    if (!state.world || !state.playerHeyaId) return null;
-    return state.world.heyas.get(state.playerHeyaId) || null;
-  }, [state.world, state.playerHeyaId]);
+    if (!world || !state.playerHeyaId) return null;
+    return world.heyas.get(state.playerHeyaId) || null;
+  }, [world, state.playerHeyaId]);
 
-  // Sekitori count (used only as a broad indicator, still okay as a visible “count”)
+  const playerRikishi = useMemo(() => {
+    if (!playerHeya || !world) return [];
+    const ids: string[] = Array.isArray((playerHeya as any).rikishiIds) ? (playerHeya as any).rikishiIds : [];
+    return ids
+      .map((id) => world.rikishi.get(id))
+      .filter(Boolean) as Array<NonNullable<ReturnType<typeof world.rikishi.get>>>;
+  }, [playerHeya, world]);
+
+  // Sekitori count (broad indicator; count is acceptable here)
   const sekitoriCount = useMemo(() => {
-    if (!playerHeya || !state.world) return 0;
-    return playerHeya.rikishiIds.filter((id) => {
-      const r = state.world!.rikishi.get(id);
-      return r && (r.division === "makuuchi" || r.division === "juryo");
-    }).length;
-  }, [playerHeya, state.world]);
+    if (!playerRikishi) return 0;
+    return playerRikishi.filter((r: any) => r?.division === "makuuchi" || r?.division === "juryo").length;
+  }, [playerRikishi]);
 
-  // Top earners (still computed from data, but displayed narratively)
+  // Top “sponsor draw” wrestlers (computed, displayed narratively)
   const topEarners = useMemo(() => {
-    if (!playerHeya || !state.world) return [];
-    return playerHeya.rikishiIds
-      .map((id) => state.world!.rikishi.get(id))
-      .filter((r) => r && (r as any).economics)
-      .sort(
-        (a, b) =>
-          (((b as any)?.economics?.careerKenshoWon as number) || 0) -
-          (((a as any)?.economics?.careerKenshoWon as number) || 0)
-      )
+    return [...playerRikishi]
+      .filter((r: any) => r && typeof r === "object")
+      .sort((a: any, b: any) => {
+        const av = Number((a as any)?.economics?.careerKenshoWon ?? 0) || 0;
+        const bv = Number((b as any)?.economics?.careerKenshoWon ?? 0) || 0;
+        return bv - av;
+      })
       .slice(0, 5);
-  }, [playerHeya, state.world]);
+  }, [playerRikishi]);
 
   if (!playerHeya) {
-    return <div className="p-6 text-center text-muted-foreground">No stable selected.</div>;
+    return <div className="p-6 text-center text-muted-foreground">No heya selected.</div>;
   }
 
-  const runwayBand = (playerHeya.runwayBand ?? "tight") as RunwayBand;
-  const koenkaiBand = (playerHeya.koenkaiBand ?? "none") as KoenkaiBandType;
+  const runwayBand = safeRunwayBand((playerHeya as any).runwayBand);
+  const koenkaiBand = safeKoenkaiBand((playerHeya as any).koenkaiBand);
 
   const runwayConfig = RUNWAY_CONFIG[runwayBand];
   const koenkaiConfig = KOENKAI_CONFIG[koenkaiBand];
   const RunwayIcon = runwayConfig.icon;
 
-  const hasFinancialRisk = !!(playerHeya as any).riskIndicators?.financial;
+  const hasFinancialRisk = !!(playerHeya as any)?.riskIndicators?.financial;
 
   return (
     <>
@@ -203,7 +227,7 @@ export default function EconomyPage() {
         <div>
           <h1 className="font-display text-3xl font-bold flex items-center gap-3">
             <CircleDollarSign className="h-8 w-8" />
-            Stable Finances
+            Economy
           </h1>
           <p className="text-muted-foreground mt-1">{playerHeya.name} — Financial Overview</p>
         </div>
@@ -231,7 +255,8 @@ export default function EconomyPage() {
                 <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
                   <AlertTriangle className="h-4 w-4 text-red-400" />
                   <span className="text-sm text-red-400">
-                    Financial pressure is rising. Consider cost control, sponsor growth, or safer training loads to reduce injury costs.
+                    Financial pressure is rising. Consider cost control, sponsor growth, or safer training loads to
+                    reduce injury costs.
                   </span>
                 </div>
               )}
@@ -276,15 +301,18 @@ export default function EconomyPage() {
                 <span className="text-muted-foreground">Salaried Wrestlers</span>
                 <span className="font-display text-2xl font-bold">{sekitoriCount}</span>
               </div>
+
               <p className="text-sm text-muted-foreground">
                 {sekitoriCount > 0
-                  ? "Sekitori bring stable income via league salary structures and higher visibility for sponsorship."
-                  : "Without sekitori, finances rely heavily on supporters, careful budgeting, and long-term talent development."}
+                  ? "Sekitori increase stability through rank-linked league structures and visibility that attracts sponsors."
+                  : "Without sekitori, finances depend on supporter growth, careful budgeting, and long-term development."}
               </p>
+
               <Separator />
+
               <div className="text-xs text-muted-foreground space-y-1">
-                <p>• Higher ranks generally improve monthly stability and sponsor interest.</p>
-                <p>• Injuries and absences can disrupt both performance and earnings momentum.</p>
+                <p>• Higher ranks generally improve stability and sponsor interest.</p>
+                <p>• Injuries and absences can quietly disrupt earnings momentum.</p>
               </div>
             </CardContent>
           </Card>
@@ -297,12 +325,12 @@ export default function EconomyPage() {
               <TrendingUp className="h-5 w-5 text-green-400" />
               Income Sources
             </CardTitle>
-            <CardDescription>Where your stable’s money comes from</CardDescription>
+            <CardDescription>Where your heya’s support typically comes from</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {INCOME_SOURCES.map((source, i) => (
-                <div key={i} className="flex items-start gap-3 py-2">
+              {INCOME_SOURCES.map((source) => (
+                <div key={source.name} className="flex items-start gap-3 py-2">
                   <div className="w-2 h-2 rounded-full bg-green-400 mt-2" />
                   <div>
                     <p className="font-medium">{source.name}</p>
@@ -321,12 +349,12 @@ export default function EconomyPage() {
               <TrendingDown className="h-5 w-5 text-red-400" />
               Ongoing Expenses
             </CardTitle>
-            <CardDescription>The recurring costs of running a stable</CardDescription>
+            <CardDescription>The recurring costs of running a heya</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {EXPENSE_CATEGORIES.map((expense, i) => (
-                <div key={i} className="flex items-start gap-3 py-2">
+              {EXPENSE_CATEGORIES.map((expense) => (
+                <div key={expense.name} className="flex items-start gap-3 py-2">
                   <div className="w-2 h-2 rounded-full bg-red-400 mt-2" />
                   <div>
                     <p className="font-medium">{expense.name}</p>
@@ -338,7 +366,7 @@ export default function EconomyPage() {
           </CardContent>
         </Card>
 
-        {/* Top Kensho Earners (Narrative tiers; no raw counts) */}
+        {/* Sponsor Draw (Narrative; no raw kensho counts) */}
         {topEarners.length > 0 && (
           <Card className="paper">
             <CardHeader>
@@ -346,25 +374,29 @@ export default function EconomyPage() {
                 <Award className="h-5 w-5 text-amber-400" />
                 Sponsor Draw
               </CardTitle>
-              <CardDescription>Who in your stable attracts the most banner attention</CardDescription>
+              <CardDescription>Who in your heya attracts the most banner attention</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {topEarners.map((r, i) => {
-                  const total = ((r as any)?.economics?.careerKenshoWon as number) || 0;
+                {topEarners.map((r: any, i: number) => {
+                  const total = Number(r?.economics?.careerKenshoWon ?? 0) || 0;
                   const tier = kenshoTierLabel(total);
+
                   return (
-                    <div key={(r as any)?.id ?? i} className="flex items-center justify-between py-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl font-display font-bold text-muted-foreground">{i + 1}</span>
-                        <div>
-                          <p className="font-medium">
-                            <RikishiName id={(r as any)?.id} name={(r as any)?.shikona} />
+                    <div key={r?.id ?? `${i}`} className="flex items-center justify-between py-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-2xl font-display font-bold text-muted-foreground shrink-0">
+                          {i + 1}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">
+                            <RikishiName id={r?.id} name={r?.shikona ?? "Unknown"} />
                           </p>
                           <p className="text-xs text-muted-foreground">{tier.detail}</p>
                         </div>
                       </div>
-                      <div className="text-right">
+
+                      <div className="text-right shrink-0">
                         <Badge variant="outline">{tier.label}</Badge>
                       </div>
                     </div>
@@ -381,15 +413,14 @@ export default function EconomyPage() {
             <div className="flex items-start gap-3">
               <Info className="h-5 w-5 text-blue-400 mt-0.5" />
               <div className="text-sm text-muted-foreground">
-                <p className="font-medium text-foreground mb-1">About Stable Finances</p>
+                <p className="font-medium text-foreground mb-1">About Economy</p>
                 <p>
-                  Money flows through your stable each basho cycle. Sekitori presence increases stability and visibility, while kōenkai
-                  support provides recurring resilience. Strong performance draws kenshō banners and prizes—while injuries and travel can
-                  quietly raise costs.
+                  Your heya’s finances are shaped by rank presence, supporter strength, and visibility. Strong basho
+                  performance draws prizes and kenshō—while injuries and travel quietly increase costs.
                 </p>
                 <p className="mt-2">
-                  The runway meter summarizes how safe your current trajectory is. Keep it healthy by developing talent, managing risk, and
-                  cultivating supporters and sponsors.
+                  The runway meter summarizes how safe your current trajectory is. Keep it healthy by developing talent,
+                  managing risk, and cultivating supporters and sponsors.
                 </p>
               </div>
             </div>
