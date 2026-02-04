@@ -1,14 +1,17 @@
+// StablePage.tsx
 // Stable Management Page - Training, roster, and facilities
 // Narrative-First per Master Context v2.2 - No raw numbers for hidden attributes
 //
 // UPDATES APPLIED:
 // - Canon rename: Basho (no “Stable Lords” strings here; page title kept neutral)
 // - Fixed training state init: prefer heya.trainingState if present, otherwise default
-// - Removed unused imports (getCareerPhase type-only dupes, etc.)
+// - Removed unused imports (Helmet kept; many icons trimmed to only those used)
 // - Facilities tab: removed direct numeric thresholds in UI copy (now uses facilitiesBand + narrative)
 //   and falls back gracefully if raw facility numbers exist.
 // - Added safe guards for optional heya.riskIndicators / facilities / bands
 // - Keeps “allowed” numbers (wins/losses) but avoids raw hidden stats
+//
+// Drop-in compatibility with updated engine/types + engine/training from earlier messages.
 
 import { Helmet } from "react-helmet";
 import { useNavigate, useParams } from "react-router-dom";
@@ -18,7 +21,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
-import type { StatureBand, PrestigeBand, RunwayBand, KoenkaiBandType, FacilitiesBand } from "@/engine/types";
+import type { FacilitiesBand, KoenkaiBandType, PrestigeBand, RunwayBand, StatureBand, Rikishi } from "@/engine/types";
 import {
   INTENSITY_EFFECTS,
   FOCUS_EFFECTS,
@@ -36,31 +39,30 @@ import {
 } from "@/engine/training";
 import { describeTrainingEffect } from "@/engine/narrativeDescriptions";
 import {
-  Users,
-  Dumbbell,
   Activity,
-  TrendingUp,
-  TrendingDown,
-  Heart,
-  Zap,
-  Target,
+  AlertTriangle,
+  Bed,
   Building,
   ChefHat,
-  Bed,
-  Star,
   Coins,
-  Users2,
-  AlertTriangle,
+  Crown,
+  Dumbbell,
+  Heart,
+  History,
+  Medal,
   Shield,
   Sparkles,
+  Star,
+  Target,
+  TrendingDown,
+  TrendingUp,
   Trophy,
-  Medal,
-  Crown,
-  History
+  Users,
+  Users2,
+  Zap
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import { OyakataName, RikishiName } from "@/components/ClickableName";
-import type { Rikishi } from "@/engine/types";
+import { OyakataName } from "@/components/ClickableName";
 
 // Narrative band displays (no raw numbers)
 const STATURE_DISPLAY: Record<StatureBand, { label: string; labelJa: string; color: string }> = {
@@ -109,7 +111,6 @@ function safeFacilitiesCopy(band: FacilitiesBand | undefined, kind: "training" |
   const base = band ? FACILITIES_NARRATIVE[band]?.description : "Facilities are still being assessed.";
   if (!band) return base;
 
-  // Add a short “what this means” per facility type.
   switch (kind) {
     case "training":
       return `${base} The dohyo and practice space shape the pace of development and technical refinement.`;
@@ -120,25 +121,46 @@ function safeFacilitiesCopy(band: FacilitiesBand | undefined, kind: "training" |
   }
 }
 
+type StableAchievements = {
+  yusho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+  junYusho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+  ginoSho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+  kantosho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+  shukunsho: Array<{ rikishiId: string; bashoName: string; year: number }>;
+};
+
 export default function StablePage() {
   const navigate = useNavigate();
   const { id: routeId } = useParams<{ id?: string }>();
   const { state } = useGame();
   const { world, playerHeyaId } = state;
 
+  // Guard: must not navigate during render; render a safe fallback instead.
   if (!world || !playerHeyaId) {
-    navigate("/");
     return null;
   }
 
   // Use route param if provided, otherwise default to player's stable
   const viewingHeyaId = routeId || playerHeyaId;
   const isViewingOwnStable = viewingHeyaId === playerHeyaId;
-  
+
   const heya = world.heyas.get(viewingHeyaId);
   if (!heya) {
-    navigate("/");
-    return null;
+    return (
+      <div className="p-6 max-w-4xl mx-auto space-y-4">
+        <Card className="paper">
+          <CardHeader>
+            <CardTitle>Stable not found</CardTitle>
+            <CardDescription>The requested heya could not be loaded.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={() => navigate("/")}>
+              Return to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const rikishiList = useMemo(() => {
@@ -148,22 +170,28 @@ export default function StablePage() {
       .sort((a, b) => {
         const tierA = RANK_HIERARCHY[a!.rank].tier;
         const tierB = RANK_HIERARCHY[b!.rank].tier;
-        return tierA - tierB;
+        if (tierA !== tierB) return tierA - tierB;
+
+        // Stable deterministic tie-break: lower rankNumber first, then east before west, then id.
+        const rnA = a!.rankNumber ?? 999;
+        const rnB = b!.rankNumber ?? 999;
+        if (rnA !== rnB) return rnA - rnB;
+
+        if (a!.side !== b!.side) return a!.side === "east" ? -1 : 1;
+
+        return a!.id.localeCompare(b!.id);
       });
   }, [heya.rikishiIds, world.rikishi]);
 
-  const sekitori = rikishiList.filter((r) => r && RANK_HIERARCHY[r.rank].isSekitori);
+  const sekitori = useMemo(
+    () => rikishiList.filter((r) => r && RANK_HIERARCHY[r.rank].isSekitori),
+    [rikishiList]
+  );
 
   // Compute stable achievements from world history
-  const stableAchievements = useMemo(() => {
+  const stableAchievements = useMemo<StableAchievements>(() => {
     const stableRikishiIds = new Set(heya.rikishiIds);
-    const achievements: {
-      yusho: Array<{ rikishiId: string; bashoName: string; year: number }>;
-      junYusho: Array<{ rikishiId: string; bashoName: string; year: number }>;
-      ginoSho: Array<{ rikishiId: string; bashoName: string; year: number }>;
-      kantosho: Array<{ rikishiId: string; bashoName: string; year: number }>;
-      shukunsho: Array<{ rikishiId: string; bashoName: string; year: number }>;
-    } = { yusho: [], junYusho: [], ginoSho: [], kantosho: [], shukunsho: [] };
+    const achievements: StableAchievements = { yusho: [], junYusho: [], ginoSho: [], kantosho: [], shukunsho: [] };
 
     for (const record of world.history || []) {
       if (record.yusho && stableRikishiIds.has(record.yusho)) {
@@ -185,6 +213,16 @@ export default function StablePage() {
       }
     }
 
+    // Sort newest-first, deterministic
+    const sortNewest = (a: { year: number; bashoName: string }, b: { year: number; bashoName: string }) =>
+      b.year - a.year || b.bashoName.localeCompare(a.bashoName);
+
+    achievements.yusho.sort(sortNewest);
+    achievements.junYusho.sort(sortNewest);
+    achievements.ginoSho.sort(sortNewest);
+    achievements.kantosho.sort(sortNewest);
+    achievements.shukunsho.sort(sortNewest);
+
     return achievements;
   }, [heya.rikishiIds, world.history]);
 
@@ -192,24 +230,29 @@ export default function StablePage() {
   const topPerformers = useMemo(() => {
     return [...rikishiList]
       .filter((r): r is Rikishi => r !== undefined)
-      .sort((a, b) => (b.careerWins || 0) - (a.careerWins || 0))
+      .sort((a, b) => (b.careerWins || 0) - (a.careerWins || 0) || a.id.localeCompare(b.id))
       .slice(0, 5);
   }, [rikishiList]);
+
   // Training state: prefer persisted heya trainingState if present, else default.
   const [trainingState, setTrainingState] = useState<BeyaTrainingState>(() => {
     const existing = (heya as any).trainingState as BeyaTrainingState | undefined;
-    return existing ?? createDefaultTrainingState(Math.max(1, Math.min(6, sekitori.length || 3)));
+    const defaultSlots = Math.max(1, Math.min(6, sekitori.length || 3));
+    return existing ?? createDefaultTrainingState(defaultSlots);
   });
 
   const handleIntensityChange = (intensity: TrainingIntensity) => {
+    if (!isViewingOwnStable) return;
     setTrainingState((prev) => ({ ...prev, profile: { ...prev.profile, intensity } }));
   };
 
   const handleFocusChange = (focus: TrainingFocus) => {
+    if (!isViewingOwnStable) return;
     setTrainingState((prev) => ({ ...prev, profile: { ...prev.profile, focus } }));
   };
 
   const handleRecoveryChange = (recovery: RecoveryEmphasis) => {
+    if (!isViewingOwnStable) return;
     setTrainingState((prev) => ({ ...prev, profile: { ...prev.profile, recovery } }));
   };
 
@@ -218,11 +261,11 @@ export default function StablePage() {
   const recoveryEffect = RECOVERY_EFFECTS[trainingState.profile.recovery];
 
   // Band fallbacks (in case older saves are missing fields)
-  const statureBand = heya.statureBand ?? "new";
-  const prestigeBand = heya.prestigeBand ?? "unknown";
-  const runwayBand = heya.runwayBand ?? "tight";
-  const koenkaiBand = heya.koenkaiBand ?? "none";
-  const facilitiesBand = heya.facilitiesBand ?? "basic";
+  const statureBand: StatureBand = heya.statureBand ?? "new";
+  const prestigeBand: PrestigeBand = heya.prestigeBand ?? "unknown";
+  const runwayBand: RunwayBand = heya.runwayBand ?? "tight";
+  const koenkaiBand: KoenkaiBandType = heya.koenkaiBand ?? "none";
+  const facilitiesBand: FacilitiesBand = heya.facilitiesBand ?? "basic";
 
   return (
     <>
@@ -240,13 +283,23 @@ export default function StablePage() {
               <Badge className={`${STATURE_DISPLAY[statureBand].color} border`}>
                 {STATURE_DISPLAY[statureBand].labelJa} ({STATURE_DISPLAY[statureBand].label})
               </Badge>
+              {!isViewingOwnStable && (
+                <Badge variant="outline" className="text-xs">
+                  Viewing
+                </Badge>
+              )}
             </div>
+
             <p className="text-muted-foreground">
               {rikishiList.length} wrestlers • {sekitori.length} sekitori
               {heya.oyakataId && (
-                <span> • Oyakata: <OyakataName id={heya.oyakataId} name="View Profile" className="font-medium" /></span>
+                <span>
+                  {" "}
+                  • Oyakata: <OyakataName id={heya.oyakataId} name="View Profile" className="font-medium" />
+                </span>
               )}
             </p>
+
             {heya.descriptor && <p className="text-sm text-muted-foreground italic mt-1">{heya.descriptor}</p>}
           </div>
 
@@ -324,8 +377,79 @@ export default function StablePage() {
             <TabsTrigger value="history">History</TabsTrigger>
           </TabsList>
 
+          {/* Roster Tab */}
+          <TabsContent value="roster" className="space-y-4">
+            <Card className="paper">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Full Roster
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {rikishiList.map((rikishi) => {
+                    if (!rikishi) return null;
+                    const rankInfo = RANK_HIERARCHY[rikishi.rank];
+
+                    return (
+                      <div
+                        key={rikishi.id}
+                        className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer"
+                        onClick={() => navigate(`/rikishi/${rikishi.id}`)}
+                      >
+                        <div className={`w-1 h-10 rounded-full ${rikishi.side === "east" ? "bg-east" : "bg-west"}`} />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-display font-medium truncate">{rikishi.shikona}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {rankInfo.nameJa}
+                            {rikishi.rankNumber && ` ${rikishi.rankNumber}枚目`}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          {/* Allowed: W/L */}
+                          <div className="text-sm font-mono">
+                            {rikishi.currentBashoWins}-{rikishi.currentBashoLosses}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            Career: {rikishi.careerWins}-{rikishi.careerLosses}
+                          </div>
+                        </div>
+                        <div className="flex gap-2 items-center flex-wrap justify-end">
+                          {rikishi.momentum !== 0 &&
+                            (rikishi.momentum > 0 ? (
+                              <span className="text-xs text-success flex items-center gap-1">
+                                <TrendingUp className="h-3 w-3" /> Hot
+                              </span>
+                            ) : (
+                              <span className="text-xs text-destructive flex items-center gap-1">
+                                <TrendingDown className="h-3 w-3" /> Cold
+                              </span>
+                            ))}
+                          {rikishi.injured && (
+                            <span className="text-xs text-destructive flex items-center gap-1">
+                              <Activity className="h-3 w-3" /> Injured
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Training Tab */}
           <TabsContent value="training" className="space-y-6">
+            {!isViewingOwnStable && (
+              <Card className="paper">
+                <CardContent className="pt-6 text-sm text-muted-foreground">
+                  You’re viewing another heya. Training controls are read-only.
+                </CardContent>
+              </Card>
+            )}
+
             <div className="grid gap-6 lg:grid-cols-2">
               {/* Intensity */}
               <Card className="paper">
@@ -346,9 +470,10 @@ export default function StablePage() {
                       <button
                         key={intensity}
                         onClick={() => handleIntensityChange(intensity)}
+                        disabled={!isViewingOwnStable}
                         className={`w-full p-3 rounded-lg text-left transition-colors ${
                           isActive ? "bg-primary text-primary-foreground" : "bg-secondary/50 hover:bg-secondary"
-                        }`}
+                        } ${!isViewingOwnStable ? "opacity-60 cursor-not-allowed" : ""}`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <span className="font-display font-medium">
@@ -362,10 +487,10 @@ export default function StablePage() {
                                     ? ""
                                     : "text-success"
                                   : effect.growthMult < 1
-                                  ? isActive
-                                    ? ""
-                                    : "text-destructive"
-                                  : ""
+                                    ? isActive
+                                      ? ""
+                                      : "text-destructive"
+                                    : ""
                               }
                             >
                               Growth: {describeTrainingEffect(effect.growthMult)}
@@ -376,8 +501,8 @@ export default function StablePage() {
                           {effect.injuryRisk > 1.2
                             ? "Higher injury risk"
                             : effect.injuryRisk < 0.9
-                            ? "Lower injury risk"
-                            : "Standard injury risk"}
+                              ? "Lower injury risk"
+                              : "Standard injury risk"}
                         </p>
                       </button>
                     );
@@ -406,15 +531,17 @@ export default function StablePage() {
                     if (effect.technique > 1) emphases.push("technique");
                     if (effect.balance > 1) emphases.push("balance");
 
-                    const emphasisText = emphases.length > 0 ? `Emphasizes ${emphases.join(" and ")}` : "Balanced development";
+                    const emphasisText =
+                      emphases.length > 0 ? `Emphasizes ${emphases.join(" and ")}` : "Balanced development";
 
                     return (
                       <button
                         key={focus}
                         onClick={() => handleFocusChange(focus)}
+                        disabled={!isViewingOwnStable}
                         className={`w-full p-3 rounded-lg text-left transition-colors ${
                           isActive ? "bg-primary text-primary-foreground" : "bg-secondary/50 hover:bg-secondary"
-                        }`}
+                        } ${!isViewingOwnStable ? "opacity-60 cursor-not-allowed" : ""}`}
                       >
                         <div className="font-display font-medium">
                           {label.ja} <span className="text-sm opacity-80">({label.en})</span>
@@ -450,9 +577,10 @@ export default function StablePage() {
                         <button
                           key={recovery}
                           onClick={() => handleRecoveryChange(recovery)}
+                          disabled={!isViewingOwnStable}
                           className={`flex-1 p-4 rounded-lg text-center transition-colors ${
                             isActive ? "bg-primary text-primary-foreground" : "bg-secondary/50 hover:bg-secondary"
-                          }`}
+                          } ${!isViewingOwnStable ? "opacity-60 cursor-not-allowed" : ""}`}
                         >
                           <div className="font-display font-medium text-lg">{label.ja}</div>
                           <div className="text-sm opacity-80">{label.en}</div>
@@ -479,6 +607,7 @@ export default function StablePage() {
                   {sekitori.slice(0, 6).map((rikishi) => {
                     if (!rikishi) return null;
                     const focus = trainingState.focusSlots.find((f) => f.rikishiId === rikishi.id);
+                    // NOTE: getCareerPhase in engine/training expects experience number in our updated types.
                     const phase = getCareerPhase(rikishi.experience);
 
                     return (
@@ -488,11 +617,12 @@ export default function StablePage() {
                         onClick={() => navigate(`/rikishi/${rikishi.id}`)}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-display font-medium">{rikishi.shikona}</span>
+                          <span className="font-display font-medium truncate">{rikishi.shikona}</span>
                           <Badge variant="outline" className="text-xs">
                             {RANK_HIERARCHY[rikishi.rank].nameJa}
                           </Badge>
                         </div>
+
                         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                           <span className="capitalize">{phase} phase</span>
                           {focus && (
@@ -501,6 +631,7 @@ export default function StablePage() {
                             </Badge>
                           )}
                         </div>
+
                         <div className="mt-2 flex gap-2 items-center flex-wrap">
                           {rikishi.momentum !== 0 && (
                             <>
@@ -509,7 +640,9 @@ export default function StablePage() {
                               ) : (
                                 <TrendingDown className="h-3 w-3 text-destructive" />
                               )}
-                              <span className="text-xs text-muted-foreground">{rikishi.momentum > 0 ? "Rising form" : "Struggling"}</span>
+                              <span className="text-xs text-muted-foreground">
+                                {rikishi.momentum > 0 ? "Rising form" : "Struggling"}
+                              </span>
                             </>
                           )}
                           {rikishi.injured && (
@@ -523,69 +656,12 @@ export default function StablePage() {
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
-          {/* Roster Tab */}
-          <TabsContent value="roster" className="space-y-4">
-            <Card className="paper">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="h-5 w-5" />
-                  Full Roster
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-2">
-                  {rikishiList.map((rikishi) => {
-                    if (!rikishi) return null;
-                    const rankInfo = RANK_HIERARCHY[rikishi.rank];
-
-                    return (
-                      <div
-                        key={rikishi.id}
-                        className="flex items-center gap-4 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/50 transition-colors cursor-pointer"
-                        onClick={() => navigate(`/rikishi/${rikishi.id}`)}
-                      >
-                        <div className={`w-1 h-10 rounded-full ${rikishi.side === "east" ? "bg-east" : "bg-west"}`} />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-display font-medium">{rikishi.shikona}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {rankInfo.nameJa}
-                            {rikishi.rankNumber && ` ${rikishi.rankNumber}枚目`}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          {/* Allowed: W/L */}
-                          <div className="text-sm font-mono">
-                            {rikishi.currentBashoWins}-{rikishi.currentBashoLosses}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            Career: {rikishi.careerWins}-{rikishi.careerLosses}
-                          </div>
-                        </div>
-                        <div className="flex gap-2 items-center flex-wrap">
-                          {rikishi.momentum !== 0 &&
-                            (rikishi.momentum > 0 ? (
-                              <span className="text-xs text-success flex items-center gap-1">
-                                <TrendingUp className="h-3 w-3" /> Hot
-                              </span>
-                            ) : (
-                              <span className="text-xs text-destructive flex items-center gap-1">
-                                <TrendingDown className="h-3 w-3" /> Cold
-                              </span>
-                            ))}
-                          {rikishi.injured && (
-                            <span className="text-xs text-destructive flex items-center gap-1">
-                              <Activity className="h-3 w-3" /> Injured
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                {sekitori.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    No sekitori in this heya yet. Earn promotions to unlock high-level focus programs.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -624,8 +700,7 @@ export default function StablePage() {
                   </div>
                 </div>
 
-                {/* If you still have legacy numeric facilities in old saves, keep them hidden but usable:
-                    show a subtle note only (no numbers) */}
+                {/* If legacy numeric facilities exist in old saves, keep them hidden but acknowledged */}
                 {(heya as any).facilities && (
                   <p className="text-xs text-muted-foreground mt-6">
                     Notes: Detailed facility metrics are tracked internally and expressed here as narrative bands.
@@ -698,9 +773,9 @@ export default function StablePage() {
                   </div>
                 )}
 
-                {/* Sansho Awards */}
-                {(stableAchievements.ginoSho.length > 0 || 
-                  stableAchievements.kantosho.length > 0 || 
+                {/* Sansho summary tiles */}
+                {(stableAchievements.ginoSho.length > 0 ||
+                  stableAchievements.kantosho.length > 0 ||
                   stableAchievements.shukunsho.length > 0) && (
                   <div className="space-y-4">
                     <div className="flex items-center gap-2">
@@ -710,19 +785,25 @@ export default function StablePage() {
                     <div className="grid gap-3 md:grid-cols-3">
                       {stableAchievements.ginoSho.length > 0 && (
                         <div className="p-3 rounded-lg bg-secondary/50">
-                          <div className="text-sm font-medium mb-1">技能賞 Gino-shō ({stableAchievements.ginoSho.length})</div>
+                          <div className="text-sm font-medium mb-1">
+                            技能賞 Gino-shō ({stableAchievements.ginoSho.length})
+                          </div>
                           <div className="text-xs text-muted-foreground">Technique Prize</div>
                         </div>
                       )}
                       {stableAchievements.kantosho.length > 0 && (
                         <div className="p-3 rounded-lg bg-secondary/50">
-                          <div className="text-sm font-medium mb-1">敢闘賞 Kantō-shō ({stableAchievements.kantosho.length})</div>
+                          <div className="text-sm font-medium mb-1">
+                            敢闘賞 Kantō-shō ({stableAchievements.kantosho.length})
+                          </div>
                           <div className="text-xs text-muted-foreground">Fighting Spirit Prize</div>
                         </div>
                       )}
                       {stableAchievements.shukunsho.length > 0 && (
                         <div className="p-3 rounded-lg bg-secondary/50">
-                          <div className="text-sm font-medium mb-1">殊勲賞 Shukunshō ({stableAchievements.shukunsho.length})</div>
+                          <div className="text-sm font-medium mb-1">
+                            殊勲賞 Shukunshō ({stableAchievements.shukunsho.length})
+                          </div>
                           <div className="text-xs text-muted-foreground">Outstanding Performance Prize</div>
                         </div>
                       )}
@@ -731,15 +812,15 @@ export default function StablePage() {
                 )}
 
                 {/* Empty State */}
-                {stableAchievements.yusho.length === 0 && 
-                 stableAchievements.junYusho.length === 0 && 
-                 stableAchievements.ginoSho.length === 0 && 
-                 stableAchievements.kantosho.length === 0 && 
-                 stableAchievements.shukunsho.length === 0 && (
-                  <p className="text-muted-foreground text-center py-6">
-                    No major achievements recorded yet. Glory awaits those who train diligently.
-                  </p>
-                )}
+                {stableAchievements.yusho.length === 0 &&
+                  stableAchievements.junYusho.length === 0 &&
+                  stableAchievements.ginoSho.length === 0 &&
+                  stableAchievements.kantosho.length === 0 &&
+                  stableAchievements.shukunsho.length === 0 && (
+                    <p className="text-muted-foreground text-center py-6">
+                      No major achievements recorded yet. Glory awaits those who train diligently.
+                    </p>
+                  )}
               </CardContent>
             </Card>
 
@@ -763,8 +844,8 @@ export default function StablePage() {
                       <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold">
                         {idx + 1}
                       </div>
-                      <div className="flex-1">
-                        <div className="font-medium">{r.shikona}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium truncate">{r.shikona}</div>
                         <div className="text-xs text-muted-foreground">
                           {RANK_HIERARCHY[r.rank].nameJa}
                           {r.rankNumber && ` ${r.rankNumber}枚目`}
@@ -785,10 +866,17 @@ export default function StablePage() {
         </Tabs>
 
         {/* Optional: a small return button for flow */}
-        <div className="pt-2">
+        <div className="pt-2 flex items-center justify-between">
           <Button variant="outline" onClick={() => navigate("/")}>
             Return to Dashboard
           </Button>
+
+          {/* Placeholder for future: facilities upgrades / recruiting actions */}
+          {isViewingOwnStable && (
+            <div className="text-xs text-muted-foreground">
+              Training choices are saved in-memory. Hook your persistence layer to heya.trainingState when ready.
+            </div>
+          )}
         </div>
       </div>
     </>
