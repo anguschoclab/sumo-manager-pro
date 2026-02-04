@@ -1,4 +1,5 @@
-// index.ts - Basho Engine Public API
+// index.ts
+// Basho Engine Public API
 // Simple re-export barrel - avoids duplicate export issues by being selective
 
 // Core types - single source of truth
@@ -20,7 +21,7 @@ export {
   getKimariteCount
 } from "./kimarite";
 
-// Leverage - exclude duplicate types  
+// Leverage - exclude duplicate types
 export {
   type LeverageClassProfile,
   LEVERAGE_PROFILES,
@@ -36,7 +37,7 @@ export {
 export * from "./bout";
 export * from "./calendar";
 
-// Banzuke - export selectively to avoid conflicts with injuries.ts
+// Banzuke - export selectively to avoid conflicts with other modules
 export {
   type RankInfo,
   RANK_HIERARCHY,
@@ -127,7 +128,7 @@ export * from "./oyakataPersonalities";
 export * from "./npcAI";
 export * from "./rivalries";
 
-// Injuries - export selectively to avoid PromotionEvent/DemotionEvent conflicts  
+// Injuries - export selectively to avoid PromotionEvent/DemotionEvent conflicts
 export {
   type InjurySeverity,
   type InjuryBodyArea,
