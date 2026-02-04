@@ -6,11 +6,12 @@
 // - Works with updated scouting.ts: getScoutedAttributes(scouted, rikishi, seed)
 // - Uses world.seed for deterministic fog (fallback-safe)
 // - Fixes createScoutedView signature (obsCount + investment + currentWeek)
-// - Removes broken “soft trait” placeholders (temperamentNarrative, etc.) and uses scoutedAttrs instead
+// - Removes broken “soft trait” placeholders and uses scoutedAttrs instead
 // - Ensures rankNames fallback + avoids undefined lookups
 // - Keeps favored kimarite lookup compatible with registry being array OR record
 // - Keeps non-owned narratives fogged without crashing
-// - Added bout history from almanac
+// - Adds bout history from almanac (safe even if world.history missing)
+// - Avoids navigation during render (prevents React warnings)
 
 import seedrandom from "seedrandom";
 import { Helmet } from "react-helmet";
@@ -45,12 +46,26 @@ import {
   describeScoutingLevel,
   type ScoutingInvestment
 } from "@/engine/scouting";
-import { ArrowLeft, Ruler, Scale, Swords, Activity, Flame, Zap, Shield, Target, Search, History, Trophy, Award } from "lucide-react";
+import {
+  Activity,
+  ArrowLeft,
+  Award,
+  Flame,
+  History,
+  Ruler,
+  Scale,
+  Search,
+  Shield,
+  Swords,
+  Target,
+  Trophy,
+  Zap
+} from "lucide-react";
 import { StableName } from "@/components/ClickableName";
 
 function findKimariteById(id: string) {
   const anyReg = KIMARITE_REGISTRY as any;
-  if (Array.isArray(anyReg)) return anyReg.find((k) => k?.id === id) || null;
+  if (Array.isArray(anyReg)) return anyReg.find((k: any) => k?.id === id) || null;
   if (anyReg && typeof anyReg === "object") return anyReg[id] || null;
   return null;
 }
@@ -66,19 +81,36 @@ export default function RikishiPage() {
   const { world, playerHeyaId } = state;
 
   if (!world || !id) {
-    navigate("/");
     return null;
   }
 
   const rikishi = world.rikishi.get(id);
   if (!rikishi) {
-    navigate("/");
-    return null;
+    return (
+      <div className="p-6 max-w-4xl mx-auto space-y-4">
+        <Card className="paper">
+          <CardHeader>
+            <CardTitle>Rikishi not found</CardTitle>
+            <CardDescription>The requested profile could not be loaded.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="outline" onClick={() => navigate("/")}>
+              Return to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const heya = world.heyas.get(rikishi.heyaId);
 
-  const rankNames = RANK_NAMES[rikishi.rank] || { ja: safeStr((RANK_HIERARCHY as any)?.[rikishi.rank]?.nameJa, rikishi.rank), en: rikishi.rank };
+  const rankNames =
+    RANK_NAMES[rikishi.rank] || {
+      ja: safeStr((RANK_HIERARCHY as any)?.[rikishi.rank]?.nameJa, String(rikishi.rank)),
+      en: String(rikishi.rank)
+    };
+
   const careerPhase = getCareerPhase(rikishi.experience);
 
   // Scouting - own stable wrestlers are fully scouted
@@ -103,7 +135,7 @@ export default function RikishiPage() {
   const scoutingInfo = describeScoutingLevel(scouted.scoutingLevel);
 
   // Generate career record for bout history (almanac integration)
-  const rng = seedrandom(seed + "-career-" + rikishi.id);
+  const rng = seedrandom(`${seed}-career-${rikishi.id}`);
   const careerRecord: RikishiCareerRecord = generateCareerRecord(rikishi, world, () => rng());
 
   // Favored kimarite names (safe)
@@ -127,10 +159,16 @@ export default function RikishiPage() {
         { label: "Technique", icon: Target, color: "text-primary", narrative: scoutedAttrs.technique?.narrative || "Technique remains unclear." }
       ];
 
-  const archetypeInfo =
-    ARCHETYPE_NAMES[rikishi.archetype] || { label: String(rikishi.archetype), labelJa: "", description: "" };
-  const styleInfo =
-    STYLE_NAMES[rikishi.style] || { label: String(rikishi.style), labelJa: "", description: "" };
+  const archetypeInfo = ARCHETYPE_NAMES[rikishi.archetype] || {
+    label: String(rikishi.archetype),
+    labelJa: "",
+    description: ""
+  };
+  const styleInfo = STYLE_NAMES[rikishi.style] || {
+    label: String(rikishi.style),
+    labelJa: "",
+    description: ""
+  };
 
   // Fog-of-war for “soft” traits: use scouting-layer narratives when not owned
   const temperamentText = isOwned
@@ -145,6 +183,13 @@ export default function RikishiPage() {
   const conditioningText = isOwned
     ? describeStaminaVerbose(rikishi.stamina)
     : "Conditioning is hard to assess without sustained observation.";
+
+  // Safe physical fields (don’t crash if some are missing in older saves)
+  const heightText =
+    typeof (rikishi as any).height === "number" && isFinite((rikishi as any).height) ? `${(rikishi as any).height}cm` : "—";
+  const weightText =
+    typeof (rikishi as any).weight === "number" && isFinite((rikishi as any).weight) ? `${(rikishi as any).weight}kg` : "—";
+  const nationalityText = safeStr((rikishi as any).nationality, "—");
 
   return (
     <>
@@ -161,8 +206,8 @@ export default function RikishiPage() {
         {/* Header */}
         <div className="flex items-start gap-6">
           <div className={`w-2 h-24 rounded-full ${rikishi.side === "east" ? "bg-east" : "bg-west"}`} />
-          <div className="flex-1">
-            <h1 className="font-display text-4xl font-bold">{rikishi.shikona}</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-display text-4xl font-bold truncate">{rikishi.shikona}</h1>
             <div className="flex items-center gap-3 mt-2 flex-wrap">
               <Badge className={`rank-${rikishi.rank}`}>
                 {rankNames.ja}
@@ -173,19 +218,24 @@ export default function RikishiPage() {
                 {rikishi.rankNumber ? ` ${rikishi.rankNumber}` : ""}
               </span>
               <span className="text-muted-foreground">{rikishi.side === "east" ? "東 East" : "西 West"}</span>
-              {heya && <span className="text-muted-foreground">• <StableName id={heya.id} name={heya.name} /></span>}
+              {heya && (
+                <span className="text-muted-foreground">
+                  • <StableName id={heya.id} name={heya.name} />
+                </span>
+              )}
+              {!heya && <span className="text-muted-foreground">• Unknown heya</span>}
             </div>
 
             <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">
               <span className="flex items-center gap-1">
                 <Ruler className="h-4 w-4" />
-                {rikishi.height}cm
+                {heightText}
               </span>
               <span className="flex items-center gap-1">
                 <Scale className="h-4 w-4" />
-                {rikishi.weight}kg
+                {weightText}
               </span>
-              <span>{rikishi.nationality}</span>
+              <span>{nationalityText}</span>
             </div>
           </div>
 
@@ -304,9 +354,9 @@ export default function RikishiPage() {
               <div className="space-y-3">
                 {favoredMoves.map((move) => (
                   <div key={move.id} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-                    <div>
-                      <div className="font-display font-medium">{move.name}</div>
-                      <div className="text-sm text-muted-foreground">{move.nameJa}</div>
+                    <div className="min-w-0">
+                      <div className="font-display font-medium truncate">{move.name}</div>
+                      <div className="text-sm text-muted-foreground truncate">{move.nameJa}</div>
                     </div>
                     {"rarity" in (move as any) ? (
                       <Badge variant="outline" className="capitalize">
@@ -344,9 +394,7 @@ export default function RikishiPage() {
                     <Activity className="h-4 w-4" />
                     <span className="font-medium">Injured</span>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {describeInjuryVerbose(rikishi.injuryWeeksRemaining)}
-                  </p>
+                  <p className="text-sm text-muted-foreground mt-1">{describeInjuryVerbose(rikishi.injuryWeeksRemaining)}</p>
                 </div>
               )}
 
@@ -367,14 +415,18 @@ export default function RikishiPage() {
                 Basho History
               </CardTitle>
               <CardDescription>
-                {careerRecord.yushoCount > 0 && (
-                  <span className="flex items-center gap-1 text-gold">
-                    <Trophy className="h-3 w-3" />
-                    {careerRecord.yushoCount} Yūshō
-                  </span>
-                )}
+                <span className="inline-flex items-center gap-3 flex-wrap">
+                  {careerRecord.yushoCount > 0 && (
+                    <span className="flex items-center gap-1 text-gold">
+                      <Trophy className="h-3 w-3" />
+                      {careerRecord.yushoCount} Yūshō
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground">Generated from Almanac</span>
+                </span>
               </CardDescription>
             </CardHeader>
+
             <CardContent>
               {/* Career Achievements Summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -397,8 +449,8 @@ export default function RikishiPage() {
               </div>
 
               {/* Sansho Awards */}
-              {(careerRecord.sanshoCounts.ginoSho > 0 || 
-                careerRecord.sanshoCounts.kantosho > 0 || 
+              {(careerRecord.sanshoCounts.ginoSho > 0 ||
+                careerRecord.sanshoCounts.kantosho > 0 ||
                 careerRecord.sanshoCounts.shukunsho > 0) && (
                 <div className="flex flex-wrap gap-2 mb-4">
                   {careerRecord.sanshoCounts.ginoSho > 0 && (
@@ -426,38 +478,48 @@ export default function RikishiPage() {
               <div className="text-sm font-medium mb-2">Recent Tournaments</div>
               <ScrollArea className="h-[200px]">
                 <div className="space-y-2 pr-2">
-                  {careerRecord.bashoHistory.slice(-12).reverse().map((basho: BashoPerformance, idx: number) => (
-                    <div 
-                      key={`${basho.year}-${basho.bashoNumber}`}
-                      className="flex items-center justify-between p-2 rounded-lg bg-secondary/30"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="text-xs text-muted-foreground w-20">
-                          {basho.bashoName.charAt(0).toUpperCase() + basho.bashoName.slice(1)} {basho.year}
-                        </div>
-                        <Badge variant="outline" className="text-xs capitalize">
-                          {basho.rank}{basho.rankNumber ? ` ${basho.rankNumber}` : ""}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`font-mono text-sm ${
-                          basho.wins > basho.losses ? "text-success" : 
-                          basho.wins < basho.losses ? "text-destructive" : ""
-                        }`}>
-                          {basho.wins}-{basho.losses}
-                        </span>
-                        {basho.yusho && (
-                          <Badge className="bg-gold/20 text-gold border-gold/30 text-xs">
-                            <Trophy className="h-3 w-3 mr-1" />
-                            Yūshō
+                  {careerRecord.bashoHistory
+                    .slice(-12)
+                    .reverse()
+                    .map((basho: BashoPerformance) => (
+                      <div
+                        key={`${basho.year}-${basho.bashoNumber}-${basho.rank}-${basho.rankNumber ?? "x"}`}
+                        className="flex items-center justify-between p-2 rounded-lg bg-secondary/30"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="text-xs text-muted-foreground w-24 shrink-0">
+                            {basho.bashoName.charAt(0).toUpperCase() + basho.bashoName.slice(1)} {basho.year}
+                          </div>
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {basho.rank}
+                            {basho.rankNumber ? ` ${basho.rankNumber}` : ""}
                           </Badge>
-                        )}
-                        {basho.junYusho && (
-                          <Badge variant="secondary" className="text-xs">Jun</Badge>
-                        )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`font-mono text-sm ${
+                              basho.wins > basho.losses
+                                ? "text-success"
+                                : basho.wins < basho.losses
+                                  ? "text-destructive"
+                                  : ""
+                            }`}
+                          >
+                            {basho.wins}-{basho.losses}
+                          </span>
+
+                          {basho.yusho && (
+                            <Badge className="bg-gold/20 text-gold border-gold/30 text-xs">
+                              <Trophy className="h-3 w-3 mr-1" />
+                              Yūshō
+                            </Badge>
+                          )}
+                          {basho.junYusho && <Badge variant="secondary" className="text-xs">Jun</Badge>}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+
                   {careerRecord.bashoHistory.length === 0 && (
                     <p className="text-sm text-muted-foreground">No tournament history available yet.</p>
                   )}
