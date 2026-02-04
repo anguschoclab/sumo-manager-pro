@@ -1,11 +1,8 @@
 // world.ts
 // World Orchestrator — single entrypoint for mutating WorldState safely & consistently
 //
-// UPDATES Phase 4:
-// - Implemented `publishBanzukeUpdate` to bridge Basho -> Interim
-// - Updated `endBasho` to transition to `post_basho`
-// - Updated `startBasho` to require `interim` phase
-// - Updated `advanceInterim` to increment global weeks
+// UPDATES Phase 5:
+// - Wired `npcAI.tickWeek` to `advanceInterim`
 
 import type { WorldState, BashoName, BoutResult, Id, MatchSchedule, BashoPerformance, BanzukeEntry, CyclePhase } from "./types";
 import { initializeBasho } from "./worldgen";
@@ -18,10 +15,11 @@ import * as injuries from "./injuries";
 import * as rivalries from "./rivalries";
 import * as economics from "./economics";
 import * as governance from "./governance";
+import * as npcAI from "./npcAI"; // IMPORT AI ENGINE
 import * as scoutingStore from "./scoutingStore";
 import * as historyIndex from "./historyIndex";
 import * as training from "./training"; 
-import { determineSpecialPrizes, updateBanzuke } from "./banzuke"; // Import ranking engine
+import { determineSpecialPrizes, updateBanzuke } from "./banzuke"; 
 
 /** A match in the current basho schedule (shape inferred from your GameContext usage). */
 export interface BashoMatch {
@@ -272,26 +270,21 @@ export function endBasho(world: WorldState): WorldState {
   safeCall(() => (events as any).emit?.(world, { type: "BASHO_ENDED", bashoName: basho.bashoName, yusho }));
 
   // DO NOT ADVANCE TIME YET
-  // We stay in "post_basho" so player can see awards.
   world.cyclePhase = "post_basho";
 
   return world;
 }
 
-/** * Publishes the new Banzuke (Rankings) based on last basho results.
- * Moves phase from 'post_basho' to 'interim'.
- */
+/** Publishes Banzuke & Transitions phase */
 export function publishBanzukeUpdate(world: WorldState): WorldState {
   if (world.cyclePhase !== "post_basho") return world;
 
   const lastBasho = getCurrentBasho(world);
-  if (!lastBasho) return world; // Should not happen
+  if (!lastBasho) return world;
 
   // 1. Prepare Inputs for Banzuke Engine
   const currentBanzukeList: BanzukeEntry[] = [];
   
-  // Reconstruct current banzuke list from rikishi data
-  // We use the `world.rikishi` which holds CURRENT rank
   for (const r of world.rikishi.values()) {
     currentBanzukeList.push({
       rikishiId: r.id,
@@ -302,12 +295,10 @@ export function publishBanzukeUpdate(world: WorldState): WorldState {
 
   const performanceList: BashoPerformance[] = [];
   for (const [id, stats] of lastBasho.standings.entries()) {
-    // Determine if Yusho/JunYusho (Simplified lookup from history)
     const history = world.history[world.history.length - 1];
     const isYusho = history.yusho === id;
     const isJunYusho = history.junYusho.includes(id);
 
-    // Calc special prize bonus points
     let prizePoints = 0;
     if (history.ginoSho === id) prizePoints += 1;
     if (history.shukunsho === id) prizePoints += 1;
@@ -317,7 +308,7 @@ export function publishBanzukeUpdate(world: WorldState): WorldState {
       rikishiId: id,
       wins: stats.wins,
       losses: stats.losses,
-      absences: 0, // Need to track this in future
+      absences: 0, 
       yusho: isYusho,
       junYusho: isJunYusho,
       specialPrizes: prizePoints
@@ -325,9 +316,9 @@ export function publishBanzukeUpdate(world: WorldState): WorldState {
   }
 
   // 2. Run Engine
-  const result = updateBanzuke(currentBanzukeList, performanceList, {}); // TODO: Pass Ozeki Kadoban state
+  const result = updateBanzuke(currentBanzukeList, performanceList, {}); 
 
-  // 3. Apply Results to World
+  // 3. Apply Results
   for (const newEntry of result.newBanzuke) {
     const rikishi = world.rikishi.get(newEntry.rikishiId);
     if (rikishi) {
@@ -336,17 +327,12 @@ export function publishBanzukeUpdate(world: WorldState): WorldState {
       rikishi.rankNumber = newEntry.position.rankNumber;
       rikishi.side = newEntry.position.side;
       
-      // Reset Basho stats for next time
       rikishi.currentBashoWins = 0;
       rikishi.currentBashoLosses = 0;
     }
   }
 
-  // 4. Update Current Banzuke Snapshot
-  // (In full version, convert flat list to nested BanzukeSnapshot)
-  // For V1, we rely on rikishi objects being updated.
-
-  // 5. Clean up & Transition
+  // 4. Transition
   const next = getNextBasho(lastBasho.bashoName);
   const nextYear = next === "hatsu" ? world.year + 1 : world.year;
 
@@ -365,31 +351,34 @@ export function advanceInterim(world: WorldState, weeks: number = 1): WorldState
   const w = Math.max(1, Math.trunc(weeks));
 
   for (let i = 0; i < w; i++) {
-    world.week += 1; // Increment global week counter
+    world.week += 1; 
 
     // === EXECUTE SUBSYSTEM TICKS ===
-    // 1. Injuries
-    safeCall(() => (injuries as any).tickWeek?.(world));
     
-    // 2. Training
+    // 1. NPC AI (Decide first) - NEW
+    safeCall(() => (npcAI as any).tickWeek?.(world));
+
+    // 2. Training (Execute based on AI/Player decisions)
     safeCall(() => (training as any).tickWeek?.(world));
 
-    // 3. Rivalries
-    safeCall(() => (rivalries as any).tickWeek?.(world));
-
-    // 4. Governance
-    safeCall(() => (governance as any).tickWeek?.(world));
-
-    // 5. Economics
+    // 3. Economics
     safeCall(() => (economics as any).tickWeek?.(world));
 
-    // 6. Events
+    // 4. Injuries
+    safeCall(() => (injuries as any).tickWeek?.(world));
+    
+    // 5. Governance
+    safeCall(() => (governance as any).tickWeek?.(world));
+
+    // 6. Rivalries
+    safeCall(() => (rivalries as any).tickWeek?.(world));
+
+    // 7. Events
     safeCall(() => (events as any).tickWeek?.(world));
 
-    // 7. Scouting
+    // 8. Scouting
     safeCall(() => (scoutingStore as any).tickWeek?.(world));
 
-    // 8. General Time Boundary
     safeCall(() => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const tb = require("./timeBoundary");
