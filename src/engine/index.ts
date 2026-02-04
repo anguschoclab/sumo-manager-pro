@@ -45,14 +45,15 @@ export {
   getRankTitleJa,
   isKachiKoshi,
   isMakeKoshi,
-  type OzekiStatus,
+  kachiKoshiThreshold,
+  type OzekiKadobanState,
+  type OzekiKadobanMap,
   getOzekiStatus,
-  type SekitoriPerformance,
   type BanzukeEntry,
-  type PromotionEvent,
-  type DemotionEvent,
-  type SekitoriBanzukeUpdateResult,
-  updateSekitoriBanzukeDeterministic
+  type BashoPerformance,
+  type MovementEvent,
+  type BanzukeUpdateResult,
+  updateBanzuke
 } from "./banzuke";
 
 export * from "./economics";

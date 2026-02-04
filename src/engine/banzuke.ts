@@ -529,14 +529,13 @@ function buildMakuuchiTemplate(
   const slots: Array<{ division: Division; position: RankPosition }> = [];
 
   // Named ranks can exceed 2; when they do, we use rankNumber to keep ordering deterministic.
-  const pushNamed = (rank: Rank, count: number) => {
-    let n = 1;
+  // For unnumbered ranks (yokozuna, ozeki, sekiwake, komusubi), we don't use rankNumber
+  const pushNamed = (rank: "yokozuna" | "ozeki" | "sekiwake" | "komusubi", count: number) => {
     let side: "east" | "west" = "east";
     for (let i = 0; i < count; i++) {
-      const rankNumber = count > 2 ? n : undefined;
-      slots.push({ division: "makuuchi", position: { rank, side, rankNumber } });
-
-      if (side === "west") n++;
+      // Per types.ts: UnnumberedRank position has no rankNumber
+      const position: RankPosition = { rank, side };
+      slots.push({ division: "makuuchi", position });
       side = side === "east" ? "west" : "east";
     }
   };
@@ -562,13 +561,14 @@ function buildMakuuchiTemplate(
 
 function buildNumberedDivisionTemplate(
   division: Division,
-  rank: Rank,
+  rank: "maegashira" | "juryo" | "makushita" | "sandanme" | "jonidan" | "jonokuchi",
   totalSlots: number
 ): Array<{ division: Division; position: RankPosition }> {
   const slots: Array<{ division: Division; position: RankPosition }> = [];
   const pairs = Math.floor(totalSlots / 2);
 
   for (let n = 1; n <= pairs; n++) {
+    // Numbered ranks require rankNumber - the rank parameter is already a NumberedRank type
     slots.push({ division, position: { rank, side: "east", rankNumber: n } });
     slots.push({ division, position: { rank, side: "west", rankNumber: n } });
   }
