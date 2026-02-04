@@ -1,10 +1,12 @@
 // world.ts
 // World Orchestrator — single entrypoint for mutating WorldState safely & consistently
 //
-// UPDATES:
-// - Added `training.tickWeek(world)` to `advanceInterim` to enable rikishi evolution.
+// UPDATES Phase 2:
+// - Implemented Deterministic Playoffs for Yusho ties in `endBasho`
+// - Integrated `determineSpecialPrizes` from `banzuke.ts`
+// - Retains Phase 1 `training.tickWeek` in `advanceInterim`
 
-import type { WorldState, BashoName, BoutResult, Id } from "./types";
+import type { WorldState, BashoName, BoutResult, Id, MatchSchedule } from "./types";
 import { initializeBasho } from "./worldgen";
 import { getNextBasho } from "./calendar";
 import { simulateBout as simulateBoutEngine } from "./bout";
@@ -16,7 +18,8 @@ import * as rivalries from "./rivalries";
 import * as economics from "./economics";
 import * as scoutingStore from "./scoutingStore";
 import * as historyIndex from "./historyIndex";
-import * as training from "./training"; // IMPORTED TRAINING ENGINE
+import * as training from "./training"; // From Phase 1
+import { determineSpecialPrizes } from "./banzuke"; // IMPORT AWARDS LOGIC Phase 2
 
 /** A match in the current basho schedule (shape inferred from your GameContext usage). */
 export interface BashoMatch {
@@ -179,9 +182,72 @@ export function endBasho(world: WorldState): WorldState {
     .map(([id, rec]) => ({ id, wins: rec.wins, losses: rec.losses }))
     .sort((a, b) => b.wins - a.wins || a.losses - b.losses);
 
-  const yusho = table[0]?.id || "";
-  const runnerWins = table[1]?.wins ?? null;
-  const junYusho = runnerWins == null ? [] : table.filter((t) => t.wins === runnerWins).map((t) => t.id);
+  if (table.length === 0) return world;
+
+  const bestWins = table[0].wins;
+  const topCandidates = table.filter(t => t.wins === bestWins).map(t => t.id);
+  
+  // === PLAYOFF RESOLUTION (Phase 2) ===
+  let yusho = topCandidates[0];
+  let playoffMatches: MatchSchedule[] = [];
+  
+  if (topCandidates.length > 1) {
+    // Determine winner via single elimination bracket
+    // Simple iterative pairing for V1 (randomized seed order)
+    let roundCandidates = [...topCandidates].sort((a, b) => a.localeCompare(b)); // Deterministic sort
+    
+    let boutIdx = 100; // Offset for playoff seeds
+    while (roundCandidates.length > 1) {
+      const winners: Id[] = [];
+      for (let i = 0; i < roundCandidates.length; i += 2) {
+        if (i + 1 >= roundCandidates.length) {
+          winners.push(roundCandidates[i]); // Bye
+          continue;
+        }
+        
+        const eastId = roundCandidates[i];
+        const westId = roundCandidates[i + 1];
+        const seed = getBoutSeed(world, basho.bashoName, 16, boutIdx++);
+        
+        const east = world.rikishi.get(eastId);
+        const west = world.rikishi.get(westId);
+        
+        if (east && west) {
+          const res = simulateBoutEngine(east as any, west as any, seed);
+          winners.push(res.winner === "east" ? eastId : westId);
+          
+          playoffMatches.push({
+             day: 16, // Virtual day
+             eastRikishiId: eastId,
+             westRikishiId: westId,
+             result: res
+          });
+        } else {
+            // Fallback (shouldn't happen)
+            winners.push(eastId);
+        }
+      }
+      roundCandidates = winners;
+    }
+    yusho = roundCandidates[0];
+  }
+
+  // === JUN-YUSHO ===
+  // Either those who lost in playoff, or those with (bestWins - 1) if no playoff?
+  // Standard: Jun-Yusho is runner up.
+  // If playoff: All playoff losers are technically Jun-Yusho candidates (or just finalist?)
+  // Simplified: Everyone with `bestWins` who isn't Yusho + everyone with `bestWins - 1`.
+  const runnerWins = bestWins - 1;
+  const junYusho = table
+    .filter(t => (t.wins === bestWins && t.id !== yusho) || t.wins === runnerWins)
+    .map(t => t.id);
+
+  // === SPECIAL PRIZES (Phase 2) ===
+  const awards = determineSpecialPrizes(
+    basho.matches, // Pass regular matches for analysis
+    world.rikishi as Map<string, any>,
+    yusho
+  );
 
   const bashoResult = {
     year: basho.year,
@@ -189,6 +255,10 @@ export function endBasho(world: WorldState): WorldState {
     bashoName: basho.bashoName,
     yusho,
     junYusho,
+    ginoSho: awards.ginoSho,
+    kantosho: awards.kantosho,
+    shukunsho: awards.shukunsho,
+    playoffMatches: playoffMatches.length > 0 ? playoffMatches : undefined,
     prizes: {
       yushoAmount: 10_000_000,
       junYushoAmount: 2_000_000,
@@ -222,7 +292,7 @@ export function advanceInterim(world: WorldState, weeks: number = 1): WorldState
     // 1. Injuries (Healing / Worsening)
     safeCall(() => (injuries as any).tickWeek?.(world));
     
-    // 2. Training (Evolution / Fatigue) - NOW ENABLED
+    // 2. Training (Evolution / Fatigue) - From Phase 1
     safeCall(() => (training as any).tickWeek?.(world));
 
     // 3. Rivalries (Development / Decay)
