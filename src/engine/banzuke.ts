@@ -1,8 +1,8 @@
 // banzuke.ts
 // Banzuke (Ranking) System — Canon-aligned, deterministic, FULL SYSTEM
 //
-// UPDATES:
-// - Added `determineSpecialPrizes` logic (Shukun-sho, Kanto-sho, Gino-sho)
+// UPDATES Phase 2:
+// - Added `determineSpecialPrizes` logic (Shukun-sho, Kanto-sho, Gino-sho) based on Canon V1.1
 
 import type { Rank, Division, RankPosition, Rikishi, BoutResult, BashoMatch } from "./types";
 import { KIMARITE_REGISTRY } from "./kimarite";
@@ -240,7 +240,7 @@ export interface BanzukeUpdateResult {
   };
 }
 
-// === AWARDS LOGIC ===
+// === AWARDS LOGIC (Phase 2) ===
 
 export interface SpecialPrizesResult {
   ginoSho?: string;
