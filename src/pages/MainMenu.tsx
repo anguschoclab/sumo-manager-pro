@@ -11,12 +11,13 @@
 // - Safer reroll seed + seed display (no substring crash)
 // - Stronger type alignment: selectionMode uses StableSelectionMode from engine types when available
 //
-// ADDITIONAL HARDENING:
-// - Never calls hooks inside handlers (removed illegal useGame() call in import handler)
-// - Uses optional loadWorldDirect / loadImportedWorld / setWorld style APIs if present
-// - If none exist, falls back to createWorld(imported.seed, imported.playerHeyaId) and warns via console
-// - Avoids double-worldgen loops by syncing local seed state with world seed
+// ADDITIONAL HARDENING / REFACTOR:
+// - Never calls hooks inside handlers
+// - Discovers optional direct world hydrate APIs safely (loadWorldDirect/loadImportedWorld/setWorld/hydrateWorld)
+// - Avoids double-worldgen loops by syncing local seed state with loaded world seed
 // - Guards optional heya.riskIndicators and heya.rikishiIds
+// - Adds heya preview dialog with roster + stats; selecting a heya uses a single confirm path
+// - Removes fragile use of RANK_HIERARCHY.order (uses tier when available)
 
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Helmet } from "react-helmet";
@@ -61,7 +62,6 @@ import { BASHO_CALENDAR } from "@/engine/calendar";
 import { deleteSave, importSave, type SaveSlotInfo } from "@/engine/saveload";
 import { RANK_HIERARCHY } from "@/engine/banzuke";
 
-// Stature display configuration
 const STATURE_CONFIG: Record<
   StatureBand,
   {
@@ -122,11 +122,12 @@ interface StableCardProps {
   heya: Heya;
   isSelected: boolean;
   onSelect: () => void;
+  onPreview?: () => void;
   isRecommended?: boolean;
   sekitoriCount: number;
 }
 
-function StableCard({ heya, isSelected, onSelect, isRecommended, sekitoriCount }: StableCardProps) {
+function StableCard({ heya, isSelected, onSelect, onPreview, isRecommended, sekitoriCount }: StableCardProps) {
   const config = STATURE_CONFIG[heya.statureBand];
   const Icon = config.icon;
 
@@ -140,21 +141,27 @@ function StableCard({ heya, isSelected, onSelect, isRecommended, sekitoriCount }
         isSelected ? "border-primary ring-2 ring-primary/30" : ""
       }`}
       onClick={onSelect}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onPreview?.();
+      }}
+      title="Click to select • Double-click to preview roster"
     >
       <CardHeader className="pb-2">
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
             <CardTitle className="text-lg flex items-center gap-2">
-              {heya.name}
+              <span className="truncate">{heya.name}</span>
               {isRecommended && (
                 <Badge variant="secondary" className="text-xs">
                   Recommended
                 </Badge>
               )}
             </CardTitle>
-            {heya.nameJa && <p className="text-sm text-muted-foreground font-display">{heya.nameJa}</p>}
+            {heya.nameJa && <p className="text-sm text-muted-foreground font-display truncate">{heya.nameJa}</p>}
           </div>
-          <Badge className={`${config.color} border`}>
+          <Badge className={`${config.color} border shrink-0`}>
             <Icon className="w-3 h-3 mr-1" />
             {config.label}
           </Badge>
@@ -174,7 +181,6 @@ function StableCard({ heya, isSelected, onSelect, isRecommended, sekitoriCount }
           </span>
         </div>
 
-        {/* Risk indicators */}
         {(financial || governance || rivalry) && (
           <div className="flex gap-1 pt-1 flex-wrap">
             {financial && (
@@ -194,6 +200,22 @@ function StableCard({ heya, isSelected, onSelect, isRecommended, sekitoriCount }
             )}
           </div>
         )}
+
+        {onPreview && (
+          <div className="pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreview();
+              }}
+            >
+              Preview roster
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -209,19 +231,25 @@ function makeDeterministicSeed(prefix = "world"): string {
   return `${prefix}-${Date.now()}`;
 }
 
+function safeRankSortKey(rank: any): number {
+  // Prefer tier from your rank hierarchy (lower tier => higher rank)
+  const tier = (RANK_HIERARCHY as any)?.[rank]?.tier;
+  return Number.isFinite(tier) ? tier : 999;
+}
+
 export default function MainMenu() {
   const navigate = useNavigate();
 
   // Pull everything we might need ONCE (no hooks inside handlers)
-  const game = useGame();
-  const { createWorld, state, loadFromSlot, loadFromAutosave, hasAutosave, getSaveSlots } = game as any;
+  const game = useGame() as any;
+  const { createWorld, state, loadFromSlot, loadFromAutosave, hasAutosave, getSaveSlots } = game;
 
   // Optional direct-load APIs (best effort, no assumptions)
   const loadWorldDirect =
-    (game as any).loadWorldDirect ||
-    (game as any).loadImportedWorld ||
-    (game as any).setWorld ||
-    (game as any).hydrateWorld ||
+    game?.loadWorldDirect ||
+    game?.loadImportedWorld ||
+    game?.setWorld ||
+    game?.hydrateWorld ||
     null;
 
   const [seed, setSeed] = useState("");
@@ -229,14 +257,18 @@ export default function MainMenu() {
   const [selectionMode, setSelectionMode] = useState<StableSelectionMode>("recommended");
   const [newStableName, setNewStableName] = useState("");
   const [selectedHeyaId, setSelectedHeyaId] = useState<string | null>(null);
+
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [saveSlots, setSaveSlots] = useState<SaveSlotInfo[]>([]);
   const [isImporting, setIsImporting] = useState(false);
 
-  // Check for existing saves on mount
+  const [previewHeya, setPreviewHeya] = useState<Heya | null>(null);
+
+  // Read save slots (safe)
   useEffect(() => {
     try {
-      setSaveSlots(getSaveSlots());
+      if (typeof getSaveSlots === "function") setSaveSlots(getSaveSlots());
+      else setSaveSlots([]);
     } catch {
       setSaveSlots([]);
     }
@@ -244,7 +276,7 @@ export default function MainMenu() {
 
   const canContinue = (typeof hasAutosave === "function" && hasAutosave()) || saveSlots.length > 0;
 
-  // Auto-generate world on mount if none exists
+  // Ensure a world exists on first mount, but avoid regeneration loops.
   useEffect(() => {
     if (!state?.world) {
       const worldSeed = makeDeterministicSeed("world");
@@ -252,21 +284,17 @@ export default function MainMenu() {
       if (typeof createWorld === "function") createWorld(worldSeed);
       return;
     }
-    // Sync seed UI to the currently loaded world (avoids confusing mismatch after load/import)
-    if (state.world?.seed && !seed) setSeed(state.world.seed);
+    // Sync local seed display to active world seed (once available)
+    if (state.world?.seed && seed !== state.world.seed) setSeed(state.world.seed);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [state?.world]);
 
-  // State for heya preview dialog
-  const [previewHeya, setPreviewHeya] = useState<Heya | null>(null);
-
-  // Get stables from world state - properly typed
   const stables = useMemo((): Heya[] => {
     if (!state?.world) return [];
     return Array.from(state.world.heyas.values()) as Heya[];
   }, [state?.world]);
 
-  // Map heyaId -> sekitoriCount (computed from current world roster)
+  // Heya -> sekitori count
   const sekitoriCounts = useMemo(() => {
     const map = new Map<string, number>();
     if (!state?.world) return map;
@@ -282,26 +310,11 @@ export default function MainMenu() {
     return map;
   }, [state?.world]);
 
-  // Get roster for a heya
-  const getHeyaRoster = useCallback((heya: Heya) => {
-    if (!state?.world) return [];
-    return (heya.rikishiIds ?? [])
-      .map((id: string) => state.world.rikishi.get(id))
-      .filter(Boolean)
-      .sort((a: any, b: any) => {
-        const rankA = (RANK_HIERARCHY as any)?.[a.rank]?.order ?? 999;
-        const rankB = (RANK_HIERARCHY as any)?.[b.rank]?.order ?? 999;
-        if (rankA !== rankB) return rankA - rankB;
-        return (a.rankNumber ?? 0) - (b.rankNumber ?? 0);
-      });
-  }, [state?.world]);
-
-  // Recommended stables: prefer established/powerful; sort by sekitori count then funds then name
   const recommendedStables = useMemo((): Heya[] => {
     return stables
-      .filter((h: Heya) => h.statureBand === "established" || h.statureBand === "powerful")
+      .filter((h) => h.statureBand === "established" || h.statureBand === "powerful")
       .slice()
-      .sort((a: Heya, b: Heya) => {
+      .sort((a, b) => {
         const sa = sekitoriCounts.get(a.id) ?? 0;
         const sb = sekitoriCounts.get(b.id) ?? 0;
         if (sb !== sa) return sb - sa;
@@ -315,7 +328,6 @@ export default function MainMenu() {
       .slice(0, 6);
   }, [stables, sekitoriCounts]);
 
-  // Group stables by stature for browsing
   const stablesByStature = useMemo(() => {
     const groups: Record<StatureBand, Heya[]> = {
       legendary: [],
@@ -325,14 +337,38 @@ export default function MainMenu() {
       fragile: [],
       new: []
     };
-    stables.forEach((h: Heya) => {
-      groups[h.statureBand]?.push(h);
-    });
+    stables.forEach((h) => groups[h.statureBand]?.push(h));
     (Object.keys(groups) as StatureBand[]).forEach((k) => {
-      groups[k].sort((a: Heya, b: Heya) => (sekitoriCounts.get(b.id) ?? 0) - (sekitoriCounts.get(a.id) ?? 0));
+      groups[k].sort((a, b) => (sekitoriCounts.get(b.id) ?? 0) - (sekitoriCounts.get(a.id) ?? 0));
     });
     return groups;
   }, [stables, sekitoriCounts]);
+
+  const getHeyaRoster = useCallback(
+    (heya: Heya) => {
+      if (!state?.world) return [];
+      const roster = (heya.rikishiIds ?? [])
+        .map((id: string) => state.world.rikishi.get(id))
+        .filter(Boolean) as any[];
+
+      roster.sort((a, b) => {
+        const ta = safeRankSortKey(a.rank);
+        const tb = safeRankSortKey(b.rank);
+        if (ta !== tb) return ta - tb;
+
+        const an = typeof a.rankNumber === "number" ? a.rankNumber : 0;
+        const bn = typeof b.rankNumber === "number" ? b.rankNumber : 0;
+        if (an !== bn) return an - bn;
+
+        // East before West if present
+        if (a.side !== b.side) return a.side === "east" ? -1 : 1;
+        return String(a.shikona ?? "").localeCompare(String(b.shikona ?? ""));
+      });
+
+      return roster;
+    },
+    [state?.world]
+  );
 
   const handleContinue = () => {
     if (typeof hasAutosave === "function" && hasAutosave()) {
@@ -355,7 +391,8 @@ export default function MainMenu() {
       deleteSave(slotName);
     } finally {
       try {
-        setSaveSlots(getSaveSlots());
+        if (typeof getSaveSlots === "function") setSaveSlots(getSaveSlots());
+        else setSaveSlots([]);
       } catch {
         setSaveSlots([]);
       }
@@ -366,16 +403,12 @@ export default function MainMenu() {
     (importedWorld: any) => {
       if (!importedWorld) return;
 
-      // Best path: load the imported world directly into state
       if (typeof loadWorldDirect === "function") {
         loadWorldDirect(importedWorld);
         return;
       }
 
-      // Fallback path: create world using imported identifiers (may not match imported contents)
       if (typeof createWorld === "function") {
-        // This is a best-effort fallback only.
-        // If you see this warning, add a GameContext helper like loadWorldDirect(world).
         // eslint-disable-next-line no-console
         console.warn(
           "[MainMenu] No loadWorldDirect/loadImportedWorld/setWorld API found. Falling back to createWorld(seed, playerHeyaId). Imported data may not be preserved."
@@ -395,7 +428,6 @@ export default function MainMenu() {
       const importedWorld = await importSave(file);
       if (importedWorld) {
         applyImportedWorld(importedWorld);
-        // Sync seed display to imported seed (safe)
         setSeed(importedWorld.seed || "");
         navigate("/");
       }
@@ -421,13 +453,6 @@ export default function MainMenu() {
     return info ? `${info.nameEn}` : String(bashoName);
   };
 
-  const foundNewStable = (name: string) => {
-    if (!state?.world) return;
-    const newHeya = createNewStable(state.world, name);
-    // createWorld(seed, playerHeyaId)
-    if (typeof createWorld === "function") createWorld(state.world.seed, newHeya.id);
-  };
-
   const handleRerollWorld = () => {
     const newSeed = seed?.trim() ? seed.trim() : makeDeterministicSeed("world");
     setSeed(newSeed);
@@ -443,19 +468,30 @@ export default function MainMenu() {
     setShowSeedInput(false);
   };
 
+  const foundNewStable = (name: string) => {
+    if (!state?.world) return;
+    const newHeya = createNewStable(state.world, name);
+    if (typeof createWorld === "function") createWorld(state.world.seed, newHeya.id);
+  };
+
+  const beginWithHeya = (heyaId: string) => {
+    if (!state?.world) return;
+    if (typeof createWorld === "function") createWorld(state.world.seed, heyaId);
+    navigate("/");
+  };
+
   const handleConfirmStable = () => {
     if (!state?.world) return;
 
-    if (selectionMode === "found_new" && newStableName.trim()) {
-      foundNewStable(newStableName.trim());
+    if (selectionMode === "found_new") {
+      const name = newStableName.trim();
+      if (!name) return;
+      foundNewStable(name);
       navigate("/");
       return;
     }
 
-    if (selectedHeyaId) {
-      if (typeof createWorld === "function") createWorld(state.world.seed, selectedHeyaId);
-      navigate("/");
-    }
+    if (selectedHeyaId) beginWithHeya(selectedHeyaId);
   };
 
   const canConfirm =
@@ -636,11 +672,7 @@ export default function MainMenu() {
           </div>
 
           {/* Selection Mode Tabs */}
-          <Tabs
-            value={selectionMode}
-            onValueChange={(v) => setSelectionMode(v as StableSelectionMode)}
-            className="w-full"
-          >
+          <Tabs value={selectionMode} onValueChange={(v) => setSelectionMode(v as StableSelectionMode)} className="w-full">
             <TabsList className="grid w-full grid-cols-3 mb-6">
               <TabsTrigger value="recommended" className="gap-2">
                 <Star className="w-4 h-4" />
@@ -658,7 +690,7 @@ export default function MainMenu() {
 
             {/* Recommended Start */}
             <TabsContent value="recommended" className="space-y-4">
-              <Card className="bg-muted/30">
+              <Card className="bg-muted/30 paper">
                 <CardContent className="pt-4">
                   <p className="text-sm text-muted-foreground">
                     <Shield className="inline w-4 h-4 mr-1" />
@@ -668,22 +700,32 @@ export default function MainMenu() {
               </Card>
 
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {recommendedStables.map((heya: Heya) => (
+                {recommendedStables.map((heya) => (
                   <StableCard
                     key={heya.id}
                     heya={heya}
                     isSelected={selectedHeyaId === heya.id}
-                    onSelect={() => setPreviewHeya(heya)}
+                    onSelect={() => setSelectedHeyaId(heya.id)}
+                    onPreview={() => setPreviewHeya(heya)}
                     isRecommended
                     sekitoriCount={sekitoriCounts.get(heya.id) ?? 0}
                   />
                 ))}
               </div>
+
+              {selectedHeyaId && (
+                <div className="mt-6 flex justify-center">
+                  <Button size="lg" className="gap-2 min-w-[220px]" onClick={() => beginWithHeya(selectedHeyaId)}>
+                    Begin Journey
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
             </TabsContent>
 
             {/* Take Over Existing */}
             <TabsContent value="take_over" className="space-y-4">
-              <Card className="bg-muted/30">
+              <Card className="bg-muted/30 paper">
                 <CardContent className="pt-4">
                   <p className="text-sm text-muted-foreground">
                     <Building2 className="inline w-4 h-4 mr-1" />
@@ -711,12 +753,13 @@ export default function MainMenu() {
                           </span>
                         </h3>
                         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                          {stablesInGroup.map((heya: Heya) => (
+                          {stablesInGroup.map((heya) => (
                             <StableCard
                               key={heya.id}
                               heya={heya}
                               isSelected={selectedHeyaId === heya.id}
-                              onSelect={() => setPreviewHeya(heya)}
+                              onSelect={() => setSelectedHeyaId(heya.id)}
+                              onPreview={() => setPreviewHeya(heya)}
                               sekitoriCount={sekitoriCounts.get(heya.id) ?? 0}
                             />
                           ))}
@@ -726,11 +769,20 @@ export default function MainMenu() {
                   })}
                 </div>
               </ScrollArea>
+
+              {selectedHeyaId && (
+                <div className="mt-6 flex justify-center">
+                  <Button size="lg" className="gap-2 min-w-[220px]" onClick={() => beginWithHeya(selectedHeyaId)}>
+                    Begin Journey
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
             </TabsContent>
 
             {/* Found New Stable */}
             <TabsContent value="found_new" className="space-y-4">
-              <Card className="bg-red-500/5 border-red-500/20">
+              <Card className="bg-red-500/5 border-red-500/20 paper">
                 <CardContent className="pt-4">
                   <p className="text-sm text-red-400">
                     <AlertTriangle className="inline w-4 h-4 mr-1" />
@@ -740,7 +792,7 @@ export default function MainMenu() {
                 </CardContent>
               </Card>
 
-              <Card>
+              <Card className="paper">
                 <CardHeader>
                   <CardTitle>Name Your Heya</CardTitle>
                   <CardDescription>
@@ -766,18 +818,15 @@ export default function MainMenu() {
                   </ul>
                 </CardContent>
               </Card>
+
+              <div className="mt-6 flex justify-center">
+                <Button size="lg" className="gap-2 min-w-[220px]" onClick={handleConfirmStable} disabled={!canConfirm}>
+                  Found Heya
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+              </div>
             </TabsContent>
           </Tabs>
-
-          {/* Confirm Button for Found New mode only */}
-          {selectionMode === "found_new" && (
-            <div className="mt-8 flex justify-center">
-              <Button size="lg" className="gap-2 min-w-[200px]" onClick={handleConfirmStable} disabled={!canConfirm}>
-                Found Heya
-                <ArrowRight className="w-4 h-4" />
-              </Button>
-            </div>
-          )}
 
           {/* Heya Preview Dialog */}
           <Dialog open={!!previewHeya} onOpenChange={(open) => !open && setPreviewHeya(null)}>
@@ -785,12 +834,12 @@ export default function MainMenu() {
               {previewHeya && (
                 <>
                   <DialogHeader>
-                    <div className="flex items-start justify-between">
-                      <div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
                         <DialogTitle className="text-xl flex items-center gap-2">
-                          {previewHeya.name}
+                          <span className="truncate">{previewHeya.name}</span>
                           {previewHeya.nameJa && (
-                            <span className="text-muted-foreground font-display text-lg">
+                            <span className="text-muted-foreground font-display text-lg truncate">
                               {previewHeya.nameJa}
                             </span>
                           )}
@@ -799,14 +848,15 @@ export default function MainMenu() {
                           {previewHeya.descriptor || "Review the roster before starting your journey."}
                         </DialogDescription>
                       </div>
-                      <Badge className={`${STATURE_CONFIG[previewHeya.statureBand].color} border`}>
-                        {React.createElement(STATURE_CONFIG[previewHeya.statureBand].icon, { className: "w-3 h-3 mr-1" })}
+                      <Badge className={`${STATURE_CONFIG[previewHeya.statureBand].color} border shrink-0`}>
+                        {React.createElement(STATURE_CONFIG[previewHeya.statureBand].icon, {
+                          className: "w-3 h-3 mr-1"
+                        })}
                         {STATURE_CONFIG[previewHeya.statureBand].label}
                       </Badge>
                     </div>
                   </DialogHeader>
 
-                  {/* Stable Stats */}
                   <div className="flex flex-wrap gap-4 py-2 border-b text-sm">
                     <div>
                       <span className="text-muted-foreground">Difficulty: </span>
@@ -822,14 +872,14 @@ export default function MainMenu() {
                     </div>
                   </div>
 
-                  {/* Roster */}
                   <div className="flex-1 overflow-hidden">
                     <h4 className="font-semibold text-sm mb-2 mt-2">Roster</h4>
                     <ScrollArea className="h-[280px] pr-4">
                       <div className="space-y-1">
                         {getHeyaRoster(previewHeya).map((r: any) => {
                           const rankInfo = (RANK_HIERARCHY as any)?.[r.rank];
-                          const isSekitori = rankInfo?.isSekitori;
+                          const isSekitori = !!rankInfo?.isSekitori;
+                          const rankJa = rankInfo?.nameJa ?? String(r.rank ?? "");
                           return (
                             <div
                               key={r.id}
@@ -837,19 +887,20 @@ export default function MainMenu() {
                                 isSekitori ? "bg-primary/5" : "bg-muted/30"
                               }`}
                             >
-                              <div className="flex items-center gap-2">
-                                <span className={`font-medium ${isSekitori ? "text-primary" : ""}`}>
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`font-medium truncate ${isSekitori ? "text-primary" : ""}`}>
                                   {r.shikona}
                                 </span>
                                 {isSekitori && (
-                                  <Badge variant="outline" className="text-xs py-0">
+                                  <Badge variant="outline" className="text-xs py-0 shrink-0">
                                     Sekitori
                                   </Badge>
                                 )}
                               </div>
-                              <div className="text-muted-foreground text-xs">
-                                {r.side?.charAt(0).toUpperCase()}{r.rank?.charAt(0).toUpperCase()}{r.rank?.slice(1)}
-                                {r.rankNumber ? ` ${r.rankNumber}` : ""}
+                              <div className="text-muted-foreground text-xs shrink-0">
+                                {rankJa}
+                                {typeof r.rankNumber === "number" && r.rankNumber > 0 ? ` ${r.rankNumber}` : ""}
+                                {r.side ? ` • ${String(r.side).toUpperCase()}` : ""}
                               </div>
                             </div>
                           );
@@ -870,11 +921,7 @@ export default function MainMenu() {
                       onClick={() => {
                         setSelectedHeyaId(previewHeya.id);
                         setPreviewHeya(null);
-                        // Directly confirm this heya
-                        if (typeof createWorld === "function" && state?.world) {
-                          createWorld(state.world.seed, previewHeya.id);
-                          navigate("/");
-                        }
+                        beginWithHeya(previewHeya.id);
                       }}
                     >
                       Begin Journey
