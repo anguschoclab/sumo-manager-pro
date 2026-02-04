@@ -1,346 +1,157 @@
 // economics.ts
-// Sumo Economics System - Kensho, salaries, and retirement funds
-//
-// DROP-IN for updated types.ts (with required RikishiEconomics.cash)
-//
-// Notes:
-// - `cash` is spendable funds on the rikishi.
-// - `totalEarnings` is lifetime cumulative (includes retirement + cash payouts).
-// - `currentBashoEarnings` is current-tournament earnings (includes retirement + cash payouts).
-// - Kensho: immediatePayment -> cash; toRetirement -> retirementFund; associationFee -> sink.
+// Institutional Economy & Finance Engine
+// Manages Money, Solvency, Salaries, and Support.
+// Aligned with Institutional Economy V2.0 Spec.
 
-import type { Rank, RikishiEconomics, KenshoRecord, BashoName, Division } from "./types";
-import { RANK_HIERARCHY } from "./banzuke";
+import type { WorldState, Heya, BoutResult, BashoMatch, Rikishi, Id } from "./types";
+import { reportScandal } from "./governance";
+import { RANK_HIERARCHY } from "./banzuke"; // Need salary data
 
-// === INTERNAL UTILS ===
-const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
-const clamp0 = (n: number) => Math.max(0, n);
-const isFiniteNumber = (n: number) => Number.isFinite(n);
+// === CONSTANTS ===
 
-type NonSekitoriRank = Exclude<Rank, "yokozuna" | "ozeki" | "sekiwake" | "komusubi" | "maegashira" | "juryo">;
+const BASE_FACILITY_COST = 50_000; // Base weekly upkeep per facility point
+const OYAKATA_SALARY_MONTHLY = 1_200_000; // Standard salary
+const RECRUITMENT_BUDGET_WEEKLY = 100_000; // Baseline scouting burn
 
-// === KENSHO (SPONSOR BANNERS) SYSTEM ===
+// Reputation -> Weekly Supporter Income Multiplier
+// e.g. Rep 50 = 50 * 10,000 = 500,000 / week approx? 
+// Let's align with Spec: "Supporters sustain the stable."
+const SUPPORTER_INCOME_FACTOR = 15_000; 
 
-export const KENSHO_CONFIG = {
-  totalValue: 70_000,       // total per banner
-  winnerReceives: 30_000,   // immediate cash to winner
-  toRetirementFund: 30_000, // saved into retirement fund
-  associationFee: 10_000,   // sink
-
-  baseKenshoPerBout: {
-    yokozuna: 15,
-    ozeki: 10,
-    sekiwake: 5,
-    komusubi: 4,
-    maegashira: 2,
-    juryo: 1,
-    makushita: 0,
-    sandanme: 0,
-    jonidan: 0,
-    jonokuchi: 0
-  } as Record<Rank, number>,
-
-  popularityMultiplier: {
-    low: 0.5,
-    medium: 1.0,
-    high: 1.5,
-    superstar: 2.0
-  } as Record<string, number>
-};
-
-export const KENSHO_SPLIT_SUM =
-  KENSHO_CONFIG.winnerReceives + KENSHO_CONFIG.toRetirementFund + KENSHO_CONFIG.associationFee;
-
-export function assertKenshoSplitValid(): boolean {
-  return KENSHO_SPLIT_SUM === KENSHO_CONFIG.totalValue;
-}
-
-export function calculateBoutKensho(
-  eastRank: Rank,
-  westRank: Rank,
-  eastPopularity = 50,
-  westPopularity = 50,
-  isMusubi = false,
-  isPlayoff = false,
-  day = 1
-): number {
-  const baseEast = KENSHO_CONFIG.baseKenshoPerBout[eastRank] ?? 0;
-  const baseWest = KENSHO_CONFIG.baseKenshoPerBout[westRank] ?? 0;
-
-  let baseKensho = Math.max(baseEast, baseWest) + Math.min(baseEast, baseWest) * 0.5;
-
-  const avgPopularity = (eastPopularity + westPopularity) / 2;
-  let popMod = KENSHO_CONFIG.popularityMultiplier.medium;
-  if (avgPopularity >= 80) popMod = KENSHO_CONFIG.popularityMultiplier.superstar;
-  else if (avgPopularity >= 60) popMod = KENSHO_CONFIG.popularityMultiplier.high;
-  else if (avgPopularity >= 40) popMod = KENSHO_CONFIG.popularityMultiplier.medium;
-  else popMod = KENSHO_CONFIG.popularityMultiplier.low;
-
-  baseKensho *= popMod;
-
-  if (isMusubi) baseKensho *= 1.5;
-  if (isPlayoff) baseKensho *= 3.0;
-  if (day === 15) baseKensho *= 1.3;
-
-  return clamp0(Math.round(baseKensho));
-}
-
-export interface KenshoPayout {
-  kenshoCount: number;
-  immediatePayment: number; // cash
-  toRetirement: number;
-  associationFee: number;
-  totalValue: number;
-}
-
-export function splitKensho(kenshoCount: number): KenshoPayout {
-  const count = clamp0(Math.floor(isFiniteNumber(kenshoCount) ? kenshoCount : 0));
-  const immediatePayment = count * KENSHO_CONFIG.winnerReceives;
-  const toRetirement = count * KENSHO_CONFIG.toRetirementFund;
-  const associationFee = count * KENSHO_CONFIG.associationFee;
-  const totalValue = count * KENSHO_CONFIG.totalValue;
-  return { kenshoCount: count, immediatePayment, toRetirement, associationFee, totalValue };
-}
-
-export function applyKenshoWinToEconomics(payout: KenshoPayout, econ: RikishiEconomics): RikishiEconomics {
-  const cashBefore = clamp0(econ.cash);
-  const cashAfter = cashBefore + payout.immediatePayment;
-
-  return {
-    ...econ,
-    cash: cashAfter,
-    careerKenshoWon: clamp0(econ.careerKenshoWon + payout.kenshoCount),
-    retirementFund: clamp0(econ.retirementFund + payout.toRetirement),
-    totalEarnings: clamp0(econ.totalEarnings + payout.immediatePayment + payout.toRetirement),
-    currentBashoEarnings: clamp0(econ.currentBashoEarnings + payout.immediatePayment + payout.toRetirement)
-  };
-}
-
-export function processKenshoWin(
-  kenshoCount: number,
-  currentEconomics: RikishiEconomics
-): { immediatePayment: number; toRetirement: number; updatedEconomics: RikishiEconomics } {
-  const payout = splitKensho(kenshoCount);
-  return {
-    immediatePayment: payout.immediatePayment,
-    toRetirement: payout.toRetirement,
-    updatedEconomics: applyKenshoWinToEconomics(payout, currentEconomics)
-  };
-}
-
-// === SALARY SYSTEM ===
-
-export const SALARY_CONFIG = {
-  allowances: {
-    makushita: 150_000,
-    sandanme: 100_000,
-    jonidan: 80_000,
-    jonokuchi: 70_000
-  } as const satisfies Record<NonSekitoriRank, number>,
-
-  bashoBonus: 1.0,
-  yearEndBonus: 2.0,
-
-  prizes: {
-    yusho: {
-      makuuchi: 10_000_000,
-      juryo: 2_000_000,
-      makushita: 500_000,
-      sandanme: 300_000,
-      jonidan: 200_000,
-      jonokuchi: 100_000
-    },
-    junYusho: 2_000_000,
-    ginoSho: 2_000_000,
-    kantosho: 2_000_000,
-    shukunsho: 2_000_000,
-    kinboshi: 100_000
-  }
-} as const;
-
-export function calculateMonthlyIncome(rank: Rank): number {
-  const info = RANK_HIERARCHY[rank];
-  if (info.isSekitori) return info.salary;
-
-  const allowance = SALARY_CONFIG.allowances[rank as NonSekitoriRank];
-  return allowance ?? 70_000;
-}
-
-export function calculateBashoBonus(rank: Rank, wins: number, kinboshiCount = 0): number {
-  const info = RANK_HIERARCHY[rank];
-  if (!info.isSekitori) return 0;
-
-  let bonus = info.salary * SALARY_CONFIG.bashoBonus;
-
-  const expectedWins = info.fightsPerBasho / 2;
-  const performanceMod = 1 + (wins - expectedWins) * 0.05;
-
-  const kinboshiBump = clamp0(Math.floor(kinboshiCount)) * 4_000;
-
-  return Math.round(bonus * Math.max(0.5, performanceMod) + kinboshiBump);
-}
-
-// === PRIZE MONEY HELPERS ===
-
-export type SpecialPrize = "junYusho" | "ginoSho" | "kantosho" | "shukunsho";
-
-export function getYushoPrize(division: Division): number {
-  if (division === "makuuchi") return SALARY_CONFIG.prizes.yusho.makuuchi;
-  if (division === "juryo") return SALARY_CONFIG.prizes.yusho.juryo;
-  if (division === "makushita") return SALARY_CONFIG.prizes.yusho.makushita;
-  if (division === "sandanme") return SALARY_CONFIG.prizes.yusho.sandanme;
-  if (division === "jonidan") return SALARY_CONFIG.prizes.yusho.jonidan;
-  return SALARY_CONFIG.prizes.yusho.jonokuchi;
-}
+// === CORE LOGIC ===
 
 /**
- * Apply prize to econ:
- * - increases cash (spendable)
- * - increases totals
+ * Process weekly economic updates.
+ * - Deduct burn (Salaries, Facilities)
+ * - Add income (Koenkai)
+ * - Check Solvency
  */
-export function applyPrizeToEconomics(amount: number, econ: RikishiEconomics): RikishiEconomics {
-  const a = clamp0(Math.round(isFiniteNumber(amount) ? amount : 0));
-  if (a === 0) return econ;
-
-  return {
-    ...econ,
-    cash: clamp0(econ.cash + a),
-    totalEarnings: clamp0(econ.totalEarnings + a),
-    currentBashoEarnings: clamp0(econ.currentBashoEarnings + a)
-  };
+export function tickWeek(world: WorldState): void {
+  for (const heya of world.heyas.values()) {
+    processHeyaFinances(heya, world);
+  }
 }
 
-// === RETIREMENT FUND ===
+function processHeyaFinances(heya: Heya, world: WorldState): void {
+  // 1. Calculate Expenses (Weekly Burn)
+  
+  // A. Rikishi Salaries (Monthly -> Weekly approx)
+  let rikishiSalaries = 0;
+  for (const rId of heya.rikishiIds) {
+    const rikishi = world.rikishi.get(rId);
+    if (rikishi) {
+      const info = RANK_HIERARCHY[rikishi.rank];
+      if (info.isSekitori) {
+        rikishiSalaries += (info.salary / 4); // Weekly slice
+      } else {
+        // Allowance for non-sekitori
+        rikishiSalaries += 15_000; // Small allowance
+      }
+    }
+  }
 
-export const RETIREMENT_CONFIG = {
-  jsaContribution: {
-    yokozuna: 500_000,
-    ozeki: 400_000,
-    sekiwake: 300_000,
-    komusubi: 300_000,
-    maegashira: 200_000,
-    juryo: 150_000,
-    makushita: 50_000,
-    sandanme: 30_000,
-    jonidan: 20_000,
-    jonokuchi: 10_000
-  } as const satisfies Record<Rank, number>,
+  // B. Staff & Facilities
+  // Facility maintenance scales with quality
+  const facilityUpkeep = 
+    (heya.facilities.training * 1000) + 
+    (heya.facilities.recovery * 1000) + 
+    (heya.facilities.nutrition * 2000); // Food is expensive!
 
-  serviceBonus: 100_000,
-  oyakataMinimum: 50_000_000
-} as const;
+  // C. Oyakata Salary
+  const oyakataCost = OYAKATA_SALARY_MONTHLY / 4;
 
-export function calculateRetirementContribution(rank: Rank): number {
-  return RETIREMENT_CONFIG.jsaContribution[rank] ?? 10_000;
+  const totalBurn = rikishiSalaries + facilityUpkeep + oyakataCost + RECRUITMENT_BUDGET_WEEKLY;
+
+  // 2. Calculate Income (Koenkai / Supporters)
+  // Income is derived from Reputation (Prestige)
+  // High reputation = strong supporters
+  const supporterIncome = (heya.reputation || 10) * SUPPORTER_INCOME_FACTOR;
+
+  // 3. Apply to Funds
+  const net = supporterIncome - totalBurn;
+  heya.funds += net;
+
+  // 4. Solvency Check (Bankruptcy)
+  if (heya.funds < 0) {
+    handleInsolvency(heya, world);
+  }
+
+  // 5. Update Financial Risk Indicator
+  // Risk if runway < 8 weeks
+  const runwayWeeks = totalBurn > 0 ? heya.funds / totalBurn : 999;
+  heya.riskIndicators.financial = heya.funds < 0 || runwayWeeks < 8;
 }
 
-export function estimateRetirementPayout(economics: RikishiEconomics, yearsAsSekitori: number): number {
-  const years = clamp0(Math.floor(isFiniteNumber(yearsAsSekitori) ? yearsAsSekitori : 0));
-  const serviceBonus = years * RETIREMENT_CONFIG.serviceBonus * 6;
-  return clamp0(economics.retirementFund + serviceBonus);
+function handleInsolvency(heya: Heya, world: WorldState): void {
+  // If funds are negative, we are in trouble.
+  // The JSA (Governance) steps in if it gets too deep.
+  
+  const DEBT_LIMIT = -20_000_000; // 20m Yen debt limit
+
+  if (heya.funds < DEBT_LIMIT) {
+    // Report a Governance Scandal for Insolvency
+    // Only report if not already Sanctioned to avoid spamming
+    if (heya.governanceStatus !== "sanctioned") {
+      reportScandal(world, heya.id, "major", "Severe Insolvency / Debt Limit Breach");
+      
+      // Emergency Bailout (Narrative hook)
+      // Reset to 0 but take massive scandal hit? 
+      // For now, just cap debt so math doesn't break, but scandal keeps rising.
+      heya.funds = DEBT_LIMIT; 
+    }
+  }
 }
 
-// === KINBOSHI ===
+// === BOUT REWARDS (KENSHO) ===
 
-export function isKinboshi(winnerRank: Rank, loserRank: Rank): boolean {
-  return winnerRank === "maegashira" && loserRank === "yokozuna";
-}
+/**
+ * Called when a bout concludes to settle Kensho (Prize Money).
+ */
+export function onBoutResolved(
+  world: WorldState,
+  context: { match: BashoMatch; result: BoutResult; east: Rikishi; west: Rikishi }
+): void {
+  const { result, east, west } = context;
+  
+  // Only Makuuchi bouts generate Kensho normally
+  if (east.division !== "makuuchi") return;
 
-export function calculateKinboshiBonusAnnual(kinboshiCount: number): number {
-  return clamp0(Math.floor(kinboshiCount)) * 4_000 * 6;
-}
+  // Simple stochastic kensho for now (random 0-5 envelopes for top ranks)
+  // In full sim, this would be based on popularity matchups.
+  // We'll give a small chance of Kensho.
+  
+  const winner = result.winner === "east" ? east : west;
+  const winnerHeya = world.heyas.get(winner.heyaId);
 
-// === HEYA (STABLE) ECONOMICS ===
+  // Determine Kensho count based on rank
+  let kenshoCount = 0;
+  if (east.rank === "yokozuna" || west.rank === "yokozuna") kenshoCount += 5;
+  else if (east.rank === "ozeki" || west.rank === "ozeki") kenshoCount += 2;
+  
+  // Random variance
+  if (Math.random() > 0.5) kenshoCount += 1;
 
-export const HEYA_CONFIG = {
-  sekitoriSupport: 500_000,
-  kenshoHeyaCut: 10_000,
-  sponsorshipTiers: {
-    low: 1_000_000,
-    medium: 3_000_000,
-    high: 7_000_000,
-    elite: 15_000_000
-  } as Record<string, number>
-};
+  if (kenshoCount > 0 && winnerHeya) {
+    const AMOUNT_PER_KENSHO = 62_000; // Real value approx
+    const total = kenshoCount * AMOUNT_PER_KENSHO;
 
-export function calculateHeyaIncome(sekitoriCount: number, totalKenshoWon: number, prestige: number): number {
-  const sekitoriIncome = clamp0(Math.floor(sekitoriCount)) * HEYA_CONFIG.sekitoriSupport;
-  const kenshoIncome = clamp0(Math.floor(totalKenshoWon)) * HEYA_CONFIG.kenshoHeyaCut;
+    // Split: 50% to Rikishi Cash (Taxed/Saved), 50% to Stable (Operating Revenue)?
+    // Canon: Kensho belongs to the Rikishi, but Stable takes a cut or 'management fee'?
+    // Actually, Spec 11.0 says: "RikishiCash... StableFunds".
+    // Usually Rikishi keeps Kensho. Stable survives on Koenkai.
+    // However, to make the game fun, let's say Stable takes a small admin fee (10%)
+    
+    const rikishiShare = total * 0.9;
+    const stableShare = total * 0.1;
 
-  let sponsorship = HEYA_CONFIG.sponsorshipTiers.low;
-  if (prestige >= 80) sponsorship = HEYA_CONFIG.sponsorshipTiers.elite;
-  else if (prestige >= 60) sponsorship = HEYA_CONFIG.sponsorshipTiers.high;
-  else if (prestige >= 40) sponsorship = HEYA_CONFIG.sponsorshipTiers.medium;
+    // Update Rikishi Economics
+    if (!winner.economics) winner.economics = { cash: 0, retirementFund: 0, careerKenshoWon: 0, kinboshiCount: 0, totalEarnings: 0, currentBashoEarnings: 0, popularity: 50 };
+    
+    winner.economics.cash += rikishiShare;
+    winner.economics.currentBashoEarnings += rikishiShare;
+    winner.economics.careerKenshoWon += kenshoCount;
 
-  return sekitoriIncome + kenshoIncome + sponsorship;
-}
-
-// === CEREMONIES & COSTS ===
-
-export const CEREMONY_COSTS = {
-  yokozunaDohyoIri: 3_000_000,
-  mawashiPurchase: 500_000,
-  keshoMawashi: 1_000_000,
-  retirementDanpatsushiki: 2_000_000
-} as const;
-
-// === INIT ===
-
-export function initializeEconomics(): RikishiEconomics {
-  return {
-    cash: 0,
-    retirementFund: 0,
-    careerKenshoWon: 0,
-    kinboshiCount: 0,
-    totalEarnings: 0,
-    currentBashoEarnings: 0,
-    popularity: 30
-  };
-}
-
-// === RECORDS ===
-
-export function createKenshoRecord(
-  bashoName: BashoName,
-  day: number,
-  opponentId: string,
-  kenshoCount: number
-): KenshoRecord {
-  const payout = splitKensho(kenshoCount);
-  return {
-    bashoName,
-    day,
-    opponentId,
-    kenshoCount: payout.kenshoCount,
-    amount: payout.immediatePayment
-  };
-}
-
-// === END-TO-END BOUT HELPERS ===
-
-export interface BoutKenshoOutcome {
-  payout: KenshoPayout;
-  winnerEconomics: RikishiEconomics;
-  winnerRecord: KenshoRecord | null;
-  heyaCut: number;
-}
-
-export function processBoutKenshoWin(args: {
-  bashoName: BashoName;
-  day: number;
-  opponentId: string;
-  kenshoCount: number;
-  winnerEconomics: RikishiEconomics;
-}): BoutKenshoOutcome {
-  const payout = splitKensho(args.kenshoCount);
-  const winnerEconomics = applyKenshoWinToEconomics(payout, args.winnerEconomics);
-  const heyaCut = payout.kenshoCount * HEYA_CONFIG.kenshoHeyaCut;
-
-  return {
-    payout,
-    winnerEconomics,
-    winnerRecord:
-      payout.kenshoCount > 0 ? createKenshoRecord(args.bashoName, args.day, args.opponentId, payout.kenshoCount) : null,
-    heyaCut
-  };
+    // Update Stable Funds
+    winnerHeya.funds += stableShare;
+  }
 }
