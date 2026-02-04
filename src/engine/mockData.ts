@@ -1,10 +1,47 @@
 // mockData.ts
-// Provides mock data for initialization if world generation is skipped or partial.
+// Provides mock data for initialization.
 //
-// UPDATES:
-// - Added `birthYear` to all mock rikishi to prevent crashing the new Training system.
+// UPDATES Phase 5:
+// - Added MOCK_OYAKATA with defined personalities.
 
-import type { Heya, Rikishi } from "./types";
+import type { Heya, Rikishi, Oyakata } from "./types";
+
+export const MOCK_OYAKATA: Oyakata[] = [
+  {
+    id: "npc-oyakata-1",
+    heyaId: "heya-1", // Kuro-beya (Player)
+    name: "Kurofuji",
+    age: 55,
+    archetype: "strategist",
+    traits: {
+      ambition: 60,
+      patience: 60,
+      risk: 40,
+      tradition: 50,
+      compassion: 60
+    },
+    formerShikona: "Kurofuji",
+    highestRank: "Sekiwake",
+    yearsInCharge: 5
+  },
+  {
+    id: "npc-oyakata-2",
+    heyaId: "heya-2", // Shiro-beya (Rival)
+    name: "Shiroyama",
+    age: 62,
+    archetype: "tyrant",
+    traits: {
+      ambition: 95,
+      patience: 10,
+      risk: 85,
+      tradition: 90,
+      compassion: 5
+    },
+    formerShikona: "Shiroyama",
+    highestRank: "Ozeki",
+    yearsInCharge: 15
+  }
+];
 
 export const MOCK_HEYAS: Heya[] = [
   {
@@ -20,6 +57,8 @@ export const MOCK_HEYAS: Heya[] = [
     runwayBand: "comfortable",
     reputation: 65,
     funds: 12_000_000,
+    scandalScore: 0,
+    governanceStatus: "good_standing",
     facilities: {
       training: 50,
       recovery: 40,
@@ -55,6 +94,8 @@ export const MOCK_HEYAS: Heya[] = [
     runwayBand: "secure",
     reputation: 90,
     funds: 50_000_000,
+    scandalScore: 10,
+    governanceStatus: "good_standing",
     facilities: {
       training: 90,
       recovery: 85,
