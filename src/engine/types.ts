@@ -1,17 +1,18 @@
 // types.ts
 // Clean, corrected, drop-in core types for Basho
 //
-// Key alignment change vs your previous draft:
-// - RankPosition now allows OPTIONAL rankNumber for named ranks (Y/O/S/K) so variable sanyaku
-//   can be represented deterministically (e.g., O1E/O1W/O2E...).
-//
-// Notes:
-// - Runtime WorldState uses Maps; SaveGame uses JSON-safe SerializedWorldState.
-// - Keep this as the single source of truth for shared types across engine modules.
+// GOALS (drop-in + matches the modules you’ve been building):
+// - Single source of truth for shared types across engine modules
+// - Runtime WorldState uses Maps; SaveGame uses JSON-safe SerializedWorldState
+// - No duplicate interface names (Heya)
+// - RankPosition enforces numbered vs unnumbered at compile time
+// - Kimarite types centralized here (avoid circular imports with kimarite.ts)
+// - Training types included here (training.ts should import these types to avoid drift)
+// - Adds optional hidden fatigue + spendable cash (timeBoundary support)
+// - KoenkaiBandType and RunwayBand aligned to sponsors/timeBoundary
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
-/** Runtime maps (NOT JSON-safe) */
 export type IdMapRuntime<T> = Map<Id, T>;
 
 /** =========================
@@ -27,7 +28,6 @@ export type Stance =
   | "belt-dominant"
   | "push-dominant";
 
-/** Tactical Archetypes (canon) */
 export type TacticalArchetype =
   | "oshi_specialist"
   | "yotsu_specialist"
@@ -37,23 +37,10 @@ export type TacticalArchetype =
   | "hybrid_oshi_yotsu"
   | "counter_specialist";
 
-/** Kimarite families used for bias tables */
-export type KimariteFamily =
-  | "OSHI"
-  | "YOTSU"
-  | "THROW"
-  | "TRIP"
-  | "PULLDOWN"
-  | "REVERSAL"
-  | "SPECIAL";
+export type KimariteFamily = "OSHI" | "YOTSU" | "THROW" | "TRIP" | "PULLDOWN" | "REVERSAL" | "SPECIAL";
 
-/** KimariteId stays string here; kimarite.ts can refine via `as const` registry */
 export type KimariteId = string;
 
-/**
- * KimariteClass:
- * Keep this in types.ts so kimarite.ts + bout engine share it without circular imports.
- */
 export type KimariteClass =
   | "force_out"
   | "push"
@@ -69,16 +56,15 @@ export type KimariteClass =
   | "result"
   | "forfeit";
 
-/** Archetype stat profiles (shared lookup) */
 export const ARCHETYPE_PROFILES: Record<
   TacticalArchetype,
   {
     tachiaiBonus: number;
-    gripPreference: number; // -1..+1
+    gripPreference: number;
     preferredClasses: KimariteClass[];
-    volatility: number; // 0..1
+    volatility: number;
     counterBonus: number;
-    baseRisk: number; // 0..1
+    baseRisk: number;
     familyBias: Record<KimariteFamily, number>;
   }
 > = {
@@ -89,15 +75,7 @@ export const ARCHETYPE_PROFILES: Record<
     volatility: 0.2,
     counterBonus: 0,
     baseRisk: 0.6,
-    familyBias: {
-      OSHI: 1.45,
-      YOTSU: 0.85,
-      THROW: 0.9,
-      TRIP: 0.95,
-      PULLDOWN: 0.8,
-      REVERSAL: 0.9,
-      SPECIAL: 0.75
-    }
+    familyBias: { OSHI: 1.45, YOTSU: 0.85, THROW: 0.9, TRIP: 0.95, PULLDOWN: 0.8, REVERSAL: 0.9, SPECIAL: 0.75 }
   },
   yotsu_specialist: {
     tachiaiBonus: -3,
@@ -106,15 +84,7 @@ export const ARCHETYPE_PROFILES: Record<
     volatility: 0.15,
     counterBonus: 5,
     baseRisk: 0.45,
-    familyBias: {
-      OSHI: 0.85,
-      YOTSU: 1.4,
-      THROW: 1.35,
-      TRIP: 0.95,
-      PULLDOWN: 0.8,
-      REVERSAL: 1.05,
-      SPECIAL: 0.8
-    }
+    familyBias: { OSHI: 0.85, YOTSU: 1.4, THROW: 1.35, TRIP: 0.95, PULLDOWN: 0.8, REVERSAL: 1.05, SPECIAL: 0.8 }
   },
   speedster: {
     tachiaiBonus: 5,
@@ -123,15 +93,7 @@ export const ARCHETYPE_PROFILES: Record<
     volatility: 0.5,
     counterBonus: 8,
     baseRisk: 0.55,
-    familyBias: {
-      OSHI: 0.95,
-      YOTSU: 0.9,
-      THROW: 0.95,
-      TRIP: 1.45,
-      PULLDOWN: 1.0,
-      REVERSAL: 1.1,
-      SPECIAL: 0.9
-    }
+    familyBias: { OSHI: 0.95, YOTSU: 0.9, THROW: 0.95, TRIP: 1.45, PULLDOWN: 1.0, REVERSAL: 1.1, SPECIAL: 0.9 }
   },
   trickster: {
     tachiaiBonus: 0,
@@ -140,15 +102,7 @@ export const ARCHETYPE_PROFILES: Record<
     volatility: 0.6,
     counterBonus: 12,
     baseRisk: 0.65,
-    familyBias: {
-      OSHI: 0.9,
-      YOTSU: 0.85,
-      THROW: 0.9,
-      TRIP: 1.05,
-      PULLDOWN: 1.45,
-      REVERSAL: 1.25,
-      SPECIAL: 1.1
-    }
+    familyBias: { OSHI: 0.9, YOTSU: 0.85, THROW: 0.9, TRIP: 1.05, PULLDOWN: 1.45, REVERSAL: 1.25, SPECIAL: 1.1 }
   },
   all_rounder: {
     tachiaiBonus: 2,
@@ -157,15 +111,7 @@ export const ARCHETYPE_PROFILES: Record<
     volatility: 0.25,
     counterBonus: 3,
     baseRisk: 0.5,
-    familyBias: {
-      OSHI: 1.0,
-      YOTSU: 1.0,
-      THROW: 1.0,
-      TRIP: 1.0,
-      PULLDOWN: 1.0,
-      REVERSAL: 1.0,
-      SPECIAL: 1.0
-    }
+    familyBias: { OSHI: 1.0, YOTSU: 1.0, THROW: 1.0, TRIP: 1.0, PULLDOWN: 1.0, REVERSAL: 1.0, SPECIAL: 1.0 }
   },
   hybrid_oshi_yotsu: {
     tachiaiBonus: 3,
@@ -174,15 +120,7 @@ export const ARCHETYPE_PROFILES: Record<
     volatility: 0.3,
     counterBonus: 5,
     baseRisk: 0.52,
-    familyBias: {
-      OSHI: 1.2,
-      YOTSU: 1.2,
-      THROW: 1.1,
-      TRIP: 0.95,
-      PULLDOWN: 0.85,
-      REVERSAL: 1.05,
-      SPECIAL: 0.9
-    }
+    familyBias: { OSHI: 1.2, YOTSU: 1.2, THROW: 1.1, TRIP: 0.95, PULLDOWN: 0.85, REVERSAL: 1.05, SPECIAL: 0.9 }
   },
   counter_specialist: {
     tachiaiBonus: -2,
@@ -191,15 +129,7 @@ export const ARCHETYPE_PROFILES: Record<
     volatility: 0.35,
     counterBonus: 15,
     baseRisk: 0.48,
-    familyBias: {
-      OSHI: 0.9,
-      YOTSU: 1.0,
-      THROW: 1.1,
-      TRIP: 1.1,
-      PULLDOWN: 0.9,
-      REVERSAL: 1.5,
-      SPECIAL: 1.05
-    }
+    familyBias: { OSHI: 0.9, YOTSU: 1.0, THROW: 1.1, TRIP: 1.1, PULLDOWN: 0.9, REVERSAL: 1.5, SPECIAL: 1.05 }
   }
 };
 
@@ -226,13 +156,8 @@ export type UnnumberedRank = "yokozuna" | "ozeki" | "sekiwake" | "komusubi";
 
 export type Side = "east" | "west";
 
-/**
- * RankPosition:
- * - Numbered ranks MUST have rankNumber.
- * - Unnumbered ranks MAY have rankNumber (used for variable sanyaku: O2E, S3W, etc.)
- */
 export type RankPosition =
-  | { rank: UnnumberedRank; side: Side; rankNumber?: number }
+  | { rank: UnnumberedRank; side: Side; rankNumber?: never }
   | { rank: NumberedRank; rankNumber: number; side: Side };
 
 export function isNumberedRank(rank: Rank): rank is NumberedRank {
@@ -252,13 +177,9 @@ export function toRankPosition(args: { rank: Rank; side: Side; rankNumber?: numb
     if (!rankNumber || rankNumber < 1) throw new Error(`Rank ${rank} requires rankNumber >= 1`);
     return { rank, side, rankNumber };
   }
-  if (rankNumber !== undefined && rankNumber < 1) {
-    throw new Error(`Rank ${rank} (unnumbered) rankNumber must be >= 1 if provided`);
-  }
-  return { rank: rank as UnnumberedRank, side, rankNumber };
+  return { rank: rank as UnnumberedRank, side };
 }
 
-/** Canon banzuke snapshot (ordered slots + assignments) */
 export interface BanzukeAssignment {
   rikishiId: Id;
   position: RankPosition;
@@ -266,9 +187,7 @@ export interface BanzukeAssignment {
 
 export interface DivisionBanzukeSnapshot {
   division: Division;
-  /** Canonical slot list (ordered): E/W alternation is represented here */
   slots: RankPosition[];
-  /** Who occupies slots this basho */
   assignments: BanzukeAssignment[];
 }
 
@@ -278,7 +197,6 @@ export interface BanzukeSnapshot {
   divisions: Record<Division, DivisionBanzukeSnapshot>;
 }
 
-/** Basho performance input for banzuke building (deterministic sorting) */
 export interface RikishiBashoPerformance {
   rikishiId: Id;
   division: Division;
@@ -302,7 +220,7 @@ export interface BashoInfo {
   name: BashoName;
   nameJa: string;
   nameEn: string;
-  month: number; // 1..12
+  month: number;
   location: string;
   venue: string;
   venueJa: string;
@@ -314,7 +232,6 @@ export interface BashoInfo {
 export interface BoutLogEntry {
   phase: "tachiai" | "clinch" | "momentum" | "finish";
   description: string;
-  /** Optional bag of facts for UI/narrative (never required) */
   data?: Record<string, number | string | boolean | null | undefined>;
 }
 
@@ -338,16 +255,14 @@ export interface MatchSchedule {
   result?: BoutResult;
 }
 
-/** JSON-safe standings */
 export type StandingsTable = Record<Id, { wins: number; losses: number }>;
-/** Runtime standings */
 export type StandingsTableRuntime = Map<Id, { wins: number; losses: number }>;
 
 export interface BashoState {
   year: number;
   bashoNumber: 1 | 2 | 3 | 4 | 5 | 6;
   bashoName: BashoName;
-  day: number; // 1..15 (sekitori)
+  day: number;
   matches: MatchSchedule[];
   standings: StandingsTableRuntime;
 }
@@ -361,24 +276,17 @@ export interface KenshoRecord {
   day: number;
   opponentId: Id;
   kenshoCount: number;
-  amount: number; // immediate cash amount
+  amount: number;
 }
 
 export interface RikishiEconomics {
-  /** Spendable cash on hand (used by timeBoundary + UI) */
   cash: number;
-
   retirementFund: number;
   careerKenshoWon: number;
   kinboshiCount: number;
-
-  /** Lifetime earnings record (not spendable by default) */
   totalEarnings: number;
-
-  /** Per-basho earnings accumulator */
   currentBashoEarnings: number;
-
-  popularity: number; // 0..100
+  popularity: number;
 }
 
 /** =========================
@@ -389,21 +297,18 @@ export type StatureBand = "legendary" | "powerful" | "established" | "rebuilding
 export type PrestigeBand = "elite" | "respected" | "modest" | "struggling" | "unknown";
 export type FacilitiesBand = "world_class" | "excellent" | "adequate" | "basic" | "minimal";
 
-/** sponsors.ts + timeBoundary.ts aligned union */
 export type KoenkaiBandType = "none" | "weak" | "moderate" | "strong" | "powerful";
-/** Alias for backward compatibility */
 export type KoenkaiBand = KoenkaiBandType;
 export type RunwayBand = "secure" | "comfortable" | "tight" | "critical" | "desperate";
 
-/** Re-export types from specialized modules for convenience */
-// Scouting types
+// Scouting convenience unions
 export type ConfidenceLevel = "unknown" | "low" | "medium" | "high" | "certain";
 export type ScoutingInvestment = "none" | "light" | "standard" | "deep";
 
 // Leverage types
 export type LeverageClass = "CompactAnchor" | "LongLever" | "TopHeavy" | "MobileLight" | "Standard";
 
-/** FTUE */
+// FTUE
 export interface FTUEState {
   isActive: boolean;
   bashoCompleted: number;
@@ -451,25 +356,18 @@ export interface Rikishi {
   heyaId: Id;
   nationality: string;
 
-  height: number; // cm
-  weight: number; // kg
+  height: number;
+  weight: number;
 
-  power: number; // 0..100
-  speed: number; // 0..100
-  balance: number; // 0..100
-  technique: number; // 0..100
-  aggression: number; // 0..100
-  experience: number; // 0..100 (scaled; not necessarily basho count)
+  power: number;
+  speed: number;
+  balance: number;
+  technique: number;
+  aggression: number;
+  experience: number;
 
-  momentum: number; // -10..+10
-
-  /**
-   * Stamina is “in-the-moment readiness/endurance”.
-   * Long-term weekly wear is `fatigue` (hidden, optional).
-   */
-  stamina: number; // 0..100
-
-  /** Hidden long-term wear (0..100). Used by timeBoundary/injuries. */
+  momentum: number;
+  stamina: number;
   fatigue?: number;
 
   injured: boolean;
@@ -494,7 +392,6 @@ export interface Rikishi {
   economics?: RikishiEconomics;
 }
 
-/** SINGLE heya definition (no duplicates) */
 export interface Heya {
   id: Id;
   name: string;
@@ -508,7 +405,7 @@ export interface Heya {
   koenkaiBand: KoenkaiBandType;
   runwayBand: RunwayBand;
 
-  reputation: number; // 0..100 (hidden)
+  reputation: number;
   funds: number;
 
   facilities: {
@@ -523,7 +420,6 @@ export interface Heya {
     rivalry: boolean;
   };
 
-  /** Optional systems */
   trainingState?: BeyaTrainingState;
 
   descriptor?: string;
@@ -551,7 +447,6 @@ export interface BashoResult {
   nextBanzuke?: BanzukeSnapshot;
 }
 
-/** Runtime world state - uses Maps for efficient lookups */
 export interface WorldState {
   seed: string;
   year: number;
@@ -567,7 +462,6 @@ export interface WorldState {
   ftue: FTUEState;
   playerHeyaId?: Id;
 
-  /** last published banzuke (authoritative placement) */
   currentBanzuke?: BanzukeSnapshot;
 }
 
@@ -581,7 +475,7 @@ export interface SerializedBashoState {
   bashoName: BashoName;
   day: number;
   matches: MatchSchedule[];
-  standings: StandingsTable; // JSON safe
+  standings: StandingsTable;
 }
 
 export interface SerializedWorldState {
@@ -607,8 +501,6 @@ export interface SerializedWorldState {
  *  ========================= */
 
 export type SaveVersion = "1.0.0";
-
-/** Canon current save version (importable by saveload.ts) */
 export const CURRENT_SAVE_VERSION: SaveVersion = "1.0.0";
 
 export interface SaveGame {
@@ -616,13 +508,11 @@ export interface SaveGame {
   createdAtISO: string;
   lastSavedAtISO: string;
 
-  /** Future-proof: store options affecting determinism */
   ruleset: {
     banzukeAlgorithm: "slot_fill_v1";
-    kimariteRegistryVersion: string; // e.g. "82_official_v1"
+    kimariteRegistryVersion: string;
   };
 
-  /** JSON-safe world */
   world: SerializedWorldState;
 
   saveSlotName?: string;
