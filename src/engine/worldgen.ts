@@ -1,9 +1,8 @@
 // worldgen.ts
 // Generates the initial game state.
 //
-// UPDATES Phase 5:
-// - Generates Oyakata for every stable.
-// - Initializes `world.oyakata` map.
+// UPDATES Phase 5 Fix:
+// - Added `createNewStable` export to satisfy GameContext dependency.
 
 import { v4 as uuidv4 } from "uuid";
 import type { 
@@ -80,4 +79,44 @@ export function initializeBasho(world: WorldState, bashoName: BashoName) {
     matches: [],
     standings: new Map()
   };
+}
+
+// Added to satisfy GameContext import requirements
+export function createNewStable(id: string, name: string, oyakataId: string): Heya {
+    return {
+        id,
+        name,
+        oyakataId,
+        rikishiIds: [],
+        statureBand: "new",
+        prestigeBand: "modest",
+        facilitiesBand: "basic",
+        koenkaiBand: "none",
+        runwayBand: "tight",
+        reputation: 10,
+        funds: 10_000_000,
+        scandalScore: 0,
+        governanceStatus: "good_standing",
+        facilities: {
+            training: 10,
+            recovery: 10,
+            nutrition: 10
+        },
+        riskIndicators: {
+            financial: false,
+            governance: false,
+            rivalry: false
+        },
+        trainingState: {
+            profile: {
+                intensity: "balanced",
+                focus: "neutral",
+                styleBias: "neutral",
+                recovery: "normal"
+            },
+            focusSlots: [],
+            maxFocusSlots: 2
+        },
+        isPlayerOwned: false
+    };
 }
