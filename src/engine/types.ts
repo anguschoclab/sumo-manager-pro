@@ -1,9 +1,9 @@
 // types.ts
 // Clean, corrected, drop-in core types for Basho
 //
-// UPDATES Phase 4:
-// - Added `CyclePhase` enum
-// - Added `cyclePhase` to WorldState
+// UPDATES Phase 5:
+// - Added `Oyakata`, `OyakataArchetype`, `OyakataTraits`
+// - Added `oyakata` map to `WorldState`
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
@@ -357,6 +357,40 @@ export interface BeyaTrainingState {
 }
 
 /** =========================
+ * AI / Oyakata Personality
+ * ========================= */
+
+export type OyakataArchetype = 
+  | "traditionalist" 
+  | "scientist" 
+  | "gambler" 
+  | "nurturer" 
+  | "tyrant" 
+  | "strategist";
+
+export interface OyakataTraits {
+  ambition: number;    // 0-100: Desire for rank vs stability
+  patience: number;    // 0-100: Long-term vs short-term results
+  risk: number;        // 0-100: Willingness to risk injury/scandal
+  tradition: number;   // 0-100: Bias towards old methods (Yotsu, high discipline)
+  compassion: number;  // 0-100: Care for rikishi welfare
+}
+
+export interface Oyakata {
+  id: Id;
+  heyaId: Id;
+  name: string;
+  age: number;
+  archetype: OyakataArchetype;
+  traits: OyakataTraits;
+  
+  // Flavor
+  formerShikona?: string;
+  highestRank?: string;
+  yearsInCharge: number;
+}
+
+/** =========================
  * Rikishi / Heya / World
  * ========================= */
 
@@ -473,14 +507,13 @@ export interface WorldState {
   seed: string;
   year: number;
   week: number;
-  
-  // The global state of the game loop
   cyclePhase: CyclePhase; 
 
   currentBashoName?: BashoName;
 
   heyas: IdMapRuntime<Heya>;
   rikishi: IdMapRuntime<Rikishi>;
+  oyakata: IdMapRuntime<Oyakata>; // NEW MAP
 
   currentBasho?: BashoState;
   history: BashoResult[];
@@ -515,6 +548,7 @@ export interface SerializedWorldState {
 
   heyas: IdMap<Heya>;
   rikishi: IdMap<Rikishi>;
+  oyakata: IdMap<Oyakata>; // NEW SERIALIZED
 
   currentBasho?: SerializedBashoState;
   history: BashoResult[];
