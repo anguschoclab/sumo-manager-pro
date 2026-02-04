@@ -3,52 +3,23 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { GameProvider, useGame } from "@/contexts/GameContext";
-import { AppLayout } from "@/components/layout/AppLayout";
+import { GameProvider } from "./contexts/GameContext";
 
-// Pages
-import MainMenu from "./pages/MainMenu";
+import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
-import BashoPage from "./pages/BashoPage";
-import BanzukePage from "./pages/BanzukePage";
 import StablePage from "./pages/StablePage";
 import RikishiPage from "./pages/RikishiPage";
-import OyakataPage from "./pages/OyakataPage";
-import HistoryPage from "./pages/HistoryPage";
-import EconomyPage from "./pages/EconomyPage";
+import BashoPage from "./pages/BashoPage";
+import BanzukePage from "./pages/BanzukePage";
 import RivalriesPage from "./pages/RivalriesPage";
+import EconomyPage from "./pages/EconomyPage";
+import GovernancePage from "./pages/GovernancePage"; // NEW IMPORT
+import HistoryPage from "./pages/HistoryPage";
+import AlmanacPage from "./pages/AlmanacPage";
+import MainMenu from "./pages/MainMenu";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
-
-function AppRoutes() {
-  const { state } = useGame();
-  
-  // Show main menu if no world exists or no player heya is selected
-  if (!state.world || !state.world.playerHeyaId) {
-    return <MainMenu />;
-  }
-
-  return (
-    <AppLayout>
-      <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/basho" element={<BashoPage />} />
-        <Route path="/banzuke" element={<BanzukePage />} />
-        <Route path="/stable" element={<StablePage />} />
-        <Route path="/stable/:id" element={<StablePage />} />
-        <Route path="/rikishi/:id" element={<RikishiPage />} />
-        <Route path="/oyakata/:id" element={<OyakataPage />} />
-        <Route path="/rivalries" element={<RivalriesPage />} />
-        <Route path="/history" element={<HistoryPage />} />
-        <Route path="/economy" element={<EconomyPage />} />
-        <Route path="/governance" element={<Dashboard />} />
-        <Route path="/menu" element={<MainMenu />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </AppLayout>
-  );
-}
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -57,7 +28,21 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <AppRoutes />
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/main-menu" element={<MainMenu />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/stable" element={<StablePage />} />
+            <Route path="/rikishi/:rikishiId?" element={<RikishiPage />} />
+            <Route path="/basho" element={<BashoPage />} />
+            <Route path="/banzuke" element={<BanzukePage />} />
+            <Route path="/rivalries" element={<RivalriesPage />} />
+            <Route path="/economy" element={<EconomyPage />} />
+            <Route path="/governance" element={<GovernancePage />} /> {/* NEW ROUTE */}
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/almanac" element={<AlmanacPage />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
         </BrowserRouter>
       </GameProvider>
     </TooltipProvider>
