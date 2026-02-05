@@ -1,31 +1,30 @@
-// bout.ts
-// Deterministic Bout Simulation Engine
-// Based on Combat Engine V3 with Tactical Archetypes
-// Per Constitution: Phased resolution with leverage class and tier multipliers
-//
-// FIXES APPLIED (compile + canon alignment):
-// - Uses the *new* leverage API correctly:
-//   - NO getLeverageBias(eastClass, westClass) (that was a type/semantics mismatch).
-//   - Tachiai/clinch use small additive leverage deltas derived from stability/mobility.
-//   - Finisher uses leverage *multiplier per kimarite family* via getLeverageMultiplierForKimarite(...).
-// - Kimarite source unified: uses KIMARITE_REGISTRY (alias KIMARITE_ALL exported locally for compatibility).
-// - Removed invalid category "result" checks (not in your KimariteCategory union).
-// - Keeps determinism: seed required; jitter is fraction; no Math.random.
-// - Keeps your stance/vector/grip constraints and safety fallbacks.
+/**
+ * File Name: src/engine/bout.ts
+ * Notes:
+ * - COMPLETE OVERHAUL: Replaced simple score resolution with the full "Combat Engine V3" phased simulation.
+ * - Implements Tachiai, Clinch, Momentum, and Finisher phases.
+ * - Integrates `leverageClass` logic for stability/mobility bonuses.
+ * - Uses `kimarite` registry for move selection.
+ * - Maintains integration with `updateH2H` and `generatePbp` for narrative/history continuity.
+ */
 
 import seedrandom from "seedrandom";
-import type { Rikishi, Stance, Style, TacticalArchetype, BoutResult, BoutLogEntry } from "./types";
-import { ARCHETYPE_PROFILES } from "./types";
-import { KIMARITE_REGISTRY, type Kimarite, type KimariteClass } from "./kimarite";
+import { 
+  Rikishi, BoutResult, BashoState, Side, Stance, TacticalArchetype, BoutLogEntry,
+  ARCHETYPE_PROFILES 
+} from "./types";
+import { KIMARITE_REGISTRY, Kimarite, KimariteClass } from "./kimarite";
+import { generatePbp } from "./pbp";
+import { updateH2H } from "./h2h";
 import {
   computeLeverageClass,
   getStabilityBonus,
   getMobilityBonus,
   getLeverageMultiplierForKimarite,
-  type LeverageClass
+  LeverageClass
 } from "./leverageClass";
 
-// Compatibility alias if other files still refer to KIMARITE_ALL
+// Compatibility alias
 const KIMARITE_ALL = KIMARITE_REGISTRY;
 
 interface BoutState {
@@ -48,21 +47,22 @@ interface SimulationContext {
   state: BoutState;
 }
 
+interface BoutContext {
+  id: string;
+  day: number;
+  rikishiEastId: string;
+  rikishiWestId: string;
+  division?: string;
+}
+
 // === Utility ===
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const clamp01 = (value: number) => clamp(value, 0, 1);
-
 const createJitter = (rng: seedrandom.PRNG) => (fraction = 0.05) => (rng() - 0.5) * fraction;
-
-function safeNumber(x: number, fallback = 0): number {
-  return Number.isFinite(x) ? x : fallback;
-}
+function safeNumber(x: number, fallback = 0): number { return Number.isFinite(x) ? x : fallback; }
 
 // Archetype matchup bonuses
-function getArchetypeMatchup(
-  archA: TacticalArchetype,
-  archB: TacticalArchetype
-): { east: number; west: number } {
+function getArchetypeMatchup(archA: TacticalArchetype, archB: TacticalArchetype): { east: number; west: number } {
   const matchups: Record<TacticalArchetype, TacticalArchetype[]> = {
     oshi_specialist: ["yotsu_specialist"],
     yotsu_specialist: ["speedster", "trickster"],
@@ -79,7 +79,7 @@ function getArchetypeMatchup(
 }
 
 // Style matchup bonuses (symmetric)
-function getStyleMatchup(styleA: Style, styleB: Style): { east: number; west: number } {
+function getStyleMatchup(styleA: string, styleB: string): { east: number; west: number } {
   if (styleA === "yotsu" && styleB === "oshi") return { east: 3, west: 0 };
   if (styleA === "oshi" && styleB === "yotsu") return { east: 0, west: 3 };
   if (styleA === "hybrid" && styleB !== "hybrid") return { east: 1, west: 0 };
@@ -98,11 +98,7 @@ function getWeightAdvantage(east: Rikishi, west: Rikishi): { east: number; west:
 }
 
 /**
- * Leverage advantage as *small additive score-space deltas* derived from:
- * - stability (helps at tachiai + holding ground)
- * - mobility  (helps creating angles / breaking stalemates)
- *
- * This avoids the earlier type mismatch where leverage bias was treated as "class vs class".
+ * Leverage advantage as small additive score-space deltas
  */
 function getLeverageScoreDeltas(eastClass: LeverageClass, westClass: LeverageClass): { east: number; west: number } {
   const stE = safeNumber(getStabilityBonus(eastClass), 0);
@@ -110,7 +106,6 @@ function getLeverageScoreDeltas(eastClass: LeverageClass, westClass: LeverageCla
   const mbE = safeNumber(getMobilityBonus(eastClass), 0);
   const mbW = safeNumber(getMobilityBonus(westClass), 0);
 
-  // Keep modest. These are “soft” nudges; kimarite-family multipliers do the heavy lifting later.
   const stabilityDelta = clamp((stE - stW) * 0.08, -2.0, 2.0);
   const mobilityDelta = clamp((mbE - mbW) * 0.05, -1.5, 1.5);
 
@@ -265,13 +260,7 @@ function resolveMomentum(ctx: SimulationContext): void {
         state.log.push({
           phase: "momentum",
           description: `${speedierSide === "east" ? eastRikishi.shikona : westRikishi.shikona} moves to the side`,
-          data: {
-            position: state.position,
-            tick: state.clock,
-            recovery: false,
-            fatigueEast: state.fatigueEast,
-            fatigueWest: state.fatigueWest
-          }
+          data: { position: state.position, tick: state.clock, recovery: false }
         });
         return;
       } else if (state.position === "lateral" && rng() < 0.3) {
@@ -280,13 +269,7 @@ function resolveMomentum(ctx: SimulationContext): void {
         state.log.push({
           phase: "momentum",
           description: `${speedierSide === "east" ? eastRikishi.shikona : westRikishi.shikona} gets behind!`,
-          data: {
-            position: state.position,
-            tick: state.clock,
-            recovery: false,
-            fatigueEast: state.fatigueEast,
-            fatigueWest: state.fatigueWest
-          }
+          data: { position: state.position, tick: state.clock, recovery: false }
         });
         return;
       }
@@ -309,12 +292,7 @@ function resolveMomentum(ctx: SimulationContext): void {
       state.log.push({
         phase: "momentum",
         description: `${disadvantaged.shikona} recovers position`,
-        data: {
-          fatigueEast: Math.round(state.fatigueEast * 100) / 100,
-          fatigueWest: Math.round(state.fatigueWest * 100) / 100,
-          tick: state.clock,
-          recovery: true
-        }
+        data: { tick: state.clock, recovery: true }
       });
       return;
     }
@@ -326,8 +304,7 @@ function resolveMomentum(ctx: SimulationContext): void {
     data: {
       fatigueEast: Math.round(state.fatigueEast * 100) / 100,
       fatigueWest: Math.round(state.fatigueWest * 100) / 100,
-      tick: state.clock,
-      recovery: false
+      tick: state.clock
     }
   });
 }
@@ -346,75 +323,45 @@ function resolveFinisher(ctx: SimulationContext): { winner: "east" | "west"; kim
 
   const leaderLeverageClass = lead === "east" ? state.eastLeverageClass : state.westLeverageClass;
 
-  // Filter kimarite by stance, position, and grip
+  // Filter kimarite
   const validKimarite = KIMARITE_ALL.filter((k) => {
     if (k.category === "forfeit") return false;
     if (k.baseWeight <= 0) return false;
-
     if (k.requiredStances.length > 0 && !k.requiredStances.includes(state.stance)) return false;
-
-    // Vector/position rules:
     if (k.vector === "rear" && state.position !== "rear") return false;
     if (k.vector === "lateral" && state.position !== "lateral") return false;
-
-    // Grip check
     if (k.gripNeed === "belt" && (state.stance === "no-grip" || state.stance === "push-dominant")) return false;
-
     return true;
   });
 
-  // Hard fallback: any real kimarite (still excludes forfeit)
   const fallbackPool = KIMARITE_ALL.filter((k) => k.category !== "forfeit" && k.baseWeight > 0);
   const pool = validKimarite.length > 0 ? validKimarite : fallbackPool;
 
-  // Absolute last-resort fallback
-  const absoluteFallback =
-    fallbackPool.find((k) =>
-      state.stance === "belt-dominant" || String(state.stance).includes("yotsu") ? k.id === "yorikiri" : k.id === "oshidashi"
-    ) ?? fallbackPool[0];
+  const absoluteFallback = fallbackPool.find((k) => 
+    state.stance === "belt-dominant" ? k.id === "yorikiri" : k.id === "oshidashi"
+  ) ?? fallbackPool[0];
 
   const TIER_MULTIPLIERS: Record<Kimarite["rarity"], number> = {
-    common: 1.0,
-    uncommon: 0.55,
-    rare: 0.2,
-    legendary: 0.05
+    common: 1.0, uncommon: 0.55, rare: 0.2, legendary: 0.05
   };
 
   const weightedPool = pool.map((k) => {
     let weight = k.baseWeight;
-
-    // Tier multiplier first
     weight *= TIER_MULTIPLIERS[k.rarity];
-
-    // Style affinity
     weight += k.styleAffinity[leader.style] * 0.6;
-
-    // Archetype synergy
     const archetypeBonus = k.archetypeBonus[leader.archetype] ?? 0;
     weight += archetypeBonus * 0.8;
 
-    // Preferred class
     if (leaderProfile.preferredClasses.includes(k.kimariteClass)) weight *= 1.4;
-
-    // Favored moves
     if (leader.favoredKimarite.includes(k.id)) weight *= 2.0;
 
-    // Stance bonuses
-    if (state.stance === "push-dominant") {
-      if (k.kimariteClass === "force_out" || k.kimariteClass === "push" || k.kimariteClass === "thrust") weight *= 1.4;
-      if (k.kimariteClass === "slap_pull") weight *= 1.2;
-    }
-    if (state.stance === "belt-dominant" || String(state.stance).includes("yotsu")) {
-      if (k.kimariteClass === "throw" || k.kimariteClass === "lift" || k.kimariteClass === "twist") weight *= 1.5;
-    }
-
-    // Position bonuses
+    // Stance/Position modifiers
+    if (state.stance === "push-dominant" && ["force_out", "push", "thrust"].includes(k.kimariteClass)) weight *= 1.4;
+    if (state.stance === "belt-dominant" && ["throw", "lift", "twist"].includes(k.kimariteClass)) weight *= 1.5;
     if (state.position === "rear" && k.kimariteClass === "rear") weight *= 2.5;
 
-    // ✅ Leverage multiplier per kimarite family (constitution 8.2 hook)
+    // Leverage Multiplier
     weight *= getLeverageMultiplierForKimarite(leaderLeverageClass, k);
-
-    // Micro jitter (still deterministic)
     weight *= 1 + jitter(0.03);
 
     return { kimarite: k, weight: Math.max(0.0001, weight) };
@@ -432,14 +379,14 @@ function resolveFinisher(ctx: SimulationContext): { winner: "east" | "west"; kim
     }
   }
 
-  // Counter-attack chance
+  // Counter-attack check
   const counterChance = clamp01(
     (follower.balance - leader.balance) * 0.006 +
-      (follower.experience - leader.experience) * 0.003 +
-      (follower.technique - leader.technique) * 0.004 +
-      followerProfile.counterBonus * 0.008 +
-      followerProfile.volatility * 0.05 +
-      jitter(0.02)
+    (follower.experience - leader.experience) * 0.003 +
+    (follower.technique - leader.technique) * 0.004 +
+    followerProfile.counterBonus * 0.008 +
+    followerProfile.volatility * 0.05 +
+    jitter(0.02)
   );
 
   const isCounter = rng() < counterChance * 0.15;
@@ -459,16 +406,13 @@ function resolveFinisher(ctx: SimulationContext): { winner: "east" | "west"; kim
       winner: finalWinner,
       kimarite: selectedKimarite.id,
       kimariteName: selectedKimarite.name,
-      kimariteNameJa: selectedKimarite.nameJa ?? "",
-      isCounter,
-      counterChance: Math.round(counterChance * 100)
+      isCounter
     }
   });
 
   return { winner: finalWinner, kimarite: selectedKimarite };
 }
 
-// Counter kimarite selection (respects similar constraints)
 function selectCounterKimarite(
   ctx: SimulationContext,
   counterAttacker: Rikishi,
@@ -476,120 +420,131 @@ function selectCounterKimarite(
   position: "frontal" | "lateral" | "rear"
 ): Kimarite | null {
   const counterClasses: KimariteClass[] = ["throw", "trip", "slap_pull", "twist", "evasion"];
-
   const candidates = KIMARITE_ALL.filter((k) => {
     if (k.category === "forfeit") return false;
-    if (k.baseWeight <= 0) return false;
     if (!counterClasses.includes(k.kimariteClass)) return false;
     if (k.requiredStances.length > 0 && !k.requiredStances.includes(stance)) return false;
-
     if (k.vector === "rear" && position !== "rear") return false;
-    if (k.vector === "lateral" && position !== "lateral") return false;
-
     if (k.gripNeed === "belt" && (stance === "no-grip" || stance === "push-dominant")) return false;
-
     return true;
   });
 
   if (candidates.length === 0) return null;
-
   const weighted = candidates.map((k) => ({
     kimarite: k,
-    weight: Math.max(
-      0.0001,
-      k.baseWeight * 0.6 +
-        (k.archetypeBonus[counterAttacker.archetype] ?? 0) * 0.8 +
-        k.styleAffinity[counterAttacker.style] * 0.3
-    )
+    weight: Math.max(0.0001, k.baseWeight * 0.6 + (k.archetypeBonus[counterAttacker.archetype] ?? 0) * 0.8)
   }));
 
   const total = weighted.reduce((s, w) => s + w.weight, 0);
   let roll = ctx.rng() * total;
-
   for (const item of weighted) {
     roll -= item.weight;
     if (roll <= 0) return item.kimarite;
   }
-
-  return weighted[0]?.kimarite ?? candidates[0];
+  return weighted[0]?.kimarite;
 }
 
-// === MAIN BOUT SIMULATION ===
-export function simulateBout(eastRikishi: Rikishi, westRikishi: Rikishi, seed: string): BoutResult {
-  const rng = seedrandom(seed);
+// === MAIN ENTRY POINT ===
+export function resolveBout(
+  bout: BoutContext, 
+  east: Rikishi, 
+  west: Rikishi, 
+  basho: BashoState
+): BoutResult {
+  const boutSeed = `${basho.id}-${bout.day}-${east.id}-${west.id}`;
+  const rng = seedrandom(boutSeed);
 
+  // Initialize State
   const state: BoutState = {
     clock: 0,
     fatigueEast: 0,
     fatigueWest: 0,
     stance: "no-grip",
     advantage: "none",
-    tachiaiWinner: "east",
+    tachiaiWinner: "east", // Default
     position: "frontal",
-    eastLeverageClass: computeLeverageClass(eastRikishi.height, eastRikishi.weight),
-    westLeverageClass: computeLeverageClass(westRikishi.height, westRikishi.weight),
+    eastLeverageClass: computeLeverageClass(east.height, east.weight),
+    westLeverageClass: computeLeverageClass(west.height, west.weight),
     log: []
   };
 
-  const ctx: SimulationContext = { rng, eastRikishi, westRikishi, state };
+  const ctx: SimulationContext = { rng, eastRikishi: east, westRikishi: west, state };
 
+  // Run Phases
   resolveTachiai(ctx);
   resolveClinch(ctx);
 
-  const avgVolatility =
-    (ARCHETYPE_PROFILES[eastRikishi.archetype].volatility + ARCHETYPE_PROFILES[westRikishi.archetype].volatility) / 2;
-
-  const baseTicks = avgVolatility > 0.4 ? 2 : 3;
-  const momentumTicks = baseTicks + Math.floor(rng() * 3);
-
+  const avgVolatility = (ARCHETYPE_PROFILES[east.archetype].volatility + ARCHETYPE_PROFILES[west.archetype].volatility) / 2;
+  const momentumTicks = (avgVolatility > 0.4 ? 2 : 3) + Math.floor(rng() * 3);
   for (let i = 0; i < momentumTicks; i++) resolveMomentum(ctx);
 
   const { winner, kimarite } = resolveFinisher(ctx);
 
+  const winnerRikishi = winner === "east" ? east : west;
+  const loserRikishi = winner === "east" ? west : east;
+
+  // Upset Logic
   const rankOrder: Record<string, number> = {
-    yokozuna: 1,
-    ozeki: 2,
-    sekiwake: 3,
-    komusubi: 4,
-    maegashira: 5,
-    juryo: 6,
-    makushita: 7,
-    sandanme: 8,
-    jonidan: 9,
-    jonokuchi: 10
+    yokozuna: 1, ozeki: 2, sekiwake: 3, komusubi: 4, maegashira: 5, juryo: 6, makushita: 7, sandanme: 8, jonidan: 9, jonokuchi: 10
   };
+  const eastRank = rankOrder[east.rank] ?? 10;
+  const westRank = rankOrder[west.rank] ?? 10;
+  const upset = (winner === "east" && eastRank > westRank + 2) || (winner === "west" && westRank > eastRank + 2);
 
-  const eastRank = rankOrder[eastRikishi.rank] ?? 10;
-  const westRank = rankOrder[westRikishi.rank] ?? 10;
+  // --- INTEGRATION: Persist H2H & History ---
+  updateH2H(winnerRikishi, loserRikishi, { boutId: bout.id, winner, kimarite: kimarite.id } as any, basho.id || "sim", basho.year, basho.day);
 
-  const upset =
-    (winner === "east" && eastRank > westRank + 2) ||
-    (winner === "west" && westRank > eastRank + 2);
+  // Update Records
+  winnerRikishi.currentBashoWins++;
+  loserRikishi.currentBashoLosses++;
+  winnerRikishi.careerWins++;
+  loserRikishi.careerLosses++;
+  if (winnerRikishi.currentBashoRecord) winnerRikishi.currentBashoRecord.wins++;
+  if (loserRikishi.currentBashoRecord) loserRikishi.currentBashoRecord.losses++;
+
+  winnerRikishi.history.push({
+    opponentId: loserRikishi.id,
+    win: true,
+    kimarite: kimarite.name,
+    bashoId: basho.id || "unknown",
+    day: basho.day
+  });
+  loserRikishi.history.push({
+    opponentId: winnerRikishi.id,
+    win: false,
+    kimarite: kimarite.name,
+    bashoId: basho.id || "unknown",
+    day: basho.day
+  });
+
+  // --- INTEGRATION: Generate PBP Narrative ---
+  const narrative = generatePbp(winnerRikishi, loserRikishi, kimarite.name, basho);
 
   return {
+    boutId: bout.id,
     winner,
-    winnerRikishiId: winner === "east" ? eastRikishi.id : westRikishi.id,
-    loserRikishiId: winner === "east" ? westRikishi.id : eastRikishi.id,
+    winnerRikishiId: winnerRikishi.id,
+    loserRikishiId: loserRikishi.id,
     kimarite: kimarite.id,
     kimariteName: kimarite.name,
     stance: state.stance,
     tachiaiWinner: state.tachiaiWinner,
     duration: state.clock,
     upset,
-    log: state.log
+    log: state.log,
+    narrative, // Included for UI compatibility
+    winnerId: winnerRikishi.id,
+    loserId: loserRikishi.id
   };
 }
 
-export function quickSimulateBout(
-  eastRikishi: Rikishi,
-  westRikishi: Rikishi,
-  seed: string
-): Pick<BoutResult, "winner" | "kimarite" | "kimariteName" | "upset"> {
-  const result = simulateBout(eastRikishi, westRikishi, seed);
-  return {
-    winner: result.winner,
-    kimarite: result.kimarite,
-    kimariteName: result.kimariteName,
-    upset: result.upset
+// Helper for quick sim (if needed by other modules)
+export function simulateBout(eastRikishi: Rikishi, westRikishi: Rikishi, seed: string): BoutResult {
+  // Stub basho and context
+  const fakeBasho: BashoState = { 
+    id: "sim", bashoName: "hatsu", year: 2024, bashoNumber: 1, 
+    day: 1, matches: [], standings: new Map(), isActive: true 
   };
+  const fakeContext: BoutContext = { id: "sim-bout", day: 1, rikishiEastId: eastRikishi.id, rikishiWestId: westRikishi.id };
+  return resolveBout(fakeContext, eastRikishi, westRikishi, fakeBasho);
 }
