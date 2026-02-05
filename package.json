@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check:determinism": "node scripts/check-determinism.mjs"
+    "check:determinism": "node scripts/check-determinism.mjs",
+    "check:engine-rng": "node scripts/check-determinism.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

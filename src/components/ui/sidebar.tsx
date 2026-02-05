@@ -531,10 +531,14 @@ const SidebarMenuSkeleton = React.forwardRef<
     showIcon?: boolean;
   }
 >(({ className, showIcon = false, ...props }, ref) => {
-  // Random width between 50 to 90%.
-  const width = React.useMemo(() => {
-    return `${Math.floor(Math.random() * 40) + 50}%`;
-  }, []);
+// Deterministic placeholder width between 50% and 90% (deterministic).
+const width = React.useMemo(() => {
+  const key = `${className ?? ""}::${showIcon ? "1" : "0"}`;
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  const pct = 50 + (h % 41); // 50..90
+  return `${pct}%`;
+}, [className, showIcon]);
 
   return (
     <div

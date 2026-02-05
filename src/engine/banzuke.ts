@@ -4,7 +4,7 @@
 // UPDATES Phase 2:
 // - Added `determineSpecialPrizes` logic (Shukun-sho, Kanto-sho, Gino-sho) based on Canon V1.1
 
- import type { Rank, Division, RankPosition, Rikishi, BoutResult, MatchSchedule } from "./types";
+import type { Rank, Division, RankPosition, Rikishi, BoutResult, BashoMatch } from "./types";
 import { KIMARITE_REGISTRY } from "./kimarite";
 
 // === RANK HIERARCHY ===
@@ -249,7 +249,7 @@ export interface SpecialPrizesResult {
 }
 
 export function determineSpecialPrizes(
-   matches: MatchSchedule[],
+  matches: BashoMatch[],
   rikishiMap: Map<string, Rikishi>,
   yushoId: string
 ): SpecialPrizesResult {

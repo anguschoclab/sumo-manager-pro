@@ -5,7 +5,7 @@
 
 import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
- import type { WorldState, Heya, BoutResult, MatchSchedule, Rikishi, Id } from "./types";
+import type { WorldState, Heya, BoutResult, BashoMatch, Rikishi, Id } from "./types";
 import { reportScandal } from "./governance";
 import { RANK_HIERARCHY } from "./banzuke"; // Need salary data
 
@@ -111,15 +111,13 @@ function handleInsolvency(heya: Heya, world: WorldState): void {
  */
 export function onBoutResolved(
   world: WorldState,
-   context: { match: MatchSchedule; result: BoutResult; east: Rikishi; west: Rikishi }
+  context: { match: BashoMatch; result: BoutResult; east: Rikishi; west: Rikishi }
 ): void {
   const { result, east, west } = context;
- 
-   const matchId = String(context.match?.day ?? "unknown");
-   const boutLabel = `${matchId}::${east.id}::${west.id}`;
-   const rng = rngForWorld(world, "kensho", boutLabel);
- 
-   // Only Makuuchi bouts generate Kensho normally
+  
+  
+  const rng = rngForWorld(world, "kensho::${context.match?.id ?? context.match?.day ?? "?"}::${east.id}::${west.id}".split("::")[0], "kensho::${context.match?.id ?? context.match?.day ?? "?"}::${east.id}::${west.id}".split("::").slice(1).join("::"));
+// Only Makuuchi bouts generate Kensho normally
   if (east.division !== "makuuchi") return;
 
   // Simple stochastic kensho for now (random 0-5 envelopes for top ranks)

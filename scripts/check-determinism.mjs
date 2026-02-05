@@ -5,6 +5,7 @@ const ENGINE_DIR = path.resolve("src/engine");
 const DISALLOWED = [
   { name: "Math.random", pattern: /\bMath\.random\s*\(/g },
   { name: "seedrandom import/call", pattern: /\bseedrandom\b/g },
+  { name: "new SeededRNG constructor", pattern: /\bnew\s+SeededRNG\s*\(/g },
 ];
 
 function stripComments(code) {

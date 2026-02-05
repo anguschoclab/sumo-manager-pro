@@ -79,8 +79,7 @@ function deserializeBashoState(basho: SerializedBashoState): BashoState {
     bashoName: basho.bashoName,
     day: basho.day,
     matches: basho.matches,
-     standings: objectToMap(basho.standings),
-     isActive: true
+    standings: objectToMap(basho.standings)
   };
 }
 
@@ -91,11 +90,9 @@ export function serializeWorld(world: WorldState): SerializedWorldState {
     seed: world.seed,
     year: world.year,
     week: world.week,
-     cyclePhase: world.cyclePhase,
     currentBashoName: world.currentBashoName,
     heyas: mapToObject(world.heyas),
     rikishi: mapToObject(world.rikishi),
-     oyakata: mapToObject(world.oyakata),
     currentBasho: world.currentBasho ? serializeBashoState(world.currentBasho) : undefined,
     history: world.history,
     ftue: world.ftue,
@@ -147,11 +144,9 @@ export function deserializeWorld(serialized: SerializedWorldState): WorldState {
     seed: serialized.seed,
     year: serialized.year,
     week: serialized.week,
-     cyclePhase: (serialized as any).cyclePhase || "interim",
     currentBashoName: serialized.currentBashoName,
     heyas: objectToMap(heyasObj),
     rikishi: objectToMap(rikishiObj),
-     oyakata: objectToMap((serialized as any).oyakata || {}),
     currentBasho: serialized.currentBasho ? deserializeBashoState(serialized.currentBasho) : undefined,
     history: serialized.history,
     ftue: serialized.ftue,

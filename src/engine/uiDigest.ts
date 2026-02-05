@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 // uiDigest.ts
 // =======================================================
 // UI Digest — transforms engine/world state into a compact weekly report.
@@ -9,9 +8,6 @@
 // =======================================================
 
 import type { WorldState, Rikishi, Heya } from "./types";
-=======
- import type { WorldState, BashoState, Rikishi } from "./types";
->>>>>>> 5d0ed87c25a38491e219371f91ad67dcb9bdb4ed
 import { generateH2HCommentary } from "./h2h";
 
 export type DigestKind =
@@ -29,7 +25,6 @@ export interface DigestItem {
   id: string;
   kind: DigestKind;
   title: string;
-<<<<<<< HEAD
   detail?: string;
   rikishiId?: string;
   heyaId?: string;
@@ -40,44 +35,6 @@ export interface DigestSection {
   title: string;
   items: DigestItem[];
 }
-=======
-  description: string;
-  icon?: string; // e.g., "sword", "trophy", "skull", "fire", "bandage", "star", "calendar"
-   kind?: string;
-   rikishiId?: string;
-   heyaId?: string;
-   detail?: string;
- }
- 
- export interface DigestSection {
-   id: string;
-   title: string;
-   items: DigestItem[];
- }
- 
- export interface UIDigest {
-   scope: "week" | "basho";
-   privacyMode: "player" | "world";
-   time: {
-     year: number;
-     label?: string;
-   };
-   headline?: string;
-   sections: DigestSection[];
-   counts: {
-     totalItems: number;
-     trainingEvents: number;
-     injuries: number;
-     salaries: number;
-     koenkai: number;
-     expenses: number;
-   };
-}
-
- export function generateWeeklyDigest(state: WorldState): DigestItem[] {
-  const digest: DigestItem[] = [];
-   const basho = state.currentBasho as BashoState | undefined;
->>>>>>> 5d0ed87c25a38491e219371f91ad67dcb9bdb4ed
 
 export interface UIDigest {
   time: { label: string };
