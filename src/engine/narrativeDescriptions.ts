@@ -1,15 +1,13 @@
-// narrativeDescriptions.ts
-// Narrative Description System — Converts numeric values to prose
-// Per Master Context v1.4: "Numbers appear only where money, rank, or time demand them"
-//
-// FIXES APPLIED (canon + robustness):
-// - Strong typing for keys (AttributeKey, FacilityType, CareerPhase, ArchetypeKey, StyleKey).
-// - Clamps/guards for out-of-range inputs (and NaN).
-// - Momentum supports both [-5..+5] (engine-ish) and [0..100] (UI-ish) safely.
-// - describeRecord: supports absences if you track them, but keeps old signature via overload.
-// - Added missing archetypes (hybrid_oshi_yotsu, counter_specialist) to match the 7 archetypes used elsewhere.
-// - Normalized copy tone and removed accidental value leaks (no numbers except record string).
-// - Fixed a few wording mismatches (“belt-dominant” etc. not referenced here; leaving narrative generic).
+/**
+ * File Name: src/engine/narrativeDescriptions.ts
+ * Notes:
+ * - COMPLETE OVERHAUL: Implemented robust narrative description system.
+ * - Converts numeric values (0-100) into rich prose for attributes, momentum, stamina, etc.
+ * - Supports verbose descriptions for profile pages, commentary, Heya, and Oyakata.
+ * - Added 'describeRecord' for win/loss tracking.
+ * - Added Oyakata and Heya description helpers.
+ * - Exports all necessary types and helper functions.
+ */
 
 export type AttributeKey = "power" | "speed" | "balance" | "technique";
 export type FacilityType = "training" | "recovery" | "nutrition";
@@ -24,10 +22,17 @@ export type ArchetypeKey =
   | "hybrid_oshi_yotsu"
   | "counter_specialist";
 
+export type OyakataArchetypeKey = 
+  | "traditionalist" 
+  | "scientist" 
+  | "gambler" 
+  | "nurturer" 
+  | "tyrant" 
+  | "strategist";
+
 // ---- small helpers ----
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 const safe = (x: number, fallback: number) => (Number.isFinite(x) ? x : fallback);
-const clamp01 = (x: number) => clamp(x, 0, 1);
 
 // Attribute descriptions (0–100)
 export function describeAttribute(value: number): string {
@@ -108,24 +113,24 @@ export function describeAggressionVerbose(value: number): string {
   return "Overly cautious; rarely initiates.";
 }
 
-// Experience (basho count, 0+)
+// Experience (0–100)
 export function describeExperience(value: number): string {
   const v = Math.max(0, Math.floor(safe(value, 0)));
-  if (v >= 60) return "Veteran";
-  if (v >= 40) return "Experienced";
-  if (v >= 24) return "Established";
-  if (v >= 12) return "Developing";
-  if (v >= 6) return "Green";
+  if (v >= 80) return "Veteran";
+  if (v >= 60) return "Experienced";
+  if (v >= 40) return "Established";
+  if (v >= 20) return "Developing";
+  if (v >= 10) return "Green";
   return "Novice";
 }
 
 export function describeExperienceVerbose(value: number): string {
   const v = Math.max(0, Math.floor(safe(value, 0)));
-  if (v >= 60) return "A seasoned veteran who has seen everything the dohyo offers.";
-  if (v >= 40) return "Years of experience inform his every move.";
-  if (v >= 24) return "Established at this level, comfortable in his routines.";
-  if (v >= 12) return "Still learning, but no longer a newcomer.";
-  if (v >= 6) return "Young and eager, with much still to learn.";
+  if (v >= 80) return "A seasoned veteran who has seen everything the dohyo offers.";
+  if (v >= 60) return "Years of experience inform his every move.";
+  if (v >= 40) return "Established at this level, comfortable in his routines.";
+  if (v >= 20) return "Still learning, but no longer a newcomer.";
+  if (v >= 10) return "Young and eager, with much still to learn.";
   return "A fresh face, everything still ahead.";
 }
 
@@ -150,11 +155,9 @@ export function describeStaminaVerbose(value: number): string {
   return "Runs out of gas quickly; prefers short bouts.";
 }
 
-// Momentum: supports either [-5..+5] (engine) or [0..100] (UI).
+// Momentum
 export function describeMomentum(value: number): string {
   const vRaw = safe(value, 0);
-
-  // Heuristic: if it's outside [-10..+10], treat as 0..100 and normalize.
   const v = Math.abs(vRaw) > 10 ? (clamp(vRaw, 0, 100) - 50) / 10 : clamp(vRaw, -5, 5);
 
   if (v >= 3) return "On fire";
@@ -184,11 +187,48 @@ export function describeCareerPhaseVerbose(phase: CareerPhase | string): string 
     declining: "Experience compensates for fading physicality.",
     twilight: "The end approaches, but pride drives him forward."
   };
-
   return descriptions[phase as CareerPhase] ?? "Career status uncertain.";
 }
 
-// Fatigue (0–100, hidden from player)
+// Win/Loss trend
+export function describeRecord(wins: number, losses: number): { record: string; assessment: string };
+export function describeRecord(wins: number, losses: number, absences: number): { record: string; assessment: string };
+export function describeRecord(wins: number, losses: number, absences = 0): { record: string; assessment: string } {
+  const w = Math.max(0, Math.floor(safe(wins, 0)));
+  const l = Math.max(0, Math.floor(safe(losses, 0)));
+  const a = Math.max(0, Math.floor(safe(absences, 0)));
+
+  const record = a > 0 ? `${w}-${l}-${a}` : `${w}-${l}`;
+  const total = w + l;
+
+  if (total === 0) return { record, assessment: "No bouts yet" };
+
+  const winRate = w / total;
+  let assessment: string;
+
+  if (winRate >= 0.8) assessment = "Dominant";
+  else if (winRate >= 0.6) assessment = "Strong";
+  else if (winRate >= 0.5) assessment = "Competitive";
+  else if (winRate >= 0.4) assessment = "Struggling";
+  else assessment = "In trouble";
+
+  if (a > 0 && assessment !== "Dominant") {
+    assessment = `${assessment} (hampered by absence)`;
+  }
+
+  return { record, assessment };
+}
+
+// Injury status
+export function describeInjuryVerbose(weeksRemaining: number): string {
+  const w = Math.max(0, Math.floor(safe(weeksRemaining, 0)));
+  if (w >= 8) return "Facing a long road to recovery.";
+  if (w >= 4) return "Healing, but still weeks away.";
+  if (w >= 2) return "Progressing well; return in sight.";
+  return "Nearly recovered; could return soon.";
+}
+
+// Fatigue
 export function describeFatigue(value: number): string {
   const v = clamp(safe(value, 0), 0, 100);
   if (v <= 10) return "Fresh";
@@ -207,7 +247,7 @@ export function describeFatigueVerbose(value: number): string {
   return "Running on empty; every bout a struggle.";
 }
 
-// Training effects (multipliers to narrative)
+// Training effects
 export function describeTrainingEffect(multiplier: number): string {
   const m = clamp(safe(multiplier, 1), 0, 10);
   if (m >= 1.5) return "Dramatically increases";
@@ -219,16 +259,7 @@ export function describeTrainingEffect(multiplier: number): string {
   return "Dramatically reduces";
 }
 
-// Injury status (weeks remaining)
-export function describeInjuryVerbose(weeksRemaining: number): string {
-  const w = Math.max(0, Math.floor(safe(weeksRemaining, 0)));
-  if (w >= 8) return "Facing a long road to recovery.";
-  if (w >= 4) return "Healing, but still weeks away.";
-  if (w >= 2) return "Progressing well; return in sight.";
-  return "Nearly recovered; could return soon.";
-}
-
-// Reputation/Prestige (never show numbers)
+// Reputation/Prestige
 export function describeReputation(value: number): string {
   const v = clamp(safe(value, 0), 0, 100);
   if (v >= 90) return "Legendary";
@@ -251,7 +282,7 @@ export function describeReputationVerbose(value: number): string {
   return "Little known outside dedicated followers.";
 }
 
-// Facility quality (0–100)
+// Facility quality
 export function describeFacilityQuality(value: number): string {
   const v = clamp(safe(value, 0), 0, 100);
   if (v >= 85) return "State-of-the-art";
@@ -296,49 +327,7 @@ export function describeFacilityVerbose(type: FacilityType | string, value: numb
   return descriptions[key]?.[level] ?? `${level} ${String(type)} facilities`;
 }
 
-// Comparative descriptions
-export function compareAttribute(value: number, average: number): string {
-  const v = safe(value, 0);
-  const a = safe(average, 0);
-  const diff = v - a;
-  if (diff >= 20) return "far above peers";
-  if (diff >= 10) return "above average";
-  if (diff >= -10) return "typical for his rank";
-  if (diff >= -20) return "below average";
-  return "well below peers";
-}
-
-// Win/Loss trend (numbers allowed here)
-export function describeRecord(wins: number, losses: number): { record: string; assessment: string };
-export function describeRecord(wins: number, losses: number, absences: number): { record: string; assessment: string };
-export function describeRecord(wins: number, losses: number, absences = 0): { record: string; assessment: string } {
-  const w = Math.max(0, Math.floor(safe(wins, 0)));
-  const l = Math.max(0, Math.floor(safe(losses, 0)));
-  const a = Math.max(0, Math.floor(safe(absences, 0)));
-
-  const record = a > 0 ? `${w}-${l}-${a}` : `${w}-${l}`;
-  const total = w + l;
-
-  if (total === 0) return { record, assessment: "No bouts yet" };
-
-  const winRate = w / total;
-  let assessment: string;
-
-  if (winRate >= 0.8) assessment = "Dominant";
-  else if (winRate >= 0.6) assessment = "Strong";
-  else if (winRate >= 0.5) assessment = "Competitive";
-  else if (winRate >= 0.4) assessment = "Struggling";
-  else assessment = "In trouble";
-
-  if (a > 0 && assessment !== "Dominant") {
-    // Don't mention numbers; just add context.
-    assessment = `${assessment} (hampered by absence)`;
-  }
-
-  return { record, assessment };
-}
-
-// Archetype narrative descriptions (7 archetypes)
+// Archetype narrative descriptions
 export function describeArchetypeVerbose(archetype: ArchetypeKey | string): string {
   const descriptions: Record<ArchetypeKey, string> = {
     oshi_specialist: "A pure pusher-thruster who overwhelms with forward pressure.",
@@ -349,7 +338,6 @@ export function describeArchetypeVerbose(archetype: ArchetypeKey | string): stri
     hybrid_oshi_yotsu: "Comfortable both pushing and on the belt—shifts plans mid-bout.",
     counter_specialist: "Patient and reactive—turns an opponent’s attack into their undoing."
   };
-
   return descriptions[archetype as ArchetypeKey] ?? "A distinctive fighting style.";
 }
 
@@ -360,6 +348,18 @@ export function describeStyleVerbose(style: StyleKey | string): string {
     yotsu: "Seeks the belt, using grips to control and throw.",
     hybrid: "Comfortable both pushing and on the belt; adapts to each opponent."
   };
-
   return descriptions[style as StyleKey] ?? "Distinctive approach to sumo.";
+}
+
+// Oyakata Personality Descriptions
+export function describeOyakataPersonality(archetype: OyakataArchetypeKey | string): string {
+  const descriptions: Record<OyakataArchetypeKey, string> = {
+    traditionalist: "Values discipline and Kihon above all else. Training is grueling but builds strong character.",
+    scientist: "Analyses data and biomechanics to optimize performance. Open to new methods.",
+    gambler: "Takes risks in training and recruitment. Seeks high-reward talent regardless of quirks.",
+    nurturer: "Prioritizes wrestler health and longevity. Builds a supportive, family-like atmosphere.",
+    tyrant: "Rules with an iron fist. Demands absolute obedience and effort, often at a cost.",
+    strategist: "Focuses on match tactics and analyzing opponents. Masters of the mental game."
+  };
+  return descriptions[archetype as OyakataArchetypeKey] ?? "A leader with their own unique philosophy.";
 }
