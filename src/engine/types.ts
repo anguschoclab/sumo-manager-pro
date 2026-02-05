@@ -6,7 +6,7 @@
  * - Added detailed Banzuke types (RankPosition, BanzukeAssignment).
  * - Integrated H2H and Lifecycle fields into the robust Rikishi interface.
  * - Added Oyakata and Governance structures.
- * - ADDED: History System (System 6) definitions.
+ * - MERGED: History System (System 6) definitions.
  */
 
 export type Id = string;
@@ -595,28 +595,27 @@ export interface BashoResult {
  * History & Event Sourcing (System 6)
  * ========================= */
 
-// 1. The Core Event Envelope
-export interface HistoryEvent {
-  id: string;              // Immutable UUID (e.g. "EVT-2026-001")
-  type: HistoryEventType;  // Discriminator
-  tick: {                  // When it happened (SimTime)
-    year: number;
-    month: number;
-    week: number;
-    day?: number;          // 1-31 (calendar day) or 1-15 (basho day)
-    bashoId?: string;      // e.g. "2026.01"
-  };
-  entities: {              // Who was involved (for fast indexing)
-    primaryId: Id;         // The main subject (Rikishi, Beya, etc.)
-    secondaryIds?: Id[];   // Opponent, Sponsor, Staff
-    beyaId?: Id;           // Contextual stable
-  };
-  payload: Record<string, any>; // The immutable fact data
-  importance: "routine" | "notable" | "major" | "headline";
-  causedByEventId?: string; // Causal chain (e.g. Injury -> Retirement)
-}
+// 1. UI Classification Types
+export type EventScope = "world" | "heya" | "rikishi";
+export type EventPhase = "weekly" | "monthly" | "basho_day" | "basho_wrap" | "manual";
+export type EventCategory =
+  | "training"
+  | "scouting"
+  | "injury"
+  | "economy"
+  | "sponsor"
+  | "media"
+  | "rivalry"
+  | "promotion"
+  | "discipline"
+  | "facility"
+  | "milestone"
+  | "match"
+  | "misc";
 
-// 2. Canonical Event Types
+export type EventImportance = "minor" | "notable" | "major" | "headline";
+
+// 2. Canonical Event Types (System Logic)
 export type HistoryEventType = 
   | "BOUT_RESULT"
   | "RANK_CHANGE"
@@ -625,8 +624,47 @@ export type HistoryEventType =
   | "SCANDAL"
   | "GOVERNANCE_RULING"
   | "SPONSOR_UPDATE"
-  | "STAFF_ACTION"
+  | "RIVALRY_UPDATE"
+  | "MEDIA_STORY"
   | "GENERIC_NOTE";
+
+// 3. The Unified Event Envelope
+export interface HistoryEvent {
+  id: string;              // Immutable UUID (Hash-based)
+  
+  // Timing
+  tick: {                  
+    year: number;
+    month: number;
+    week: number;
+    day?: number;
+    bashoId?: string;
+  };
+  phase: EventPhase;       // When it happened in the cycle
+
+  // Classification
+  type: HistoryEventType;  // System discriminator
+  category: EventCategory; // UI discriminator
+  scope: EventScope;
+  importance: EventImportance;
+
+  // Search & Indexing
+  entities: {              
+    primaryId: Id;         
+    secondaryIds?: Id[];   
+    beyaId?: Id;           
+  };
+  tags?: string[];         // For UI filtering
+
+  // Content
+  title: string;           // Human-readable header
+  summary: string;         // Short description
+  payload: Record<string, any>; // Machine data
+  
+  // Mechanics
+  truthLevel: "public" | "limited" | "private"; // Fog of War
+  causedByEventId?: string;
+}
 
 export type CyclePhase = "active_basho" | "post_basho" | "interim";
 
