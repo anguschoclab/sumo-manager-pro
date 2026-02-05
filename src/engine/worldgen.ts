@@ -1,126 +1,190 @@
 /**
  * File Name: src/engine/worldgen.ts
- * Notes: 
- * - Updated generateRikishi to include new mandatory fields: 'origin', 'archetype', 'h2h', 'adaptability'.
- * - Added logic to distribute archetypes and origins realistically.
- * - Initialized empty Head-to-Head (h2h) records for all generated wrestlers.
+ * Notes:
+ * - COMPLETE OVERHAUL to generate high-fidelity world state.
+ * - Generates Rikishi with detailed stats, archetypes, and styles.
+ * - Generates Heyas with stature, prestige, and facilities bands.
+ * - Generates Oyakata with personality traits and archetypes.
+ * - Returns a WorldState populated with Maps as per new types.
  */
 
-import { GameState, Rikishi, Heya, Oyakata, Rank, RikishiStats } from "./types";
+import {
+  WorldState, Rikishi, Heya, Oyakata, 
+  Rank, TacticalArchetype, StatureBand, PrestigeBand, 
+  FacilitiesBand, KoenkaiBandType, OyakataArchetype, 
+  BashoName, Division, RikishiStats, Side
+} from "./types";
 import { generateRikishiName } from "./shikona";
-import { generateOyakataName } from "./shikona"; // Assuming this exists or reusing rikishi name
 
-// Constants for generation
+// Constants
 const ORIGINS = [
   "Hokkaido", "Aomori", "Tokyo", "Osaka", "Fukuoka", 
   "Mongolia", "Georgia", "Brazil", "Nihon University", "Nippon Sport Science Univ"
 ];
 
-const ARCHETYPES = [
-  "Oshi-zumo", "Yotsu-zumo", "Technician", "Tank", "Veteran", "Prodigy"
+const ARCHETYPES: TacticalArchetype[] = [
+  "oshi_specialist", "yotsu_specialist", "speedster", 
+  "trickster", "all_rounder", "hybrid_oshi_yotsu", "counter_specialist"
+];
+
+const OYAKATA_ARCHETYPES: OyakataArchetype[] = [
+  "traditionalist", "scientist", "gambler", "nurturer", "tyrant", "strategist"
 ];
 
 function getRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function generateStats(rank: Rank, archetype: string): RikishiStats {
-  const base = rank === "Yokozuna" ? 80 :
-               rank === "Ozeki" ? 70 :
-               rank === "Sekiwake" || rank === "Komusubi" ? 60 :
-               rank === "Maegashira" ? 50 : 30;
+function generateRikishiStats(rank: Rank, archetype: TacticalArchetype): RikishiStats {
+  const base = rank === "yokozuna" ? 85 :
+               rank === "ozeki" ? 75 :
+               rank === "sekiwake" || rank === "komusubi" ? 65 :
+               rank === "maegashira" ? 55 : 40;
   
   const variance = () => (Math.random() * 20) - 10;
 
-  // Modifiers based on archetype
-  let strMod = 1, techMod = 1, spdMod = 1, wgtMod = 1, adaMod = 1;
+  // Multipliers based on archetype
+  let strMod = 1, techMod = 1, spdMod = 1, wgtMod = 1, menMod = 1;
 
   switch (archetype) {
-    case "Oshi-zumo": strMod = 1.2; spdMod = 1.1; break;
-    case "Yotsu-zumo": strMod = 1.2; techMod = 1.1; break;
-    case "Technician": techMod = 1.3; adaMod = 1.2; wgtMod = 0.9; break;
-    case "Tank": wgtMod = 1.3; spdMod = 0.7; break;
-    case "Prodigy": adaMod = 1.2; techMod = 1.2; break;
+    case "oshi_specialist": strMod = 1.3; spdMod = 1.1; techMod = 0.8; break;
+    case "yotsu_specialist": strMod = 1.2; techMod = 1.2; spdMod = 0.9; break;
+    case "speedster": spdMod = 1.4; wgtMod = 0.8; strMod = 0.9; break;
+    case "trickster": techMod = 1.4; strMod = 0.8; menMod = 1.2; break;
+    case "all_rounder": break; // Balanced
+    case "hybrid_oshi_yotsu": strMod = 1.1; techMod = 1.1; break;
+    case "counter_specialist": menMod = 1.3; techMod = 1.2; strMod = 0.9; break;
   }
 
+  const clamp = (val: number) => Math.min(100, Math.max(10, Math.round(val)));
+
   return {
-    strength: Math.min(100, Math.max(10, (base + variance()) * strMod)),
-    technique: Math.min(100, Math.max(10, (base + variance()) * techMod)),
-    speed: Math.min(100, Math.max(10, (base + variance()) * spdMod)),
-    weight: Math.min(200, Math.max(80, (140 + variance() * 2) * wgtMod)), // kg
-    stamina: Math.min(100, Math.max(10, base + variance())),
-    mental: Math.min(100, Math.max(10, base + variance())),
-    adaptability: Math.min(100, Math.max(10, (base + variance()) * adaMod)),
+    strength: clamp((base + variance()) * strMod),
+    technique: clamp((base + variance()) * techMod),
+    speed: clamp((base + variance()) * spdMod),
+    weight: Math.round(Math.min(250, Math.max(90, (140 + variance() * 2) * wgtMod))),
+    stamina: clamp(base + variance()),
+    mental: clamp((base + variance()) * menMod),
+    adaptability: clamp((base + variance()) * (techMod > 1 ? 1.1 : 1.0)),
   };
 }
 
-export function generateWorld(): GameState {
-  const heyas: Heya[] = [];
-  const rikishi: Rikishi[] = [];
-  const oyakata: Oyakata[] = [];
+export function generateWorld(seed: string = "initial-seed"): WorldState {
+  const heyaMap = new Map<string, Heya>();
+  const rikishiMap = new Map<string, Rikishi>();
+  const oyakataMap = new Map<string, Oyakata>();
 
   const heyaNames = ["Isegahama", "Kokonoe", "Takadagawa", "Sadogatake", "Futagoyama", "Arashio", "Miyagino", "Tatsunami"];
 
-  // 1. Create Heyas
+  // 1. Create Heyas & Oyakata
   heyaNames.forEach((name, idx) => {
     const heyaId = `heya_${idx}`;
     const oyakataId = `oyakata_${idx}`;
     
-    // Create Oyakata
-    oyakata.push({
+    // Detailed Oyakata Generation
+    const oyArchetype = getRandom(OYAKATA_ARCHETYPES);
+    const oyakata: Oyakata = {
       id: oyakataId,
-      name: `${name} Oyakata`,
       heyaId: heyaId,
-      stats: {
-        scouting: 50 + Math.random() * 50,
-        training: 50 + Math.random() * 50,
-        politics: 50 + Math.random() * 50
+      name: `${name} Oyakata`,
+      age: 45 + Math.floor(Math.random() * 20),
+      archetype: oyArchetype,
+      traits: {
+        ambition: 50 + Math.random() * 50,
+        patience: 50 + Math.random() * 50,
+        risk: 50 + Math.random() * 50,
+        tradition: 50 + Math.random() * 50,
+        compassion: 50 + Math.random() * 50
       },
-      personality: getRandom(["Strict", "Fatherly", "Strategic", "Lazy"])
-    });
+      yearsInCharge: 1 + Math.floor(Math.random() * 15),
+      // Legacy compat
+      stats: { scouting: 50, training: 50, politics: 50 },
+      personality: oyArchetype
+    };
+    oyakataMap.set(oyakataId, oyakata);
 
-    // Create Heya
-    heyas.push({
+    // Detailed Heya Generation
+    const heya: Heya = {
       id: heyaId,
       name: name,
       oyakataId: oyakataId,
-      location: "Tokyo",
-      funds: 1000000 + Math.random() * 5000000,
+      rikishiIds: [],
+      
+      statureBand: "established",
+      prestigeBand: "respected",
+      facilitiesBand: "adequate",
+      koenkaiBand: "moderate",
+      runwayBand: "comfortable",
+
       reputation: 50,
-      rikishiIds: []
-    });
+      funds: 10_000_000 + Math.floor(Math.random() * 50_000_000),
+      
+      scandalScore: 0,
+      governanceStatus: "good_standing",
+      
+      facilities: {
+        training: 50,
+        recovery: 50,
+        nutrition: 50
+      },
+      
+      riskIndicators: {
+        financial: false,
+        governance: false,
+        rivalry: false
+      },
+      
+      // Legacy
+      location: "Tokyo"
+    };
+    heyaMap.set(heyaId, heya);
   });
 
   // 2. Create Rikishi (Top Division Population)
-  const ranks: Rank[] = ["Yokozuna", "Ozeki", "Ozeki", "Sekiwake", "Sekiwake", "Komusubi", "Komusubi"];
-  for (let i = 0; i < 35; i++) ranks.push("Maegashira");
-  for (let i = 0; i < 20; i++) ranks.push("Juryo");
-
   const currentYear = 2024;
+  const ranks: Rank[] = ["yokozuna", "ozeki", "ozeki", "sekiwake", "sekiwake", "komusubi", "komusubi"];
+  for (let i = 0; i < 35; i++) ranks.push("maegashira");
+  for (let i = 0; i < 20; i++) ranks.push("juryo");
+
+  let rikishiCounter = 0;
+  const heyaList = Array.from(heyaMap.values());
 
   ranks.forEach((rank, idx) => {
-    const heya = getRandom(heyas);
+    const heya = getRandom(heyaList);
     const archetype = getRandom(ARCHETYPES);
     const origin = getRandom(ORIGINS);
     const birthYear = currentYear - (20 + Math.floor(Math.random() * 12));
+    
+    const stats = generateRikishiStats(rank, archetype);
+    const rid = `rikishi_${rikishiCounter++}`;
 
     const newRikishi: Rikishi = {
-      id: `rikishi_${idx}`,
-      name: `Rikishi ${idx}`, // Placeholder
+      id: rid,
       shikona: generateRikishiName(),
+      name: `Rikishi ${rid}`,
       heyaId: heya.id,
-      rank: rank,
-      stats: generateStats(rank, archetype),
+      nationality: origin === "Mongolia" ? "Mongolia" : "Japan",
+      origin: origin, // Legacy compat
       birthYear: birthYear,
-      origin: origin,
-      archetype: archetype,
-      experience: Math.floor(Math.random() * 100),
       
-      careerRecord: { wins: 0, losses: 0, yusho: 0 },
-      currentBashoRecord: { wins: 0, losses: 0 },
-      history: [],
-      h2h: {}, // Empty H2H to start
-
+      // Physicals
+      height: 170 + Math.random() * 25,
+      weight: stats.weight,
+      
+      // Attributes (Stats)
+      stats: stats,
+      power: stats.strength,
+      speed: stats.speed,
+      balance: stats.stamina,
+      technique: stats.technique,
+      aggression: stats.mental,
+      experience: Math.floor(Math.random() * 100),
+      adaptability: stats.adaptability,
+      
+      momentum: 50,
+      stamina: stats.stamina,
+      
+      // Status
       injuryStatus: {
         isInjured: false,
         severity: 0,
@@ -129,23 +193,78 @@ export function generateWorld(): GameState {
       },
       condition: 90 + Math.random() * 10,
       motivation: 50 + Math.random() * 50,
+      
+      // Style
+      style: archetype.includes("oshi") ? "oshi" : archetype.includes("yotsu") ? "yotsu" : "hybrid",
+      archetype: archetype,
+      
+      // Rank
+      division: rank === "juryo" ? "juryo" : "makuuchi",
+      rank: rank,
+      rankNumber: Math.floor(idx / 2) + 1,
+      side: idx % 2 === 0 ? "east" : "west",
+      
+      // Records
+      careerWins: 0,
+      careerLosses: 0,
+      currentBashoWins: 0,
+      currentBashoLosses: 0,
+      careerRecord: { wins: 0, losses: 0, yusho: 0 },
+      currentBashoRecord: { wins: 0, losses: 0 },
+      
+      history: [],
+      h2h: {},
+      
+      favoredKimarite: [],
+      weakAgainstStyles: [],
       personalityTraits: []
     };
 
-    rikishi.push(newRikishi);
-    heya.rikishiIds.push(newRikishi.id);
+    rikishiMap.set(rid, newRikishi);
+    heya.rikishiIds.push(rid);
   });
 
-  // 3. Populate history (Simulate some past matches for flavor?)
-  // For now, we leave history empty, but the structure is ready.
+  const initialBashoName: BashoName = "hatsu";
 
   return {
-    currentDate: new Date(2024, 0, 1),
-    rikishi,
-    heyas,
-    oyakata,
-    currentBasho: null,
+    seed: seed,
+    year: currentYear,
+    week: 1,
+    cyclePhase: "interim",
+    currentBashoName: initialBashoName,
+    
+    heyas: heyaMap,
+    rikishi: rikishiMap,
+    oyakata: oyakataMap,
+    
+    // Legacy arrays for backward compatibility if needed
+    heyasArray: Array.from(heyaMap.values()),
+    rikishiArray: Array.from(rikishiMap.values()),
+    oyakataArray: Array.from(oyakataMap.values()),
+
     history: [],
-    playerHeyaId: heyas[0].id
+    ftue: { isActive: false, bashoCompleted: 0, suppressedEvents: [] },
+    playerHeyaId: heyaList[0].id,
+    
+    currentDate: new Date(2024, 0, 1)
   };
+}
+
+export function initializeBasho(world: WorldState, bashoName: string) {
+    const bName = bashoName.toLowerCase() as BashoName;
+    return {
+        year: world.year,
+        bashoNumber: 1, // simplified
+        bashoName: bName,
+        day: 1,
+        matches: [],
+        standings: new Map(),
+        isActive: true,
+        // Legacy
+        id: `${bName}-${world.year}`,
+        name: bName,
+        currentDay: 1,
+        schedule: [],
+        results: []
+    };
 }
