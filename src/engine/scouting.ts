@@ -8,7 +8,7 @@
  */
 
 import { rngFromSeed, rngForWorld } from "./rng";
-import { GameState, Rikishi, RikishiStats, Rank, Style, TacticalArchetype } from "./types";
+ import { WorldState, Rikishi, RikishiStats, Rank, Style, TacticalArchetype } from "./types";
 import { describeAttribute, describeAggression, describeExperience } from "./narrativeDescriptions";
 import { generateRookie } from "./lifecycle"; 
 
@@ -442,11 +442,11 @@ export interface ScoutCandidate {
   potential: number; // 0-100 hidden stat
 }
 
-export function generateScoutCandidates(count: number, currentYear: number): ScoutCandidate[] {
+export function generateScoutCandidates(world: WorldState, count: number, currentYear: number): ScoutCandidate[] {
   const candidates: ScoutCandidate[] = [];
 
   for (let i = 0; i < count; i++) {
-    const rookie = generateRookie(currentYear, "jonokuchi");
+     const rookie = generateRookie(world, currentYear, "jonokuchi");
     
     // Calculate a signing cost based on stats
     const statSum = Object.values(rookie.stats).reduce((a, b) => a + b, 0);
@@ -460,14 +460,14 @@ export function generateScoutCandidates(count: number, currentYear: number): Sco
       archetype: rookie.archetype,
       stats: rookie.stats,
       cost: cost,
-      potential: 50 + rngForWorld(world, "scouting".split("::")[0], "scouting".split("::").slice(1).join("::")).next() * 50
+       potential: 50 + rngForWorld(world, "scouting", `potential-${rookie.id}`).next() * 50
     });
   }
 
   return candidates;
 }
 
-export function recruitCandidate(state: GameState, candidateId: string, targetHeyaId: string): GameState {
+ export function recruitCandidate(state: WorldState, candidateId: string, targetHeyaId: string): WorldState {
   console.log(`Recruiting candidate ${candidateId} to heya ${targetHeyaId}`);
   return state;
 }
@@ -479,6 +479,30 @@ export function recruitCandidate(state: GameState, candidateId: string, targetHe
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
+ 
+ /**
+  * Apply decay to scouting confidence over time.
+  * Exported for scoutingStore.ts compatibility.
+  */
+ export function applyScoutingDecay(scouted: ScoutedRikishi, decayAmount: number = 0.05): ScoutedRikishi {
+   return {
+     ...scouted,
+     confidence: Math.max(0, scouted.confidence - decayAmount),
+   };
+ }
+ 
+ /**
+  * Refresh the truth snapshot with current rikishi data.
+  * Exported for scoutingStore.ts compatibility.
+  */
+ export function refreshTruthSnapshot(scouted: ScoutedRikishi, rikishi: Rikishi): ScoutedRikishi {
+   return {
+     ...scouted,
+     rikishiId: rikishi.id,
+     // Update any observable fields
+     knownStats: scouted.knownStats,
+   };
+ }
 
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.trunc(value)));

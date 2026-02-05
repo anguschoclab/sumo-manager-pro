@@ -264,9 +264,12 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
 
 export function initializeBasho(world: WorldState, bashoName: string) {
     const bName = bashoName.toLowerCase() as BashoName;
+     const bashoNumMap: Record<BashoName, 1 | 2 | 3 | 4 | 5 | 6> = {
+         hatsu: 1, haru: 2, natsu: 3, nagoya: 4, aki: 5, kyushu: 6
+     };
     return {
         year: world.year,
-        bashoNumber: 1, // simplified
+         bashoNumber: bashoNumMap[bName],
         bashoName: bName,
         day: 1,
         matches: [],
