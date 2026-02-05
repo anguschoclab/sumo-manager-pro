@@ -1,4 +1,4 @@
-import { GameState, Basho } from "./types";
+ import type { WorldState, BashoState, Rikishi } from "./types";
 import { generateH2HCommentary } from "./h2h";
 
 export interface DigestItem {
@@ -7,11 +7,40 @@ export interface DigestItem {
   title: string;
   description: string;
   icon?: string; // e.g., "sword", "trophy", "skull", "fire", "bandage", "star", "calendar"
+   kind?: string;
+   rikishiId?: string;
+   heyaId?: string;
+   detail?: string;
+ }
+ 
+ export interface DigestSection {
+   id: string;
+   title: string;
+   items: DigestItem[];
+ }
+ 
+ export interface UIDigest {
+   scope: "week" | "basho";
+   privacyMode: "player" | "world";
+   time: {
+     year: number;
+     label?: string;
+   };
+   headline?: string;
+   sections: DigestSection[];
+   counts: {
+     totalItems: number;
+     trainingEvents: number;
+     injuries: number;
+     salaries: number;
+     koenkai: number;
+     expenses: number;
+   };
 }
 
-export function generateWeeklyDigest(state: GameState): DigestItem[] {
+ export function generateWeeklyDigest(state: WorldState): DigestItem[] {
   const digest: DigestItem[] = [];
-  const basho = state.currentBasho;
+   const basho = state.currentBasho as BashoState | undefined;
 
   if (!basho || !basho.isActive) {
     // OFF-SEASON / PRE-BASHO DIGEST
