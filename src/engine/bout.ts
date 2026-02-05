@@ -14,6 +14,7 @@
 // but preserve the LOG SHAPE + position vocabulary here.
 //
 // =======================================================
+import { rngFromSeed } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type {
   Rikishi,
@@ -509,7 +510,7 @@ export function resolveBout(bout: BoutContext, east: Rikishi, west: Rikishi, bas
   const bashoName = ((basho as any).bashoName ?? (basho as any).name) as BashoName | undefined;
 
   const seed = `${bashoId}-${year}-${bout.day}-${east.id}-${west.id}`;
-  const rng = new SeededRNG(seed);
+  const rng = rngFromSeed(seed, "bout", "root");
 
   const st: EngineState = {
     tick: 0,
@@ -583,7 +584,7 @@ export function resolveBout(bout: BoutContext, east: Rikishi, west: Rikishi, bas
 
 /** Convenience helper for tests/sim screens */
 export function simulateBout(east: Rikishi, west: Rikishi, seed: string): BoutResult {
-  const rng = new SeededRNG(seed);
+  const rng = rngFromSeed(seed, "bout", "root");
   const bashoName: BashoName = "hatsu" as any;
 
   const fakeBasho: BashoState = {

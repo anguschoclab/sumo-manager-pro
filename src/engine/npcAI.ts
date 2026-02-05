@@ -5,7 +5,7 @@ export function determineNPCStyleBias(world: WorldState, stableId: string): Figh
   const stable = world.heya[stableId];
   if (!stable) return "neutral";
 
-  const rng = new SeededRNG(world.seed + ":npcAI:" + stableId);
+  const rng = new SeededRNG(`${world.seed}::npcAI::${stableId}`);
 
   let oshi = 0;
   let yotsu = 0;

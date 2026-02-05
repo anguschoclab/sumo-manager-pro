@@ -98,7 +98,7 @@ export function scheduleDivisionDay(args: {
 }): MatchSchedule[] {
   const { world, basho, division, day } = args;
   const rules = args.rules ?? {};
-  const rng = new SeededRNG(`${args.seed}-sched-${division}-day${day}`);
+  const rng = new SeededRNG(`${args.seed}::schedule::${division}::day${day}`);
 
   const roster = activeDivisionRoster(world, division);
   const maxActive = args.config?.maxActiveRikishi;

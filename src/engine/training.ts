@@ -2,7 +2,7 @@ import type { WorldState } from "./types";
 import { SeededRNG } from "./utils/SeededRNG";
 
 export function applyWeeklyTraining(world: WorldState, weekIndex: number) {
-  const rng = new SeededRNG(world.seed + ":training:" + weekIndex);
+  const rng = new SeededRNG(`${world.seed}::training::${weekIndex}`);
 
   for (const id in world.rikishi) {
     const r = world.rikishi[id];

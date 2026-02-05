@@ -7,6 +7,7 @@
 // - Division-aware bout counts (sekitori 15, others 7 by default; overrideable)
 // - Produces scored candidate pairs; schedule.ts builds final set.
 // =======================================================
+import { rngFromSeed } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { BashoState, Division, Rikishi, Side } from "./types";
 
@@ -193,7 +194,7 @@ export function buildCandidatePairs(
   options: CandidateBuildOptions
 ): MatchPairing[] {
   const rules = { ...DEFAULT_MATCHMAKING_RULES, ...(options.rules ?? {}) };
-  const rng = new SeededRNG(options.seed);
+  const rng = rngFromSeed(options.seed, "matchmaking", "root");
 
   const pool = stableSort(
     options.division ? rikishi.filter(r => r.division === options.division) : [...rikishi],

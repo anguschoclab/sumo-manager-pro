@@ -9,6 +9,7 @@
 // - StopConditions are implemented where possible; unsupported ones safely no-op without lying
 // - Promotions/demotions are NOT done via naive static mapping; this module now exposes a deterministic hook
 //   to let your real banzuke system apply rank changes (required for canon compliance)
+import { rngFromSeed } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { WorldState, BashoName, BoutResult } from "./types";
 import { simulateBout } from "./bout";
@@ -150,7 +151,7 @@ export function simulateEntireBasho(
 ): BashoSimResult {
   // NOTE: rng is used ONLY for deterministic things that are not already part of simulateBout.
   // Avoid introducing parallel RNG paths that can desync save/load.
-  const rng = new SeededRNG(seed);
+  const rng = rngFromSeed(seed, "autoSim", "root");
 
   const basho = initializeBasho(world, bashoName);
 
