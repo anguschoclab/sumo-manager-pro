@@ -81,10 +81,11 @@ const items = [
 ];
 
 export function AppSidebar() {
-  const { state, isLoaded } = useGame();
+  const { state } = useGame();
   
-  const playerHeya = isLoaded && state.playerHeyaId 
-    ? state.heyas.get(state.playerHeyaId) 
+  const isLoaded = !!state.world;
+  const playerHeya = isLoaded && state.world?.playerHeyaId
+    ? state.heyas.get(state.world?.playerHeyaId) 
     : null;
 
   return (

@@ -1,12 +1,15 @@
 // Weekly Digest Component - Shows training progress, injuries, and financial summaries
 // Per uiDigest.ts: Converts engine outputs into readable, grouped digest sections
 
+import React, { useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { RikishiName, StableName } from "@/components/ClickableName";
 import type { UIDigest, DigestSection, DigestItem } from "@/engine/uiDigest";
+import { buildWeeklyDigest } from "@/engine/uiDigest";
+import { useGame } from "@/contexts/GameContext";
 import {
   Activity,
   AlertTriangle,
@@ -19,7 +22,7 @@ import {
 } from "lucide-react";
 
 interface WeeklyDigestProps {
-  digest: UIDigest | null;
+  digest?: UIDigest | null;
   className?: string;
 }
 
@@ -99,7 +102,10 @@ function DigestSectionDisplay({ section }: { section: DigestSection }) {
   );
 }
 
-export function WeeklyDigest({ digest, className }: WeeklyDigestProps) {
+export function WeeklyDigest({ digest: digestProp, className }: WeeklyDigestProps) {
+  const { state } = useGame();
+  const digest = useMemo(() => digestProp ?? buildWeeklyDigest(state.world), [digestProp, state.world]);
+
   if (!digest) {
     return (
       <Card className={className}>
@@ -135,92 +141,40 @@ export function WeeklyDigest({ digest, className }: WeeklyDigestProps) {
           </div>
           <div className="flex gap-2">
             {counts.trainingEvents > 0 && (
-              <Badge variant="secondary" className="text-xs">
-                <TrendingUp className="h-3 w-3 mr-1" />
-                {counts.trainingEvents}
-              </Badge>
+              <Badge variant="secondary">{counts.trainingEvents} training</Badge>
             )}
             {counts.injuries > 0 && (
-              <Badge variant="destructive" className="text-xs">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                {counts.injuries}
-              </Badge>
+              <Badge variant="destructive">{counts.injuries} injured</Badge>
+            )}
+            {counts.economy > 0 && (
+              <Badge variant="outline">{counts.economy} economy</Badge>
+            )}
+            {counts.scouting > 0 && (
+              <Badge variant="outline">{counts.scouting} scouting</Badge>
             )}
           </div>
         </div>
+        {headline && (
+          <p className="text-sm text-muted-foreground mt-2">{headline}</p>
+        )}
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        {headline && (
-          <p className="text-sm font-medium text-foreground">{headline}</p>
-        )}
-
-        {sections.length > 0 ? (
-          <ScrollArea className="max-h-[300px]">
-            <div className="space-y-4 pr-2">
-              {sections.map((section, idx) => (
-                <div key={section.id}>
-                  <DigestSectionDisplay section={section} />
-                  {idx < sections.length - 1 && <Separator className="mt-3" />}
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            A quiet week. No significant events to report.
-          </p>
-        )}
-
-        {/* Quick Stats Footer */}
-        {(counts.salaries > 0 || counts.koenkai > 0 || counts.expenses > 0) && (
-          <>
-            <Separator />
-            <div className="flex gap-4 text-xs text-muted-foreground">
-              {counts.salaries > 0 && (
-                <span className="flex items-center gap-1">
-                  <Coins className="h-3 w-3" />
-                  {counts.salaries} payments
-                </span>
-              )}
-              {counts.koenkai > 0 && (
-                <span className="flex items-center gap-1">
-                  <Users className="h-3 w-3" />
-                  {counts.koenkai} supporters
-                </span>
-              )}
-              {counts.expenses > 0 && (
-                <span className="flex items-center gap-1">
-                  <Building2 className="h-3 w-3" />
-                  {counts.expenses} expenses
-                </span>
-              )}
-            </div>
-          </>
-        )}
+      <CardContent className="pt-0">
+        <Separator className="mb-3" />
+        <ScrollArea className="h-[280px] pr-3">
+          <div className="space-y-6">
+            {sections.length ? (
+              sections.map((section) => (
+                <DigestSectionDisplay key={section.id} section={section} />
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No categorized events yet.
+              </p>
+            )}
+          </div>
+        </ScrollArea>
       </CardContent>
     </Card>
   );
-}
-
-// Placeholder digest for when no real data exists
-export function createPlaceholderDigest(): UIDigest {
-  return {
-    scope: "week",
-    privacyMode: "player",
-    time: {
-      year: new Date().getFullYear(),
-      label: "Getting Started",
-    },
-    headline: "Your journey begins. Start a tournament to see weekly reports.",
-    sections: [],
-    counts: {
-      totalItems: 0,
-      trainingEvents: 0,
-      injuries: 0,
-      salaries: 0,
-      koenkai: 0,
-      expenses: 0,
-    },
-  };
 }

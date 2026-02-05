@@ -13,7 +13,7 @@
 // - Adds bout history from almanac (safe even if world.history missing)
 // - Avoids navigation during render (prevents React warnings)
 
-import seedrandom from "seedrandom";
+import { rngFromSeed } from "@/engine/rng";
 import { Helmet } from "react-helmet";
 import { useNavigate, useParams } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
@@ -135,8 +135,8 @@ export default function RikishiPage() {
   const scoutingInfo = describeScoutingLevel(scouted.scoutingLevel);
 
   // Generate career record for bout history (almanac integration)
-  const rng = seedrandom(`${seed}-career-${rikishi.id}`);
-  const careerRecord: RikishiCareerRecord = generateCareerRecord(rikishi, world, () => rng());
+  const rng = rngFromSeed(seed, "ui", `career::${rikishi.id}`);
+  const careerRecord: RikishiCareerRecord = generateCareerRecord(rikishi, world, () => rng.next());
 
   // Favored kimarite names (safe)
   const favoredMoves =

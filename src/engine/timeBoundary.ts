@@ -1,21 +1,78 @@
-import { rngFromSeed, rngForWorld } from "./rng";
-import type { WorldState } from "./types";
-import { SeededRNG } from "./utils/SeededRNG";
+// timeBoundary.ts
+// =======================================================
+// Time Boundary Orchestrator — explicit interim weekly tick ordering.
+//
+// Canon goals:
+// - One authoritative ordering for interim (between-basho) simulation steps.
+// - Deterministic: each subsystem derives its RNG from world.seed.
+// - Produces structured "boundary events" that UI can digest later.
+// =======================================================
 
-export interface ScoutingEvent {
-  targetId: string;
-  confidenceGain: number;
+import type { WorldState } from "./types";
+import * as scouting from "./scouting";
+import * as training from "./training";
+import * as injuries from "./injuries";
+import * as economics from "./economics";
+import * as governance from "./governance";
+import * as events from "./events";
+import * as rivalries from "./rivalries";
+
+export interface BoundaryTickReport {
+  weekIndex: number;
+  scoutingEvents: number;
+  injuriesRecovered: number;
+  injuriesNew: number;
+  economyEvents: number;
+  governanceRulings: number;
+  narrativeEvents: number;
+  rivalryEvents: number;
 }
 
-export function applyWeeklyScouting(world: WorldState, weekIndex: number): ScoutingEvent[] {
-  const events: ScoutingEvent[] = [];
-  const rng = rngForWorld(world, "timeBoundary", `scouting::week${weekIndex}`);
+/**
+ * tickWeek(world)
+ * Explicit interim ordering (v1):
+ *  1) scouting updates
+ *  2) training progression
+ *  3) injury recovery + injury rolls (if modeled)
+ *  4) economy tick
+ *  5) governance tick
+ *  6) narrative events tick
+ *  7) rivalry updates
+ */
+export function tickWeek(world: WorldState): BoundaryTickReport {
+  const weekIndex = world.week ?? 0;
 
-  for (const scout of world.scoutingTargets ?? []) {
-    const gain = 0.05 + rng.next() * 0.05;
-    scout.confidence = Math.min(1, scout.confidence + gain);
-    events.push({ targetId: scout.targetId, confidenceGain: gain });
-  }
+  // 1) Scouting
+  const scoutingEvents = (scouting as any).tickWeek?.(world) ?? 0;
 
-  return events;
+  // 2) Training
+  (training as any).tickWeek?.(world);
+
+  // 3) Injuries (recovery/rolls)
+  const injReport = (injuries as any).tickWeek?.(world) ?? null;
+  const injuriesRecovered = typeof injReport?.recoveredCount === "number" ? injReport.recoveredCount : 0;
+  const injuriesNew = typeof injReport?.newCount === "number" ? injReport.newCount : 0;
+
+  // 4) Economy
+  const econEvents = (economics as any).tickWeek?.(world) ?? 0;
+
+  // 5) Governance
+  const govEvents = (governance as any).tickWeek?.(world) ?? 0;
+
+  // 6) Narrative events
+  const narrativeEvents = (events as any).tickWeek?.(world) ?? 0;
+
+  // 7) Rivalries
+  const rivalryEvents = (rivalries as any).tickWeek?.(world) ?? 0;
+
+  return {
+    weekIndex,
+    scoutingEvents: Number(scoutingEvents) || 0,
+    injuriesRecovered,
+    injuriesNew,
+    economyEvents: Number(econEvents) || 0,
+    governanceRulings: Number(govEvents) || 0,
+    narrativeEvents: Number(narrativeEvents) || 0,
+    rivalryEvents: Number(rivalryEvents) || 0,
+  };
 }

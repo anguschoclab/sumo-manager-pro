@@ -1,109 +1,134 @@
-import { GameState, Basho } from "./types";
+// uiDigest.ts
+// =======================================================
+// UI Digest — transforms engine/world state into a compact weekly report.
+//
+// IMPORTANT:
+// - World uses Maps at runtime (IdMapRuntime), so iterate with .values()
+//   and Array.from(...) to avoid Map iterator pitfalls in UI code.
+// =======================================================
+
+import type { WorldState, Rikishi, Heya } from "./types";
 import { generateH2HCommentary } from "./h2h";
+
+export type DigestKind =
+  | "training"
+  | "injury"
+  | "recovery"
+  | "salary"
+  | "koenkai"
+  | "expense"
+  | "economy"
+  | "scouting"
+  | "generic";
 
 export interface DigestItem {
   id: string;
-  type: "matchup" | "news" | "stat";
+  kind: DigestKind;
   title: string;
-  description: string;
-  icon?: string; // e.g., "sword", "trophy", "skull", "fire", "bandage", "star", "calendar"
+  detail?: string;
+  rikishiId?: string;
+  heyaId?: string;
 }
 
-export function generateWeeklyDigest(state: GameState): DigestItem[] {
-  const digest: DigestItem[] = [];
-  const basho = state.currentBasho;
+export interface DigestSection {
+  id: string;
+  title: string;
+  items: DigestItem[];
+}
 
-  if (!basho || !basho.isActive) {
-    // OFF-SEASON / PRE-BASHO DIGEST
-    digest.push({
-      id: "season-status",
-      type: "news",
-      title: "Tournament Status",
-      description: "No active tournament. Wrestlers are training for the next basho.",
-      icon: "calendar",
-    });
-    return digest;
-  }
+export interface UIDigest {
+  time: { label: string };
+  headline: string;
+  counts: {
+    trainingEvents: number;
+    injuries: number;
+    recoveries: number;
+    economy: number;
+    scouting: number;
+  };
+  sections: DigestSection[];
+}
 
-  // --- 1. KEY MATCHUPS (Based on H2H) ---
-  const today = basho.currentDay;
-  const todaysBouts = basho.schedule[today - 1] || [];
+function labelForWorld(world: WorldState): string {
+  const year = world.year ?? 2024;
+  const week = world.week ?? 0;
+  const phase = world.cyclePhase ?? "interim";
+  return `${year} — Week ${week} (${phase})`;
+}
 
-  todaysBouts.forEach((bout) => {
-    const east = state.rikishi.find((r) => r.id === bout.rikishiEastId);
-    const west = state.rikishi.find((r) => r.id === bout.rikishiWestId);
+export function buildWeeklyDigest(world: WorldState | null): UIDigest | null {
+  if (!world) return null;
 
-    if (east && west) {
-      if (!east.h2h) east.h2h = {};
-      
-      const h2h = east.h2h[west.id];
-      if (h2h) {
-        const total = h2h.wins + h2h.losses;
-        // Highlight Deep Rivalries (lots of history)
-        if (total > 5 && Math.abs(h2h.wins - h2h.losses) <= 2) {
-          digest.push({
-            id: `rivalry-${bout.id}`,
-            type: "matchup",
-            title: `Rivalry Alert: ${east.shikona} vs ${west.shikona}`,
-            description: `These two have a fierce history (${h2h.wins}-${h2h.losses}). ${generateH2HCommentary(east, west)}`,
-            icon: "fire",
-          });
-        }
-        // Highlight Streak Breakers
-        else if (h2h.streak >= 4) {
-          digest.push({
-            id: `streak-${bout.id}`,
-            type: "matchup",
-            title: `Dominance: ${east.shikona} vs ${west.shikona}`,
-            description: `${east.shikona} has won the last ${h2h.streak} meetings. Can ${west.shikona} survive?`,
-            icon: "sword",
-          });
-        }
-      }
+  const rikishiList = Array.from(world.rikishi.values());
+  const heyaList = Array.from(world.heyas.values());
+
+  const sections: DigestSection[] = [];
+
+  // --- Injuries ---
+  const injuryItems: DigestItem[] = [];
+  for (const r of rikishiList) {
+    const injury = (r as any).injury;
+    if (injury?.isInjured) {
+      injuryItems.push({
+        id: `injury::${r.id}`,
+        kind: "injury",
+        title: `${r.shikona ?? r.name ?? r.id} injured`,
+        detail: `${injury.severity ?? "unknown"} — ${injury.weeksRemaining ?? "?"}w remaining`,
+        rikishiId: r.id,
+      });
     }
-  });
-
-  // --- 2. INJURY REPORTS ---
-  const recentInjuries = state.rikishi.filter(
-    (r) => r.injuryStatus.isInjured && r.injuryStatus.weeksToHeal > 0
-  );
-  
-  recentInjuries.slice(0, 3).forEach((r) => {
-    digest.push({
-      id: `injury-${r.id}`,
-      type: "news",
-      title: `Injury Report: ${r.shikona}`,
-      description: `${r.shikona} is suffering from injury (${r.injuryStatus.location}). Performance may be degraded.`,
-      icon: "bandage",
-    });
-  });
-
-  // --- 3. ROOKIE WATCH ---
-  // Identify new wrestlers (low career bouts) performing well
-  const rookies = state.rikishi.filter(
-    (r) => (r.careerRecord.wins + r.careerRecord.losses) < 15 && r.currentBashoRecord.wins > r.currentBashoRecord.losses
-  );
-
-  rookies.forEach((r) => {
-    digest.push({
-      id: `rookie-${r.id}`,
-      type: "stat",
-      title: `Rising Star: ${r.shikona}`,
-      description: `The rookie from ${r.origin} (${r.archetype}) is turning heads with a ${r.currentBashoRecord.wins}-${r.currentBashoRecord.losses} start!`,
-      icon: "star",
-    });
-  });
-
-  // Fill with generic if empty
-  if (digest.length === 0) {
-    digest.push({
-      id: "quiet-day",
-      type: "news",
-      title: `Day ${today} of ${basho.name}`,
-      description: "The wrestlers are preparing for today's bouts. Check the schedule for details.",
-      icon: "calendar",
-    });
+  }
+  if (injuryItems.length) {
+    sections.push({ id: "injuries", title: "Injuries", items: injuryItems });
   }
 
-  return digest;
+  // --- Key matchup (during basho) ---
+  const matchupItems: DigestItem[] = [];
+  const basho = world.currentBasho;
+  if (basho?.isActive) {
+    const day = basho.day ?? basho.currentDay ?? 1;
+    const todays = basho.matches?.[day - 1] ?? basho.schedule?.[day - 1] ?? [];
+    for (const bout of todays.slice(0, 3)) {
+      const eastId = (bout as any).rikishiEastId ?? (bout as any).eastId;
+      const westId = (bout as any).rikishiWestId ?? (bout as any).westId;
+      if (!eastId || !westId) continue;
+
+      const east = world.rikishi.get(eastId);
+      const west = world.rikishi.get(westId);
+      if (!east || !west) continue;
+
+      matchupItems.push({
+        id: `matchup::${east.id}::${west.id}::d${day}`,
+        kind: "generic",
+        title: `${east.shikona ?? east.name} vs ${west.shikona ?? west.name}`,
+        detail: generateH2HCommentary(east, west),
+        rikishiId: east.id,
+      });
+    }
+    if (matchupItems.length) {
+      sections.unshift({ id: "matchups", title: "Key Matchups", items: matchupItems });
+    }
+  }
+
+  const counts = {
+    trainingEvents: 0,
+    injuries: injuryItems.length,
+    recoveries: 0,
+    economy: 0,
+    scouting: 0,
+  };
+
+  const headline =
+    basho?.isActive
+      ? `Basho Day ${basho.day ?? basho.currentDay ?? 1}: ${matchupItems.length ? "Key matchups highlighted." : "Tournament in progress."}`
+      : injuryItems.length
+        ? `${injuryItems.length} injury update${injuryItems.length === 1 ? "" : "s"} this week.`
+        : "No major events recorded this week.";
+
+  return {
+    time: { label: labelForWorld(world) },
+    headline,
+    counts,
+    sections,
+  };
 }

@@ -18,14 +18,6 @@ import {
 import { generateRikishiName } from "./shikona";
 import { SeededRNG } from "./utils/SeededRNG";
 
-function wgRngFromWorld(world: WorldState, label: string): SeededRNG {
-  return wgRng(world.seed, label);
-}
-
-function wgRng(worldSeed: string, label: string): SeededRNG {
-  return rngFromSeed(worldSeed, "worldgen", label);
-}
-
 
 // Constants
 const ORIGINS = [
@@ -46,7 +38,7 @@ function getRandom<T>(rng: SeededRNG, arr: T[]): T {
   return arr[rng.int(0, arr.length - 1)];
 }
 
-function generateRikishiStats(rank: Rank, archetype: TacticalArchetype): RikishiStats {
+function generateRikishiStats(rng: SeededRNG, rank: Rank, archetype: TacticalArchetype): RikishiStats {
   const base = rank === "yokozuna" ? 85 :
                rank === "ozeki" ? 75 :
                rank === "sekiwake" || rank === "komusubi" ? 65 :
@@ -81,7 +73,7 @@ function generateRikishiStats(rank: Rank, archetype: TacticalArchetype): Rikishi
 }
 
 export function generateWorld(seed: string = "initial-seed"): WorldState {
-  const rng = wgRng(seed, "world");
+  const rng = rngFromSeed(seed, "worldgen", "world");
   const heyaMap = new Map<string, Heya>();
   const rikishiMap = new Map<string, Rikishi>();
   const oyakataMap = new Map<string, Oyakata>();
@@ -94,7 +86,7 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
     const oyakataId = `oyakata_${idx}`;
     
     // Detailed Oyakata Generation
-    const oyArchetype = getRandom(OYAKATA_ARCHETYPES);
+    const oyArchetype = getRandom(rng, OYAKATA_ARCHETYPES);
     const oyakata: Oyakata = {
       id: oyakataId,
       heyaId: heyaId,
@@ -162,17 +154,18 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
   const heyaList = Array.from(heyaMap.values());
 
   ranks.forEach((rank, idx) => {
-    const heya = getRandom(heyaList);
-    const archetype = getRandom(ARCHETYPES);
-    const origin = getRandom(ORIGINS);
-    const birthYear = currentYear - (20 + rng.int(0, 11));
+    const heya = getRandom(rrng, heyaList);
+    const archetype = getRandom(rrng, ARCHETYPES);
+    const origin = getRandom(rrng, ORIGINS);
+    const birthYear = currentYear - (20 + rrng.int(0, 11));
     
-    const stats = generateRikishiStats(rank, archetype);
+    const rrng = rngFromSeed(seed, "worldgen", `rikishi::${rid}`);
+    const stats = generateRikishiStats(rrng, rank, archetype);
     const rid = `rikishi_${rikishiCounter++}`;
 
     const newRikishi: Rikishi = {
       id: rid,
-      shikona: generateRikishiName(`${world.seed}::worldgen::rikishi`),
+      shikona: generateRikishiName(`${seed}::worldgen::rikishi::${rid}`),
       name: `Rikishi ${rid}`,
       heyaId: heya.id,
       nationality: origin === "Mongolia" ? "Mongolia" : "Japan",

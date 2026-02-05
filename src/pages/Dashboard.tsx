@@ -10,13 +10,14 @@ import { TimeControls } from "@/components/game/TimeControls"; // NEW
 import { NavLink } from "react-router-dom";
 
 export default function Dashboard() {
-  const { state, isLoaded, initializeGame } = useGame();
+  const { state, hasAutosave, loadFromAutosave } = useGame();
+  const isLoaded = !!state.world;
 
   useEffect(() => {
     if (isLoaded && !state) {
-      initializeGame();
+      ();
     }
-  }, [isLoaded, state, initializeGame]);
+  }, [isLoaded, state, ]);
 
   if (!isLoaded || !state) {
     return (
