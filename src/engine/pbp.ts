@@ -3,15 +3,15 @@
 // Play-by-Play (PBP) System v3.x — Fact Layer -> Flavor Layer
 // Deterministic commentary builder for bouts + time events
 //
-// Canon goals:
-// - Engine emits FACTS (structured signals, no prose)
-// - PBP selects FLAVOR deterministically from a phrase library
-// - No Math.random; randomness only via seedrandom with stable salts
-// - Framework-agnostic: returns plain strings + optional tags
+// Design goals (canon-aligned):
+// - Engine produces FACTS (structured signals, no prose).
+// - PBP selects FLAVOR (templated text) deterministically from a phrase library.
+// - No Math.random; all randomness via seedrandom with stable salts.
+// - No UI framework assumptions: returns plain strings + optional tags.
 //
-// IMPORTANT INTEGRATION FIX:
-// - Engine (bout.ts) uses position: "front" | "lateral" | "rear"
-//   (NOT "frontal"). This file now matches that canonical set.
+// Integration points:
+// - bout.ts emits BoutResult.log with phases + data; buildPbpFromBoutResult derives facts.
+// - narrativeDescriptions.ts remains for static bands; pbp.ts is for dynamic commentary.
 // =======================================================
 
 import seedrandom from "seedrandom";
@@ -40,6 +40,9 @@ export type PbpTag =
 
 export type Advantage = "east" | "west" | "none";
 export type Position = "front" | "lateral" | "rear";
+
+/** Legacy tolerance (older logs used "frontal") */
+type LegacyPosition = "frontal" | "front" | "lateral" | "rear";
 
 export type EdgeEvent =
   | "bales_at_tawara"
@@ -76,6 +79,12 @@ export interface PbpFactBase {
   phase: BoutPhase;
   /** Deterministic ordering within a phase (0..N) */
   beat: number;
+  /**
+   * Who is "pressing"/dictating at this moment.
+   * - If "none", it's even / unclear.
+   * - Derived from advantage in clinch/momentum; from winner in tachiai/finish.
+   */
+  leader: Advantage;
 }
 
 export interface TachiaiFact extends PbpFactBase {
@@ -106,9 +115,11 @@ export interface MomentumFact extends PbpFactBase {
 export interface FinishFact extends PbpFactBase {
   phase: "finish";
   winner: Side;
+  /** finishing kimarite id/name if known */
   kimariteId?: string;
   kimariteName?: string;
   upset?: boolean;
+  /** close call / mono-ii vibes */
   closeCall?: boolean;
 }
 
@@ -160,7 +171,10 @@ type Phrase = {
   id: string;
   weight?: number;
   tags?: PbpTag[];
-  /** templated string using {east} {west} {winner} {loser} {kimarite} etc. */
+  /**
+   * templated string supports:
+   * {east} {west} {winner} {loser} {kimarite} {leader} {trailer}
+   */
   text: string;
 };
 
@@ -200,12 +214,13 @@ export interface PbpLibrary {
   };
 }
 
+/** A compact but expandable default library (you can add thousands later). */
 export const DEFAULT_PBP_LIBRARY: PbpLibrary = {
   tachiai: {
     decisive: [
       { id: "t_dec_1", text: "{winner} explodes off the shikirisen!", tags: ["crowd_roar"] },
-      { id: "t_dec_2", text: "A thunderous tachiai — {winner} wins the hit!" },
-      { id: "t_dec_3", text: "{winner} blasts forward and takes the initiative!" }
+      { id: "t_dec_2", text: "A thunderous tachiai — {leader} wins the hit!" },
+      { id: "t_dec_3", text: "{leader} blasts forward and takes the initiative!" }
     ],
     even: [
       { id: "t_even_1", text: "They collide — neither gives an inch!" },
@@ -220,18 +235,18 @@ export const DEFAULT_PBP_LIBRARY: PbpLibrary = {
 
   clinch: {
     grip_gain: [
-      { id: "c_grip_1", text: "{winner} gets a hand on the mawashi!", tags: ["crowd_roar"] },
-      { id: "c_grip_2", text: "Grip secured — {winner} wants yotsu!" },
-      { id: "c_grip_3", text: "{winner} finds the belt and settles in." }
+      { id: "c_grip_1", text: "{leader} gets a hand on the mawashi!", tags: ["crowd_roar"] },
+      { id: "c_grip_2", text: "Grip secured — {leader} wants yotsu!" },
+      { id: "c_grip_3", text: "{leader} finds the belt and settles in." }
     ],
     grip_break: [
-      { id: "c_break_1", text: "{loser} breaks the grip — back to the center!" },
+      { id: "c_break_1", text: "{trailer} breaks the grip — back to the center!" },
       { id: "c_break_2", text: "The hands come free — a reset in close quarters!" }
     ],
     oshi_pressure: [
-      { id: "c_oshi_1", text: "{winner} pours on the tsuppari!", tags: ["crowd_roar"] },
-      { id: "c_oshi_2", text: "Heavy thrusts from {winner} — driving {loser} back!" },
-      { id: "c_oshi_3", text: "{winner} keeps the chest up and shoves forward!" }
+      { id: "c_oshi_1", text: "{leader} pours on the tsuppari!", tags: ["crowd_roar"] },
+      { id: "c_oshi_2", text: "Heavy thrusts from {leader} — driving {trailer} back!" },
+      { id: "c_oshi_3", text: "{leader} keeps the chest up and shoves forward!" }
     ],
     scramble: [
       { id: "c_scr_1", text: "No grip — just brute force and footwork!" },
@@ -239,29 +254,29 @@ export const DEFAULT_PBP_LIBRARY: PbpLibrary = {
       { id: "c_scr_3", text: "Hands fighting, hips turning — nothing settled yet!" }
     ],
     rear_attack: [
-      { id: "c_rear_1", text: "{winner} slips to the side — danger from behind!", tags: ["gasps"] },
-      { id: "c_rear_2", text: "Angle taken! {winner} has {loser} twisted!" }
+      { id: "c_rear_1", text: "{leader} slips to the side — danger from behind!", tags: ["gasps"] },
+      { id: "c_rear_2", text: "Angle taken! {leader} has {trailer} twisted!" }
     ]
   },
 
   momentum: {
     edge_dance: [
-      { id: "m_edge_1", text: "{loser} teeters at the tawara!", tags: ["gasps", "close_call"] },
-      { id: "m_edge_2", text: "Heels on the straw — {loser} somehow stays in!", tags: ["gasps", "close_call"] },
+      { id: "m_edge_1", text: "{trailer} teeters at the tawara!", tags: ["gasps", "close_call"] },
+      { id: "m_edge_2", text: "Heels on the straw — {trailer} somehow stays in!", tags: ["gasps", "close_call"] },
       { id: "m_edge_3", text: "A tight rope act at the edge!" }
     ],
     counter_turn: [
-      { id: "m_ctr_1", text: "A sudden counter — {winner} turns the tables!", tags: ["crowd_roar"] },
-      { id: "m_ctr_2", text: "{winner} absorbs it and redirects the force!" },
-      { id: "m_ctr_3", text: "That timing! {winner} steals the advantage!" }
+      { id: "m_ctr_1", text: "A sudden counter — {leader} turns the tables!", tags: ["crowd_roar"] },
+      { id: "m_ctr_2", text: "{leader} absorbs it and redirects the force!" },
+      { id: "m_ctr_3", text: "That timing! {leader} steals the advantage!" }
     ],
     fatigue_swing: [
       { id: "m_fat_1", text: "You can see the strain — momentum swings!", tags: ["gasps"] },
-      { id: "m_fat_2", text: "{loser} slows… and {winner} surges!" }
+      { id: "m_fat_2", text: "{trailer} slows… and {leader} surges!" }
     ],
     steady_drive: [
-      { id: "m_drv_1", text: "{winner} keeps walking forward — relentless pressure." },
-      { id: "m_drv_2", text: "A steady march from {winner} — no room to breathe." }
+      { id: "m_drv_1", text: "{leader} keeps walking forward — relentless pressure." },
+      { id: "m_drv_2", text: "A steady march from {leader} — no room to breathe." }
     ]
   },
 
@@ -323,12 +338,17 @@ export function buildPbp(
 
     const { phrase, tags } = selectPhraseForFact(fact, ctx, lib, rng);
 
+    const leaderName = advantageName(ctx, fact.leader, winnerSide);
+    const trailerName = trailerFromLeader(ctx, fact.leader, winnerSide);
+
     const text = renderTemplate(phrase.text, {
       east: ctx.east.shikona,
       west: ctx.west.shikona,
       winner: winnerName,
       loser: loserName,
-      kimarite: getKimariteLabel(fact)
+      kimarite: getKimariteLabel(fact),
+      leader: leaderName,
+      trailer: trailerName
     });
 
     lines.push({ phase: fact.phase, text, tags });
@@ -344,38 +364,45 @@ export function buildPbpFromBoutResult(
 ): PbpLine[] {
   const facts: PbpFact[] = [];
 
-  // Tachiai (if your engine provides tachiaiWinner + optional log margin)
+  // Tachiai
   facts.push({
     phase: "tachiai",
     beat: 0,
-    tachiaiWinner: (result as any).tachiaiWinner ?? ((result as any).log?.find?.((e: any) => e?.phase === "tachiai")?.data?.winner ?? "east"),
-    tachiaiQuality: tachiaiQualityFromLog((result as any).log),
-    stance: (result as any).stance
+    tachiaiWinner: result.tachiaiWinner,
+    tachiaiQuality: 0.7,
+    stance: result.stance,
+    leader: result.tachiaiWinner // leader = tachiai winner
   });
 
+  // Beats (IMPORTANT: beats must increment so salts differ)
   let clinchBeat = 0;
   let momentumBeat = 0;
 
-  const log = Array.isArray((result as any).log) ? ((result as any).log as any[]) : [];
-  for (const entry of log) {
-    if (entry?.phase === "clinch") {
-      facts.push({
-        phase: "clinch",
-        beat: ++clinchBeat,
-        position: normalizePosition(entry?.data?.position),
-        advantage: normalizeAdvantage(entry?.data?.advantage),
-        gripEvent: normalizeGripEvent(entry?.data?.gripEvent),
-        strikeEvent: normalizeStrikeEvent(entry?.data?.strikeEvent)
-      });
-    } else if (entry?.phase === "momentum") {
-      facts.push({
-        phase: "momentum",
-        beat: ++momentumBeat,
-        advantage: normalizeAdvantage(entry?.data?.advantage),
-        reason: normalizeMomentumReason(entry?.data?.reason),
-        edgeEvent: normalizeEdgeEvent(entry?.data?.edgeEvent),
-        position: entry?.data?.position ? normalizePosition(entry?.data?.position) : undefined
-      });
+  if (Array.isArray((result as any).log)) {
+    for (const entry of (result as any).log) {
+      if (entry.phase === "clinch") {
+        const advantage = normalizeAdvantage(entry.data?.advantage);
+        facts.push({
+          phase: "clinch",
+          beat: ++clinchBeat,
+          position: normalizePosition(entry.data?.position),
+          advantage,
+          gripEvent: normalizeGripEvent(entry.data?.gripEvent),
+          strikeEvent: normalizeStrikeEvent(entry.data?.strikeEvent),
+          leader: advantage
+        });
+      } else if (entry.phase === "momentum") {
+        const advantage = normalizeAdvantage(entry.data?.advantage);
+        facts.push({
+          phase: "momentum",
+          beat: ++momentumBeat,
+          advantage,
+          reason: normalizeMomentumReason(entry.data?.reason),
+          edgeEvent: normalizeEdgeEvent(entry.data?.edgeEvent),
+          position: normalizePosition(entry.data?.position),
+          leader: advantage
+        });
+      }
     }
   }
 
@@ -383,11 +410,12 @@ export function buildPbpFromBoutResult(
   facts.push({
     phase: "finish",
     beat: 0,
-    winner: (result as any).winner ?? "east",
-    kimariteId: (result as any).kimarite,
-    kimariteName: (result as any).kimariteName,
-    upset: !!(result as any).upset,
-    closeCall: !!(result as any).closeCall
+    winner: result.winner,
+    kimariteId: result.kimarite,
+    kimariteName: result.kimariteName,
+    upset: !!result.upset,
+    closeCall: false,
+    leader: result.winner // leader = winner at the end
   });
 
   return buildPbp(facts, ctx, lib);
@@ -409,8 +437,8 @@ function selectPhraseForFact(
         fact.tachiaiQuality >= 0.75
           ? lib.tachiai.decisive
           : fact.tachiaiQuality >= 0.45
-            ? lib.tachiai.even
-            : lib.tachiai.slow;
+          ? lib.tachiai.even
+          : lib.tachiai.slow;
 
       const chosen = weightedPick(bucket, rng);
       return { phrase: chosen, tags: mergeTags(chosen.tags, ctx.kenshoCount ? ["kensho"] : []) };
@@ -471,7 +499,7 @@ function phaseOrder(p: BoutPhase): number {
     case "tachiai":
       return 0;
     case "clinch":
-     	return 1;
+      return 1;
     case "momentum":
       return 2;
     case "finish":
@@ -481,6 +509,23 @@ function phaseOrder(p: BoutPhase): number {
 
 function sideName(ctx: PbpContext, side: Side): string {
   return side === "east" ? ctx.east.shikona : ctx.west.shikona;
+}
+
+function advantageName(ctx: PbpContext, adv: Advantage, winnerSide?: Side): string {
+  if (adv === "east") return ctx.east.shikona;
+  if (adv === "west") return ctx.west.shikona;
+  // If unknown/even, prefer "winner" label if we know it, else blank.
+  if (winnerSide) return sideName(ctx, winnerSide);
+  return "";
+}
+
+function trailerFromLeader(ctx: PbpContext, adv: Advantage, winnerSide?: Side): string {
+  if (adv === "east") return ctx.west.shikona;
+  if (adv === "west") return ctx.east.shikona;
+  // If even, use loser if we know winner.
+  if (winnerSide === "east") return ctx.west.shikona;
+  if (winnerSide === "west") return ctx.east.shikona;
+  return "";
 }
 
 function getKimariteLabel(f: PbpFact): string {
@@ -527,7 +572,7 @@ function normalizeAdvantage(v: any): Advantage {
 }
 
 function normalizePosition(v: any): Position {
-  // Accept old "frontal" and convert it to "front" for backwards compatibility.
+  // accept older "frontal"
   if (v === "front" || v === "lateral" || v === "rear") return v;
   if (v === "frontal") return "front";
   return "front";
@@ -541,9 +586,8 @@ function normalizeMomentumReason(v: any): MomentumShiftReason {
     v === "footwork_angle" ||
     v === "fatigue_turn" ||
     v === "mistake"
-  ) {
+  )
     return v;
-  }
   return "mistake";
 }
 
@@ -555,9 +599,8 @@ function normalizeEdgeEvent(v: any): EdgeEvent | undefined {
     v === "dancing_escape" ||
     v === "turns_the_tables" ||
     v === "slips_but_survives"
-  ) {
+  )
     return v;
-  }
   return undefined;
 }
 
@@ -569,9 +612,8 @@ function normalizeGripEvent(v: any): GripEvent | undefined {
     v === "over_under" ||
     v === "no_grip_scramble" ||
     v === "grip_break"
-  ) {
+  )
     return v;
-  }
   return undefined;
 }
 
@@ -582,20 +624,7 @@ function normalizeStrikeEvent(v: any): StrikeEvent | undefined {
     v === "harite_slap" ||
     v === "throat_attack" ||
     v === "shoulder_blast"
-  ) {
+  )
     return v;
-  }
   return undefined;
-}
-
-function tachiaiQualityFromLog(log: any): number {
-  if (!Array.isArray(log)) return 0.7;
-  const t = log.find((e) => e?.phase === "tachiai");
-  const margin = Number(t?.data?.margin);
-  if (!Number.isFinite(margin)) return 0.7;
-
-  if (margin >= 12) return 0.9;
-  if (margin >= 8) return 0.75;
-  if (margin >= 4) return 0.55;
-  return 0.35;
 }
