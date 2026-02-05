@@ -23,4 +23,19 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": "off",
     },
   },
+,
+{
+  files: ["src/engine/**/*.{ts,tsx}"],
+  rules: {
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "Math",
+        "property": "random",
+        "message": "Do not use Math.random() in engine code. Use SeededRNG (src/utils/SeededRNG.ts) instead."
+      }
+    ]
+  }
+}
+
 );
