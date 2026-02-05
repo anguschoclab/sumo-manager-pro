@@ -211,6 +211,23 @@ export function scheduleAllDivisionsDay(args: {
 }
 
 /**
+ * Back-compat helper used by `src/engine/world.ts` and `GameContext`.
+ *
+ * Generates ONE day of schedules for all divisions (respecting odd-day-only
+ * lower divisions) and appends the resulting `MatchSchedule` entries to
+ * `basho.schedule` and `basho.matches`.
+ */
+export function generateDaySchedule(
+  world: WorldState,
+  basho: BashoState,
+  day: number,
+  seed: string,
+  rules?: ScheduleRules
+): MatchSchedule[] {
+  return scheduleAllDivisionsDay({ world, basho, day, seed, rules });
+}
+
+/**
  * Generate the complete schedule for a basho (all days, all divisions).
  * For lower divisions that only fight 7 days, this only schedules on odd days.
  */

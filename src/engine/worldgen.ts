@@ -268,3 +268,8 @@ export function initializeBasho(world: WorldState, bashoName: string) {
         results: []
     };
 }
+
+// --- Back-compat re-exports ---
+// GameContext (and some legacy code) import scheduling helpers from `worldgen.ts`.
+// Keep the API stable by re-exporting the canonical implementation.
+export { generateDaySchedule } from "./schedule";
