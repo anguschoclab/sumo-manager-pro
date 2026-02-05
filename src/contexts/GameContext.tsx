@@ -3,7 +3,7 @@
 
 import React, { createContext, useContext, useReducer, useCallback, ReactNode } from "react";
 import type { WorldState, BashoState, Rikishi, Heya, BoutResult, BashoName } from "@/engine/types";
-import { generateWorld, initializeBasho, generateDaySchedule, createNewStable } from "@/engine/worldgen";
+import { generateWorld, initializeBasho, generateDaySchedule } from "@/engine/worldgen";
 import { simulateBout } from "@/engine/bout";
 import { BASHO_CALENDAR, getNextBasho } from "@/engine/calendar";
 import { isKachiKoshi, isMakeKoshi } from "@/engine/banzuke";
@@ -42,7 +42,6 @@ export interface GameState {
 
 type GameAction =
   | { type: "CREATE_WORLD"; seed: string; playerHeyaId?: string }
-  | { type: "FOUND_NEW_STABLE"; stableName: string }
   | { type: "SET_PLAYER_HEYA"; heyaId: string }
   | { type: "SET_PHASE"; phase: GamePhase }
   | { type: "START_BASHO" }
@@ -93,17 +92,6 @@ function gameReducer(state: GameState, action: GameAction): GameState {
         world: { ...world, playerHeyaId: playerHeyaId || undefined },
         playerHeyaId,
         phase: playerHeyaId ? "interim" : "menu",
-      };
-    }
-
-    case "FOUND_NEW_STABLE": {
-      if (!state.world) return state;
-      const newHeya = createNewStable(state.world, action.stableName);
-      return {
-        ...state,
-        world: { ...state.world, playerHeyaId: newHeya.id },
-        playerHeyaId: newHeya.id,
-        phase: "interim",
       };
     }
 
