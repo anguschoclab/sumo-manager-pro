@@ -1,9 +1,12 @@
-// types.ts
-// Clean, corrected, drop-in core types for Basho
-//
-// UPDATES Phase 5:
-// - Added `Oyakata`, `OyakataArchetype`, `OyakataTraits`
-// - Added `oyakata` map to `WorldState`
+/**
+ * File Name: src/engine/types.ts
+ * Notes:
+ * - COMPLETE OVERHAUL to match high-fidelity simulation standards defined in the Constitution.
+ * - Added detailed Combat/Style types (TacticalArchetype, KimariteFamily).
+ * - Added detailed Banzuke types (RankPosition, BanzukeAssignment).
+ * - Integrated H2H and Lifecycle fields into the robust Rikishi interface.
+ * - Added Oyakata and Governance structures.
+ */
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
@@ -230,6 +233,7 @@ export interface BoutLogEntry {
 }
 
 export interface BoutResult {
+  boutId: string;
   winner: Side;
   winnerRikishiId: Id;
   loserRikishiId: Id;
@@ -240,13 +244,14 @@ export interface BoutResult {
   duration: number;
   upset: boolean;
   log: BoutLogEntry[];
+  narrative?: string[]; // Legacy compat for UI display
 }
 
 export interface MatchSchedule {
   day: number;
   eastRikishiId: Id;
   westRikishiId: Id;
-  result?: BoutResult;
+  result?: BoutResult | null;
 }
 
 export type StandingsTable = Record<Id, { wins: number; losses: number }>;
@@ -259,6 +264,14 @@ export interface BashoState {
   day: number;
   matches: MatchSchedule[];
   standings: StandingsTableRuntime;
+  isActive: boolean;
+  
+  // Legacy compat
+  id?: string;
+  name?: string;
+  schedule?: MatchSchedule[][];
+  results?: BoutResult[][];
+  currentDay?: number;
 }
 
 /** =========================
@@ -388,11 +401,49 @@ export interface Oyakata {
   formerShikona?: string;
   highestRank?: string;
   yearsInCharge: number;
+  stats?: { scouting: number; training: number; politics: number }; // Legacy compat
+  personality?: string; // Legacy compat
+}
+
+/** =========================
+ * H2H & Records
+ * ========================= */
+
+export interface H2HRecord {
+  wins: number;
+  losses: number;
+  lastMatch: {
+    winnerId: string;
+    kimarite: string;
+    bashoId: string;
+    day: number;
+    year: number;
+  } | null;
+  streak: number; // Positive for wins against this opponent, negative for losses
+}
+
+export interface MatchResultLog {
+  opponentId: string;
+  win: boolean;
+  kimarite: string; // Winning move
+  bashoId: string;
+  day: number;
 }
 
 /** =========================
  * Rikishi / Heya / World
  * ========================= */
+
+// Legacy RikishiStats for UI compatibility
+export interface RikishiStats {
+  strength: number;
+  technique: number;
+  speed: number;
+  weight: number;
+  stamina: number;
+  mental: number;
+  adaptability: number;
+}
 
 export interface Rikishi {
   id: Id;
@@ -401,16 +452,20 @@ export interface Rikishi {
   heyaId: Id;
   nationality: string;
   birthYear: number;
+  origin?: string; // Legacy compat field
 
+  // Physicals
   height: number;
   weight: number;
 
+  // Attributes (0-100) - detailed internal model
   power: number;
   speed: number;
   balance: number;
   technique: number;
   aggression: number;
   experience: number;
+  adaptability: number;
 
   momentum: number;
   stamina: number;
@@ -418,24 +473,48 @@ export interface Rikishi {
 
   injured: boolean;
   injuryWeeksRemaining: number;
+  injuryStatus: {
+    isInjured: boolean;
+    severity: number;
+    location: string;
+    weeksToHeal: number;
+  };
 
   style: Style;
   archetype: TacticalArchetype;
 
+  // Rank
   division: Division;
   rank: Rank;
   rankNumber?: number;
   side: Side;
 
+  // Records
   careerWins: number;
   careerLosses: number;
   currentBashoWins: number;
   currentBashoLosses: number;
+  
+  // H2H & History
+  h2h: Record<string, H2HRecord>;
+  history: MatchResultLog[]; // Detailed match history
 
   favoredKimarite: KimariteId[];
   weakAgainstStyles: Style[];
 
   economics?: RikishiEconomics;
+  
+  // UI Compat
+  name?: string;
+  stats: RikishiStats; // Computed/Linked to internal attributes
+  careerRecord?: { wins: number; losses: number; yusho: number };
+  currentBashoRecord?: { wins: number; losses: number };
+  
+  // Flavor
+  faceAvatarUrl?: string;
+  personalityTraits: string[];
+  condition: number;
+  motivation: number;
 }
 
 export interface Heya {
@@ -475,6 +554,7 @@ export interface Heya {
 
   descriptor?: string;
   isPlayerOwned?: boolean;
+  location?: string; // Legacy compat
 }
 
 export interface BashoResult {
@@ -513,7 +593,7 @@ export interface WorldState {
 
   heyas: IdMapRuntime<Heya>;
   rikishi: IdMapRuntime<Rikishi>;
-  oyakata: IdMapRuntime<Oyakata>; // NEW MAP
+  oyakata: IdMapRuntime<Oyakata>; 
 
   currentBasho?: BashoState;
   history: BashoResult[];
@@ -524,6 +604,12 @@ export interface WorldState {
   playerHeyaId?: Id;
 
   currentBanzuke?: BanzukeSnapshot;
+  
+  // Legacy / UI Helpers
+  currentDate?: Date;
+  heyasArray?: Heya[]; // Optional helper for array-based UI mapping
+  rikishiArray?: Rikishi[];
+  oyakataArray?: Oyakata[];
 }
 
 /** =========================
@@ -548,7 +634,7 @@ export interface SerializedWorldState {
 
   heyas: IdMap<Heya>;
   rikishi: IdMap<Rikishi>;
-  oyakata: IdMap<Oyakata>; // NEW SERIALIZED
+  oyakata: IdMap<Oyakata>;
 
   currentBasho?: SerializedBashoState;
   history: BashoResult[];
