@@ -3,6 +3,7 @@
 // Schedule Builder v1.1 — Deterministic torikumi pairing for ALL divisions
 // Uses matchmaking.ts for candidate generation and scoring.
 // =======================================================
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { BashoState, Division, MatchSchedule, Rikishi, WorldState } from "./types";
 import { buildCandidatePairs, DEFAULT_MATCHMAKING_RULES, type MatchPairing, type MatchmakingRules } from "./matchmaking";
@@ -98,7 +99,7 @@ export function scheduleDivisionDay(args: {
 }): MatchSchedule[] {
   const { world, basho, division, day } = args;
   const rules = args.rules ?? {};
-  const rng = new SeededRNG(`${args.seed}::schedule::${division}::day${day}`);
+  const rng = rngFromSeed(args.seed, "schedule", `${division}::day${day}`);
 
   const roster = activeDivisionRoster(world, division);
   const maxActive = args.config?.maxActiveRikishi;

@@ -7,6 +7,7 @@
  * - Provides 'generateH2HCommentary' for Pre-Bout and UI display.
  */
 
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import { Rikishi, H2HRecord, BoutResult } from "./types";
 
@@ -70,7 +71,7 @@ function createEmptyH2H(): H2HRecord {
  */
 export function generateH2HCommentary(r1: Rikishi, r2: Rikishi): string {
     const recordSeed = `${r1.id}::${r2.id}::${(r1.h2h?.[r2.id]?.wins ?? 0)}::${(r1.h2h?.[r2.id]?.losses ?? 0)}`;
-  const rng = new SeededRNG(`h2h::${recordSeed}`);
+  const rng = rngFromSeed("h2h", "h2h", recordSeed);
 // Guard clause if h2h is undefined
   if (!r1.h2h) r1.h2h = {};
   

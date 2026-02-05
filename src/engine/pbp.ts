@@ -13,6 +13,7 @@
 // - bout.ts emits BoutResult.log with phases + data; buildPbpFromBoutResult derives facts.
 // - narrativeDescriptions.ts remains for static bands; pbp.ts is for dynamic commentary.
 // =======================================================
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { Side, Stance, Style, TacticalArchetype, BoutResult } from "./types";
 
@@ -333,7 +334,7 @@ export function buildPbp(
 
   for (const fact of ordered) {
     const salt = `${ctx.seed}-pbp-${fact.phase}-${fact.beat}-${ctx.east.id}-${ctx.west.id}`;
-    const rng = new SeededRNG(salt);
+    const rng = rngFromSeed(salt, "pbp", "salt");
 
     const { phrase, tags } = selectPhraseForFact(fact, ctx, lib, rng);
 

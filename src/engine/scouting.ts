@@ -7,6 +7,7 @@
  * - USES: generateRookie from lifecycle.ts for candidate generation.
  */
 
+import { rngFromSeed, rngForWorld } from "./rng";
 import { GameState, Rikishi, RikishiStats, Rank, Style, TacticalArchetype } from "./types";
 import { describeAttribute, describeAggression, describeExperience } from "./narrativeDescriptions";
 import { generateRookie } from "./lifecycle"; 
@@ -459,7 +460,7 @@ export function generateScoutCandidates(count: number, currentYear: number): Sco
       archetype: rookie.archetype,
       stats: rookie.stats,
       cost: cost,
-      potential: 50 + new SeededRNG(`${world.seed}::scouting`).next() * 50
+      potential: 50 + rngForWorld(world, "scouting".split("::")[0], "scouting".split("::").slice(1).join("::")).next() * 50
     });
   }
 

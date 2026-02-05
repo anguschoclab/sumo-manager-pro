@@ -3,6 +3,7 @@
 // Manages Money, Solvency, Salaries, and Support.
 // Aligned with Institutional Economy V2.0 Spec.
 
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { WorldState, Heya, BoutResult, BashoMatch, Rikishi, Id } from "./types";
 import { reportScandal } from "./governance";
@@ -115,7 +116,7 @@ export function onBoutResolved(
   const { result, east, west } = context;
   
   
-  const rng = new SeededRNG(`${world.seed}::kensho::${context.match?.id ?? context.match?.day ?? "?"}::${east.id}::${west.id}`);
+  const rng = rngForWorld(world, "kensho::${context.match?.id ?? context.match?.day ?? "?"}::${east.id}::${west.id}".split("::")[0], "kensho::${context.match?.id ?? context.match?.day ?? "?"}::${east.id}::${west.id}".split("::").slice(1).join("::"));
 // Only Makuuchi bouts generate Kensho normally
   if (east.division !== "makuuchi") return;
 

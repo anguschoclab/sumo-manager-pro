@@ -1,3 +1,4 @@
+import { rngFromSeed, rngForWorld } from "./rng";
 import type { WorldState } from "./types";
 import { SeededRNG } from "./utils/SeededRNG";
 
@@ -8,7 +9,7 @@ export interface ScoutingEvent {
 
 export function applyWeeklyScouting(world: WorldState, weekIndex: number): ScoutingEvent[] {
   const events: ScoutingEvent[] = [];
-  const rng = new SeededRNG(world.seed + ":scouting:" + weekIndex);
+  const rng = rngForWorld(world, "timeBoundary", `scouting::week${weekIndex}`);
 
   for (const scout of world.scoutingTargets ?? []) {
     const gain = 0.05 + rng.next() * 0.05;

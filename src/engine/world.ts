@@ -7,6 +7,7 @@
  * - 'advanceInterim' handles between-basho ticks (AI, scouting, economics).
  */
 
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { WorldState, BashoName, BoutResult, Id, MatchSchedule, BashoPerformance, BanzukeEntry, BashoState } from "./types";
 import { initializeBasho } from "./worldgen";
@@ -238,7 +239,7 @@ export function endBasho(world: WorldState): WorldState {
       const rookie = generateRookie(world.year, "jonokuchi");
       
       if (heyaIds.length > 0) {
-          const rng = new SeededRNG(`${world.seed}::assignRookie::${rookie.id}`);
+          const rng = rngForWorld(world, "assignRookie::${rookie.id}".split("::")[0], "assignRookie::${rookie.id}".split("::").slice(1).join("::"));
           const randomHeyaId = heyaIds[rng.int(0, heyaIds.length - 1)];
           rookie.heyaId = randomHeyaId;
           const heya = world.heyas.get(randomHeyaId);

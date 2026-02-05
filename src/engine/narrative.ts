@@ -11,6 +11,7 @@
 //
 // Engine position vocabulary:
 // - "front" | "lateral" | "rear"
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { BoutResult, BoutLogEntry, Rikishi, BashoName, Stance } from "./types";
 import { BASHO_CALENDAR } from "./calendar";
@@ -576,7 +577,7 @@ export function generateNarrative(
   const voiceStyle = getVoiceStyle(day, isHighStakes);
 
   const boutSeed = `${bashoName}-${day}-${east.id}-${west.id}-${result.kimarite}`;
-  const rng = new SeededRNG(boutSeed);
+  const rng = rngFromSeed(boutSeed, "narrative", "bout");
 
   const kensho =
     typeof opts?.hasKensho === "boolean"

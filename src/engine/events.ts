@@ -8,6 +8,7 @@
 // - Supports: heya events, rikishi events, economy events, media events, rivalries hooks.
 // - Lightweight now; expandable as design grows.
 // =======================================================
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { Id, WorldState } from "./types";
 import type { InjuryRecord } from "./injuries";
@@ -329,7 +330,7 @@ export function generateAmbientWeeklyEvents(args: {
   seed: string; // weekSeed recommended
   maxEvents?: number;
 }): EngineEvent[] {
-  const rng = new SeededRNG(`${args.seed}-ambient`);
+  const rng = rngFromSeed(args.seed, "events", "ambient");
   const out: EngineEvent[] = [];
 
   const max = Math.max(0, Math.floor(args.maxEvents ?? 2));

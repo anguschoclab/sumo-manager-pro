@@ -2,6 +2,7 @@
 // Defines the archetypes and traits for NPC Managers.
 // Used to generate diverse and believing opponents.
 
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { Oyakata, OyakataArchetype, OyakataTraits } from "./types";
 
@@ -76,7 +77,7 @@ export function generateOyakata(
   age: number,
   archetype?: OyakataArchetype
 ): Oyakata {
-    const rng = new SeededRNG(`oyakata::${id}`);
+    const rng = rngFromSeed(id, "oyakata", "personality");
 // Determine archetype randomly if not provided
   const keys = Object.keys(OYAKATA_ARCHETYPES) as OyakataArchetype[];
   const type = archetype || (keys.length ? keys[rng.int(0, keys.length - 1)] : "traditionalist");

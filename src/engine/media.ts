@@ -13,6 +13,7 @@
 // - scouting.ts: media coverage can slightly increase "public knowledge" confidence
 // - sponsors.ts: high coverage can raise sponsor tier chances
 // =======================================================
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { Id, WorldState, BoutResult, BashoName, Division } from "./types";
 import { buildRivalryDigest, type RivalriesState, getRivalryBoutModifiers } from "./rivalries";
@@ -139,7 +140,7 @@ export function updateMediaFromBout(args: {
   const winnerHeyaId = winner?.heyaId;
   const loserHeyaId = loser?.heyaId;
 
-  const rng = new SeededRNG(`${world.seed}-media-bout-${week}-${args.day ?? 0}-${result.winnerRikishiId}-${result.loserRikishiId}`);
+  const rng = rngForWorld(world, "media", `bout::week${week}::day${args.day ?? 0}::${result.winnerRikishiId}::${result.loserRikishiId}`);
 
   // Base impact
   let impact = 18;
@@ -221,7 +222,7 @@ export function processWeeklyMediaBoundary(args: {
 }): { state: MediaState; headlines: MediaHeadline[] } {
   const { world } = args;
   const week = world.week ?? 0;
-  const rng = new SeededRNG(`${world.seed}-media-week-${week}`);
+  const rng = rngForWorld(world, "media", `week${week}`);
 
   let state = args.state;
 

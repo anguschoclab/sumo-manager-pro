@@ -13,6 +13,7 @@
 // - This module supports optional richer injury state stored externally (recommended),
 //   while still providing "compat mode" helpers that update those fields.
 // =======================================================
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { Id, Rikishi, WorldState, Heya } from "./types";
 import type { TrainingProfile } from "./training";
@@ -113,7 +114,7 @@ export function getOrInitDurability(args: {
   const existing = args.state.durability[args.rikishiId];
   if (typeof existing === "number") return { state: args.state, durability: clampInt(existing, 0, 100) };
 
-  const rng = new SeededRNG(`${args.worldSeed}-durability-${args.rikishiId}`);
+  const rng = rngFromSeed(args.worldSeed, "injuries", `durability::${args.rikishiId}`);
   // Centered around 60, with tails. Clamp 20..95.
   const d = clampInt(Math.round(60 + (rng.next() - 0.5) * 50), 20, 95);
 
@@ -349,7 +350,7 @@ export function hydrateFromRikishiFlags(args: {
     if (state.activeByRikishi[r.id]) continue; // already hydrated
 
     // Create a generic record
-    const rng = new SeededRNG(`${args.world.seed}-hydrate-injury-${args.world.week}-${r.id}`);
+    const rng = rngForWorld(args.world, "injuries", `hydrate::week${args.world.week}::${r.id}`);
     const severity: InjurySeverity = weeks <= 2 ? "minor" : weeks <= 5 ? "moderate" : "serious";
     const area = pickArea(rng);
     const type = pickType(rng, severity);

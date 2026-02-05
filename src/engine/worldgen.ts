@@ -8,6 +8,7 @@
  * - Returns a WorldState populated with Maps as per new types.
  */
 
+import { rngFromSeed, rngForWorld } from "./rng";
 import {
   WorldState, Rikishi, Heya, Oyakata, 
   Rank, TacticalArchetype, StatureBand, PrestigeBand, 
@@ -22,7 +23,7 @@ function wgRngFromWorld(world: WorldState, label: string): SeededRNG {
 }
 
 function wgRng(worldSeed: string, label: string): SeededRNG {
-  return new SeededRNG(`${worldSeed}::worldgen::${label}`);
+  return rngFromSeed(worldSeed, "worldgen", label);
 }
 
 

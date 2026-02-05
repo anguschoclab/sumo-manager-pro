@@ -14,6 +14,7 @@
 // - Guards for bannerCount < 0 / empty sponsor pools.
 //
 // NOTE: This module stays RNG-driven but deterministic given the provided rng + inputs.
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 // === SPONSOR TIER SYSTEM ===
 
@@ -381,7 +382,7 @@ export interface SponsorPool {
 }
 
 export function generateSponsorPool(worldSeed: string, worldSizeScalar: number = 1): SponsorPool {
-  const rng = new SeededRNG(worldSeed + "_sponsors");
+  const rng = rngFromSeed(worldSeed, "sponsors", "root");
   const existingIds = new Set<string>();
 
   const poolSize = 180 + Math.floor(worldSizeScalar * 60);

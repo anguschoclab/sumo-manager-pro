@@ -7,6 +7,7 @@
 // - Deterministic: no Math.random; all stochasticity via seedrandom + stable salts
 // - JSON-safe persistence: store as Records/arrays; no Maps/Sets in saved state
 // =======================================================
+import { rngFromSeed, rngForWorld } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import type { Id, Side, WorldState, BoutResult } from "./types";
 
@@ -164,7 +165,7 @@ export function updateRivalriesFromBout(args: {
 
   const sameHeya = !!winner && !!loser && winner.heyaId === loser.heyaId;
 
-  const rng = new SeededRNG(`${world.seed}-rivalry-${week}-${day}-${key}`);
+  const rng = rngForWorld(world, "rivalries", `week${week}::day${day}::${key}`);
 
   const existing = state.pairs[key] ?? createFreshPairState(winnerId, loserId, key, week, sameHeya);
 
