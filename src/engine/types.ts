@@ -339,7 +339,9 @@ export interface FTUEState {
   suppressedEvents: string[];
 }
 
-export type StableSelectionMode = "found_new" | "take_over" | "recommended";
+// Founding a brand-new heya was removed from the initial scope.
+// Selection now means choosing a starting stable from the generated world.
+export type StableSelectionMode = "take_over" | "recommended";
 
 /** =========================
  * Training (shared types)
