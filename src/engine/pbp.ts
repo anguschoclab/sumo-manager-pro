@@ -161,7 +161,7 @@ type Phrase = {
   id: string;
   weight?: number;
   tags?: PbpTag[];
-  /** templated string using {east} {west} {winner} {kimarite} etc. */
+  /** templated string using {east} {west} {winner} {loser} {kimarite} etc. */
   text: string;
 };
 
@@ -197,7 +197,6 @@ export interface PbpLibrary {
   };
 
   connective: {
-    /** used between beats when needed */
     short: PhraseBucket;
   };
 }
@@ -301,11 +300,6 @@ export const DEFAULT_PBP_LIBRARY: PbpLibrary = {
  *  Public API
  *  ========================= */
 
-/**
- * Build play-by-play lines from facts.
- * - deterministic selection per line
- * - templating of names/winner/loser/kimarite
- */
 export function buildPbp(
   facts: PbpFact[],
   ctx: PbpContext,
@@ -316,7 +310,6 @@ export function buildPbp(
     return a.beat - b.beat;
   });
 
-  // Determine winner/loser labels if a finish fact exists
   const finish = [...ordered].reverse().find(f => f.phase === "finish");
   const winnerSide = finish && finish.phase === "finish" ? finish.winner : undefined;
 
@@ -340,21 +333,12 @@ export function buildPbp(
       kimarite: getKimariteLabel(fact)
     });
 
-    lines.push({
-      phase: fact.phase,
-      text,
-      tags
-    });
+    lines.push({ phase: fact.phase, text, tags });
   }
 
   return lines;
 }
 
-/**
- * Convenience: Build PBP directly from a BoutResult + its `log` if you have it.
- * - If your bout engine already emits BoutLogEntry with phases,
- *   this creates a minimal fact list for commentary.
- */
 export function buildPbpFromBoutResult(
   result: BoutResult,
   ctx: Omit<PbpContext, "seed"> & { seed: string },
@@ -362,7 +346,6 @@ export function buildPbpFromBoutResult(
 ): PbpLine[] {
   const facts: PbpFact[] = [];
 
-  // Tachiai
   facts.push({
     phase: "tachiai",
     beat: 0,
@@ -371,7 +354,33 @@ export function buildPbpFromBoutResult(
     stance: result.stance
   });
 
-  // Finish
+  // IMPORTANT FIX: clinch beat must increment (avoids repeated salts)
+  let clinchBeat = 0;
+  let momentumBeat = 0;
+
+  if (Array.isArray(result.log)) {
+    for (const entry of result.log) {
+      if (entry.phase === "clinch") {
+        facts.push({
+          phase: "clinch",
+          beat: ++clinchBeat,
+          position: normalizePosition(entry.data?.position),
+          advantage: normalizeAdvantage(entry.data?.advantage),
+          gripEvent: normalizeGripEvent(entry.data?.gripEvent),
+          strikeEvent: normalizeStrikeEvent(entry.data?.strikeEvent)
+        });
+      } else if (entry.phase === "momentum") {
+        facts.push({
+          phase: "momentum",
+          beat: ++momentumBeat,
+          advantage: normalizeAdvantage(entry.data?.advantage),
+          reason: normalizeMomentumReason(entry.data?.reason),
+          edgeEvent: normalizeEdgeEvent(entry.data?.edgeEvent)
+        });
+      }
+    }
+  }
+
   facts.push({
     phase: "finish",
     beat: 0,
@@ -381,32 +390,6 @@ export function buildPbpFromBoutResult(
     upset: !!result.upset,
     closeCall: false
   });
-
-  // Optional: inject momentum beats from bout log if present
-  if (Array.isArray(result.log)) {
-    let mBeat = 0;
-    for (const entry of result.log) {
-      if (entry.phase === "momentum") {
-        facts.push({
-          phase: "momentum",
-          beat: ++mBeat,
-          advantage: normalizeAdvantage(entry.data?.advantage),
-          reason: normalizeMomentumReason(entry.data?.reason),
-          edgeEvent: normalizeEdgeEvent(entry.data?.edgeEvent)
-        });
-      }
-      if (entry.phase === "clinch") {
-        facts.push({
-          phase: "clinch",
-          beat: 0,
-          position: normalizePosition(entry.data?.position),
-          advantage: normalizeAdvantage(entry.data?.advantage),
-          gripEvent: normalizeGripEvent(entry.data?.gripEvent),
-          strikeEvent: normalizeStrikeEvent(entry.data?.strikeEvent)
-        });
-      }
-    }
-  }
 
   return buildPbp(facts, ctx, lib);
 }
@@ -424,15 +407,17 @@ function selectPhraseForFact(
   switch (fact.phase) {
     case "tachiai": {
       const bucket =
-        fact.tachiaiQuality >= 0.75 ? lib.tachiai.decisive : fact.tachiaiQuality >= 0.45 ? lib.tachiai.even : lib.tachiai.slow;
+        fact.tachiaiQuality >= 0.75
+          ? lib.tachiai.decisive
+          : fact.tachiaiQuality >= 0.45
+            ? lib.tachiai.even
+            : lib.tachiai.slow;
 
-      const winner = sideName(ctx, fact.tachiaiWinner);
       const chosen = weightedPick(bucket, rng);
       return { phrase: chosen, tags: mergeTags(chosen.tags, ctx.kenshoCount ? ["kensho"] : []) };
     }
 
     case "clinch": {
-      // choose bucket by events/position
       let bucket = lib.clinch.scramble;
       if (fact.position === "rear") bucket = lib.clinch.rear_attack;
       else if (fact.gripEvent === "grip_break") bucket = lib.clinch.grip_break;
@@ -455,23 +440,25 @@ function selectPhraseForFact(
 
     case "finish": {
       const kimariteText = getKimariteLabel(fact) || "a winning move";
+      const isKinboshi = !!ctx.isKinboshiBout && !!fact.upset;
 
-      const isKinboshi = !!ctx.isKinboshiBout && fact.upset;
       let bucket = lib.finish.normal;
-
       if (isKinboshi) bucket = lib.finish.kinboshi;
       else if (fact.closeCall) bucket = lib.finish.close_call;
       else if (fact.upset) bucket = lib.finish.upset;
 
       const chosen = weightedPick(bucket, rng);
-      const tags: PbpTag[] = [];
 
-      if (ctx.isYushoRaceKeyBout) tags.push("yusho_race");
-      if (isKinboshi) tags.push("kinboshi");
-      if (fact.upset) tags.push("upset");
-      if (fact.closeCall) tags.push("close_call");
+      const extra: PbpTag[] = [];
+      if (ctx.isYushoRaceKeyBout) extra.push("yusho_race");
+      if (isKinboshi) extra.push("kinboshi");
+      if (fact.upset) extra.push("upset");
+      if (fact.closeCall) extra.push("close_call");
 
-      return { phrase: { ...chosen, text: chosen.text.replace("{kimarite}", kimariteText) }, tags: mergeTags(chosen.tags, tags) };
+      return {
+        phrase: { ...chosen, text: chosen.text.replace("{kimarite}", kimariteText) },
+        tags: mergeTags(chosen.tags, extra)
+      };
     }
   }
 }
