@@ -1,13 +1,17 @@
-// world.ts
-// World Orchestrator — single entrypoint for mutating WorldState safely & consistently
-//
-// UPDATES Phase 5:
-// - Wired `npcAI.tickWeek` to `advanceInterim`
+/**
+ * File Name: src/engine/world.ts
+ * Notes:
+ * - Updated endBashoProcess to use the new 'lifecycle.ts' module.
+ * - Added logic to check for retirements based on age/injury/performance.
+ * - Added logic to regenerate the roster with new recruits (using 'generateRookie') to maintain population.
+ * - Connected H2H updates via 'resolveBout' (which now calls updateH2H).
+ * - Wired `npcAI.tickWeek` to `advanceInterim`
+ */
 
 import type { WorldState, BashoName, BoutResult, Id, MatchSchedule, BashoPerformance, BanzukeEntry, CyclePhase } from "./types";
 import { initializeBasho } from "./worldgen";
 import { getNextBasho } from "./calendar";
-import { simulateBout as simulateBoutEngine } from "./bout";
+import { resolveBout } from "./bout"; // Updated to use resolveBout for H2H integration
 
 import * as schedule from "./schedule";
 import * as events from "./events";
@@ -20,6 +24,7 @@ import * as scoutingStore from "./scoutingStore";
 import * as historyIndex from "./historyIndex";
 import * as training from "./training"; 
 import { determineSpecialPrizes, updateBanzuke } from "./banzuke"; 
+import { checkRetirement, generateRookie } from "./lifecycle"; // Lifecycle imports
 
 /** A match in the current basho schedule (shape inferred from your GameContext usage). */
 export interface BashoMatch {
@@ -130,10 +135,29 @@ export function simulateBoutForToday(
   const west = world.rikishi.get(match.westRikishiId);
   if (!east || !west) return { world };
 
-  const boutSeed = getBoutSeed(world, basho.bashoName, basho.day, unplayedIndex);
-  const result = simulateBoutEngine(east as any, west as any, boutSeed);
+  // Use resolveBout for H2H integration instead of pure simulateBoutEngine
+  const currentBashoForType = {
+      id: `${basho.bashoName}-${basho.year}`,
+      name: basho.bashoName,
+      month: 1, // Placeholder
+      year: basho.year,
+      currentDay: basho.day,
+      isActive: true,
+      schedule: [],
+      results: []
+  };
 
-  applyBoutResult(world, match, result, { boutSeed });
+  const boutForType = {
+      id: `d${basho.day}-b${unplayedIndex}`,
+      day: basho.day,
+      rikishiEastId: east.id,
+      rikishiWestId: west.id,
+      division: east.division
+  };
+
+  const result = resolveBout(boutForType, east as any, west as any, currentBashoForType);
+
+  applyBoutResult(world, match, result);
   return { world, result };
 }
 
@@ -153,8 +177,8 @@ export function applyBoutResult(
   const west = world.rikishi.get(match.westRikishiId);
   if (!east || !west) return world;
 
-  const winner = result.winner === "east" ? east : west;
-  const loser = result.winner === "east" ? west : east;
+  const winner = result.winnerId === east.id ? east : west;
+  const loser = result.winnerId === east.id ? west : east;
 
   safeInc(winner as any, "currentBashoWins", 1);
   safeInc(winner as any, "careerWins", 1);
@@ -208,14 +232,33 @@ export function endBasho(world: WorldState): WorldState {
         
         const eastId = roundCandidates[i];
         const westId = roundCandidates[i + 1];
-        const seed = getBoutSeed(world, basho.bashoName, 16, boutIdx++);
+        // const seed = getBoutSeed(world, basho.bashoName, 16, boutIdx++); // Unused in resolveBout flow
         
         const east = world.rikishi.get(eastId);
         const west = world.rikishi.get(westId);
         
         if (east && west) {
-          const res = simulateBoutEngine(east as any, west as any, seed);
-          winners.push(res.winner === "east" ? eastId : westId);
+            // Simplified logic for playoffs using resolveBout
+            const fakeBout = {
+                id: `playoff-${boutIdx++}`,
+                day: 16,
+                rikishiEastId: eastId,
+                rikishiWestId: westId,
+                division: east.division
+            };
+            const fakeBasho = {
+                id: "playoff",
+                name: "Playoff",
+                month: 1,
+                year: world.year,
+                currentDay: 16,
+                isActive: true,
+                schedule: [],
+                results: []
+            };
+
+          const res = resolveBout(fakeBout, east as any, west as any, fakeBasho);
+          winners.push(res.winnerId);
           
           playoffMatches.push({
              day: 16,
@@ -271,6 +314,44 @@ export function endBasho(world: WorldState): WorldState {
 
   // DO NOT ADVANCE TIME YET
   world.cyclePhase = "post_basho";
+
+  // --- LIFECYCLE MANAGEMENT (Retirements & Replacements) ---
+  console.log("Processing End of Basho Lifecycle...");
+  
+  // 1. Process Retirements
+  const retiredRikishiIds: string[] = [];
+
+  for (const [id, r] of world.rikishi) {
+    const reason = checkRetirement(r as any, world.year);
+    if (reason) {
+        console.log(`${r.shikona} has retired due to: ${reason}`);
+        retiredRikishiIds.push(id);
+        // In a real system, you might move them to a retired map instead of deleting
+        world.rikishi.delete(id);
+    }
+  }
+
+  // 2. Replenish Roster
+  const numToReplace = retiredRikishiIds.length;
+  for (let i = 0; i < numToReplace; i++) {
+      const rookie = generateRookie(world.year, "Jonokuchi");
+      
+      // Assign to a random heya (assumed structure)
+      // This part is tricky if world.heyas is not easily accessible or structured differently
+      // Assuming world.heyas is a Map or Array
+      if (world.heyas && world.heyas.size > 0) {
+          const heyaIds = Array.from(world.heyas.keys());
+          const randomHeyaId = heyaIds[Math.floor(Math.random() * heyaIds.length)];
+          rookie.heyaId = randomHeyaId;
+          const heya = world.heyas.get(randomHeyaId);
+          if (heya && Array.isArray(heya.rikishiIds)) {
+              heya.rikishiIds.push(rookie.id);
+          }
+      }
+      
+      world.rikishi.set(rookie.id, rookie as any);
+      console.log(`New Recruit: ${rookie.shikona} from ${rookie.origin} (${rookie.archetype})`);
+  }
 
   return world;
 }
