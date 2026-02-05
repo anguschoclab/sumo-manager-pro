@@ -23,7 +23,6 @@ import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Helmet } from "react-helmet";
 import { useNavigate } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
-import { createNewStable } from "@/engine/worldgen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -255,7 +254,6 @@ export default function MainMenu() {
   const [seed, setSeed] = useState("");
   const [showSeedInput, setShowSeedInput] = useState(false);
   const [selectionMode, setSelectionMode] = useState<StableSelectionMode>("recommended");
-  const [newStableName, setNewStableName] = useState("");
   const [selectedHeyaId, setSelectedHeyaId] = useState<string | null>(null);
 
   const [showLoadDialog, setShowLoadDialog] = useState(false);
@@ -468,12 +466,6 @@ export default function MainMenu() {
     setShowSeedInput(false);
   };
 
-  const foundNewStable = (name: string) => {
-    if (!state?.world) return;
-    const newHeya = createNewStable(state.world, name);
-    if (typeof createWorld === "function") createWorld(state.world.seed, newHeya.id);
-  };
-
   const beginWithHeya = (heyaId: string) => {
     if (!state?.world) return;
     if (typeof createWorld === "function") createWorld(state.world.seed, heyaId);
@@ -483,19 +475,10 @@ export default function MainMenu() {
   const handleConfirmStable = () => {
     if (!state?.world) return;
 
-    if (selectionMode === "found_new") {
-      const name = newStableName.trim();
-      if (!name) return;
-      foundNewStable(name);
-      navigate("/");
-      return;
-    }
-
     if (selectedHeyaId) beginWithHeya(selectedHeyaId);
   };
 
-  const canConfirm =
-    selectionMode === "found_new" ? newStableName.trim().length > 0 : selectedHeyaId !== null;
+  const canConfirm = selectedHeyaId !== null;
 
   if (!state?.world) {
     return (
@@ -673,7 +656,7 @@ export default function MainMenu() {
 
           {/* Selection Mode Tabs */}
           <Tabs value={selectionMode} onValueChange={(v) => setSelectionMode(v as StableSelectionMode)} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
               <TabsTrigger value="recommended" className="gap-2">
                 <Star className="w-4 h-4" />
                 Recommended
@@ -681,10 +664,6 @@ export default function MainMenu() {
               <TabsTrigger value="take_over" className="gap-2">
                 <Building2 className="w-4 h-4" />
                 Take Over
-              </TabsTrigger>
-              <TabsTrigger value="found_new" className="gap-2">
-                <Plus className="w-4 h-4" />
-                Found New
               </TabsTrigger>
             </TabsList>
 
@@ -780,52 +759,6 @@ export default function MainMenu() {
               )}
             </TabsContent>
 
-            {/* Found New Stable */}
-            <TabsContent value="found_new" className="space-y-4">
-              <Card className="bg-red-500/5 border-red-500/20 paper">
-                <CardContent className="pt-4">
-                  <p className="text-sm text-red-400">
-                    <AlertTriangle className="inline w-4 h-4 mr-1" />
-                    <strong>Extreme Difficulty.</strong> Start from nothing with no sekitori, minimal funds, and no
-                    reputation. You will need to recruit and develop talent from scratch.
-                  </p>
-                </CardContent>
-              </Card>
-
-              <Card className="paper">
-                <CardHeader>
-                  <CardTitle>Name Your Heya</CardTitle>
-                  <CardDescription>
-                    Choose a name for your new heya. This cannot be changed without governance approval.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Enter heya name (e.g., Takamiyama)"
-                      value={newStableName}
-                      onChange={(e) => setNewStableName(e.target.value)}
-                      className="flex-1"
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground">Your heya will start with:</p>
-                  <ul className="text-xs text-muted-foreground list-disc list-inside space-y-1">
-                    <li>Minimal starting funds (very tight runway)</li>
-                    <li>No sekitori-ranked wrestlers</li>
-                    <li>Basic facilities only</li>
-                    <li>No kōenkai (supporter group)</li>
-                    <li>6 basho of FTUE protection</li>
-                  </ul>
-                </CardContent>
-              </Card>
-
-              <div className="mt-6 flex justify-center">
-                <Button size="lg" className="gap-2 min-w-[220px]" onClick={handleConfirmStable} disabled={!canConfirm}>
-                  Found Heya
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </TabsContent>
           </Tabs>
 
           {/* Heya Preview Dialog */}
