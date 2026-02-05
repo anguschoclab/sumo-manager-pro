@@ -17,7 +17,14 @@ import {
 import { generateRikishiName } from "./shikona";
 import { SeededRNG } from "./utils/SeededRNG";
 
-const __worldgenRng = new SeededRNG("worldgen::static");
+function wgRngFromWorld(world: WorldState, label: string): SeededRNG {
+  return wgRng(world.seed, label);
+}
+
+function wgRng(worldSeed: string, label: string): SeededRNG {
+  return new SeededRNG(`${worldSeed}::worldgen::${label}`);
+}
+
 
 // Constants
 const ORIGINS = [
@@ -44,7 +51,7 @@ function generateRikishiStats(rank: Rank, archetype: TacticalArchetype): Rikishi
                rank === "sekiwake" || rank === "komusubi" ? 65 :
                rank === "maegashira" ? 55 : 40;
   
-  const variance = () => (__worldgenRng.next() * 20) - 10;
+  const variance = (rng: SeededRNG) => (rng.next() * 20) - 10;
 
   // Multipliers based on archetype
   let strMod = 1, techMod = 1, spdMod = 1, wgtMod = 1, menMod = 1;
@@ -62,17 +69,18 @@ function generateRikishiStats(rank: Rank, archetype: TacticalArchetype): Rikishi
   const clamp = (val: number) => Math.min(100, Math.max(10, Math.round(val)));
 
   return {
-    strength: clamp((base + variance()) * strMod),
-    technique: clamp((base + variance()) * techMod),
-    speed: clamp((base + variance()) * spdMod),
-    weight: Math.round(Math.min(250, Math.max(90, (140 + variance() * 2) * wgtMod))),
-    stamina: clamp(base + variance()),
-    mental: clamp((base + variance()) * menMod),
-    adaptability: clamp((base + variance()) * (techMod > 1 ? 1.1 : 1.0)),
+    strength: clamp((base + variance(rng)) * strMod),
+    technique: clamp((base + variance(rng)) * techMod),
+    speed: clamp((base + variance(rng)) * spdMod),
+    weight: Math.round(Math.min(250, Math.max(90, (140 + variance(rng) * 2) * wgtMod))),
+    stamina: clamp(base + variance(rng)),
+    mental: clamp((base + variance(rng)) * menMod),
+    adaptability: clamp((base + variance(rng)) * (techMod > 1 ? 1.1 : 1.0)),
   };
 }
 
 export function generateWorld(seed: string = "initial-seed"): WorldState {
+  const rng = wgRng(seed, "world");
   const heyaMap = new Map<string, Heya>();
   const rikishiMap = new Map<string, Rikishi>();
   const oyakataMap = new Map<string, Oyakata>();
@@ -90,16 +98,16 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
       id: oyakataId,
       heyaId: heyaId,
       name: `${name} Oyakata`,
-      age: 45 + __worldgenRng.int(0, 19),
+      age: 45 + rng.int(0, 19),
       archetype: oyArchetype,
       traits: {
-        ambition: 50 + __worldgenRng.next() * 50,
-        patience: 50 + __worldgenRng.next() * 50,
-        risk: 50 + __worldgenRng.next() * 50,
-        tradition: 50 + __worldgenRng.next() * 50,
-        compassion: 50 + __worldgenRng.next() * 50
+        ambition: 50 + rng.next() * 50,
+        patience: 50 + rng.next() * 50,
+        risk: 50 + rng.next() * 50,
+        tradition: 50 + rng.next() * 50,
+        compassion: 50 + rng.next() * 50
       },
-      yearsInCharge: 1 + __worldgenRng.int(0, 14),
+      yearsInCharge: 1 + rng.int(0, 14),
       // Legacy compat
       stats: { scouting: 50, training: 50, politics: 50 },
       personality: oyArchetype
@@ -120,7 +128,7 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
       runwayBand: "comfortable",
 
       reputation: 50,
-      funds: 10_000_000 + __worldgenRng.int(0, 50_000_000),
+      funds: 10_000_000 + rng.int(0, 50_000_000),
       
       scandalScore: 0,
       governanceStatus: "good_standing",
@@ -156,7 +164,7 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
     const heya = getRandom(heyaList);
     const archetype = getRandom(ARCHETYPES);
     const origin = getRandom(ORIGINS);
-    const birthYear = currentYear - (20 + __worldgenRng.int(0, 11));
+    const birthYear = currentYear - (20 + rng.int(0, 11));
     
     const stats = generateRikishiStats(rank, archetype);
     const rid = `rikishi_${rikishiCounter++}`;
@@ -171,7 +179,7 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
       birthYear: birthYear,
       
       // Physicals
-      height: 170 + __worldgenRng.next() * 25,
+      height: 170 + rng.next() * 25,
       weight: stats.weight,
       
       // Attributes (Stats)
@@ -181,7 +189,7 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
       balance: stats.stamina,
       technique: stats.technique,
       aggression: stats.mental,
-      experience: __worldgenRng.int(0, 99),
+      experience: rng.int(0, 99),
       adaptability: stats.adaptability,
       
       momentum: 50,
@@ -194,8 +202,8 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
         location: "",
         weeksToHeal: 0
       },
-      condition: 90 + __worldgenRng.next() * 10,
-      motivation: 50 + __worldgenRng.next() * 50,
+      condition: 90 + rng.next() * 10,
+      motivation: 50 + rng.next() * 50,
       
       // Style
       style: archetype.includes("oshi") ? "oshi" : archetype.includes("yotsu") ? "yotsu" : "hybrid",
