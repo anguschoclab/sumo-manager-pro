@@ -6,6 +6,7 @@
  * - Added detailed Banzuke types (RankPosition, BanzukeAssignment).
  * - Integrated H2H and Lifecycle fields into the robust Rikishi interface.
  * - Added Oyakata and Governance structures.
+ * - ADDED: History System (System 6) definitions.
  */
 
 export type Id = string;
@@ -352,6 +353,7 @@ export type TrainingFocus = "power" | "speed" | "technique" | "balance" | "neutr
 export type StyleBias = "oshi" | "yotsu" | "neutral";
 export type RecoveryEmphasis = "low" | "normal" | "high";
 export type FocusMode = "develop" | "push" | "protect" | "rebuild";
+export type IndividualFocusType = FocusMode; // Alias for clarity
 
 export interface TrainingProfile {
   intensity: TrainingIntensity;
@@ -362,13 +364,13 @@ export interface TrainingProfile {
 
 export interface IndividualFocus {
   rikishiId: Id;
-  mode: FocusMode;
+  focusType: FocusMode;
 }
 
 export interface BeyaTrainingState {
-  profile: TrainingProfile;
+  beyaId: Id;
+  activeProfile: TrainingProfile;
   focusSlots: IndividualFocus[];
-  maxFocusSlots: number;
 }
 
 /** =========================
@@ -445,6 +447,7 @@ export interface RikishiStats {
   stamina: number;
   mental: number;
   adaptability: number;
+  balance: number; // Added to match internal Balance
 }
 
 export interface Rikishi {
@@ -471,18 +474,23 @@ export interface Rikishi {
 
   momentum: number;
   stamina: number;
-  fatigue?: number;
+  fatigue: number; // 0-100
+
+  isRetired?: boolean;
 
   injured: boolean;
   injuryWeeksRemaining: number;
-  injuryStatus: {
-    isInjured: boolean;
-    severity: number;
-    location: string;
-    weeksToHeal: number;
+  injuryStatus?: {
+    type: string;
+    isInjured?: boolean; // Legacy
+    severity: string | number; // "Minor" or number
+    location?: string;
+    weeksRemaining: number;
+    weeksToHeal?: number; // Legacy
   };
 
   style: Style;
+  trainingFocus?: string; // Legacy field, replaced by training state
   archetype: TacticalArchetype;
 
   // Rank
@@ -552,8 +560,8 @@ export interface Heya {
     rivalry: boolean;
   };
 
-  trainingState?: BeyaTrainingState;
-
+  trainingState?: BeyaTrainingState; // Legacy pointer?
+  
   descriptor?: string;
   isPlayerOwned?: boolean;
   location?: string; // Legacy compat
@@ -583,9 +591,47 @@ export interface BashoResult {
   nextBanzuke?: BanzukeSnapshot;
 }
 
+/** =========================
+ * History & Event Sourcing (System 6)
+ * ========================= */
+
+// 1. The Core Event Envelope
+export interface HistoryEvent {
+  id: string;              // Immutable UUID (e.g. "EVT-2026-001")
+  type: HistoryEventType;  // Discriminator
+  tick: {                  // When it happened (SimTime)
+    year: number;
+    month: number;
+    week: number;
+    day?: number;          // 1-31 (calendar day) or 1-15 (basho day)
+    bashoId?: string;      // e.g. "2026.01"
+  };
+  entities: {              // Who was involved (for fast indexing)
+    primaryId: Id;         // The main subject (Rikishi, Beya, etc.)
+    secondaryIds?: Id[];   // Opponent, Sponsor, Staff
+    beyaId?: Id;           // Contextual stable
+  };
+  payload: Record<string, any>; // The immutable fact data
+  importance: "routine" | "notable" | "major" | "headline";
+  causedByEventId?: string; // Causal chain (e.g. Injury -> Retirement)
+}
+
+// 2. Canonical Event Types
+export type HistoryEventType = 
+  | "BOUT_RESULT"
+  | "RANK_CHANGE"
+  | "INJURY"
+  | "RECRUITMENT"
+  | "SCANDAL"
+  | "GOVERNANCE_RULING"
+  | "SPONSOR_UPDATE"
+  | "STAFF_ACTION"
+  | "GENERIC_NOTE";
+
 export type CyclePhase = "active_basho" | "post_basho" | "interim";
 
 export interface WorldState {
+  id: string;
   seed: string;
   year: number;
   week: number;
@@ -599,6 +645,9 @@ export interface WorldState {
 
   currentBasho?: BashoState;
   history: BashoResult[];
+  
+  // NEW: The Immutable History Log
+  historyLog: HistoryEvent[];
 
   governanceLog?: GovernanceRuling[];
 
@@ -607,11 +656,26 @@ export interface WorldState {
 
   currentBanzuke?: BanzukeSnapshot;
   
+  // Training State Store (HeyaId -> State)
+  trainingState?: Record<Id, BeyaTrainingState>;
+
   // Legacy / UI Helpers
   currentDate?: Date;
   heyasArray?: Heya[]; // Optional helper for array-based UI mapping
   rikishiArray?: Rikishi[];
   oyakataArray?: Oyakata[];
+  
+  // Calendar compat
+  calendar: {
+    year: number;
+    month: number;
+    currentWeek: number;
+    currentDay: number;
+  };
+  
+  activeBasho?: {
+    id: string;
+  };
 }
 
 /** =========================
@@ -640,6 +704,7 @@ export interface SerializedWorldState {
 
   currentBasho?: SerializedBashoState;
   history: BashoResult[];
+  historyLog: HistoryEvent[];
 
   ftue: FTUEState;
   playerHeyaId?: Id;
