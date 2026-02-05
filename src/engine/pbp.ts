@@ -1,18 +1,17 @@
-// src/engine/pbp.ts
+// pbp.ts
 // =======================================================
 // Play-by-Play (PBP) System v3.x — Fact Layer -> Flavor Layer
 // Deterministic commentary builder for bouts + time events
 //
 // Canon goals:
-// - Engine produces FACTS (structured signals, no prose)
-// - PBP selects FLAVOR (templated text) deterministically from a phrase library
-// - No Math.random; all randomness via seedrandom with stable salts
-// - No UI framework assumptions: returns structured lines (text + tags)
+// - Engine emits FACTS (structured signals, no prose)
+// - PBP selects FLAVOR deterministically from a phrase library
+// - No Math.random; randomness only via seedrandom with stable salts
+// - Framework-agnostic: returns plain strings + optional tags
 //
-// Integration:
-// - bout.ts emits BoutResult.log with phases: "tachiai" | "clinch" | "momentum" | "finish"
-// - buildPbpFromBoutResult converts log -> facts -> PbpLine[]
-// - narrativeDescriptions.ts remains for static profile prose; pbp.ts is dynamic bout commentary
+// IMPORTANT INTEGRATION FIX:
+// - Engine (bout.ts) uses position: "front" | "lateral" | "rear"
+//   (NOT "frontal"). This file now matches that canonical set.
 // =======================================================
 
 import seedrandom from "seedrandom";
@@ -40,7 +39,7 @@ export type PbpTag =
   | "close_call";
 
 export type Advantage = "east" | "west" | "none";
-export type Position = "frontal" | "lateral" | "rear";
+export type Position = "front" | "lateral" | "rear";
 
 export type EdgeEvent =
   | "bales_at_tawara"
@@ -136,11 +135,17 @@ export interface PbpContext {
     rankLabel?: string;
   };
 
+  /** Optional: kensho count for vibes */
   kenshoCount?: number;
+
+  /** Optional: kinboshi possibility */
   isKinboshiBout?: boolean;
+
+  /** Optional: top-of-banzuke stakes */
   isYushoRaceKeyBout?: boolean;
 }
 
+/** Output for UI */
 export interface PbpLine {
   phase: BoutPhase;
   text: string;
@@ -148,7 +153,7 @@ export interface PbpLine {
 }
 
 /** =========================
- *  Phrase Library
+ *  Phrase Library (Flavor Layer)
  *  ========================= */
 
 type Phrase = {
@@ -307,7 +312,8 @@ export function buildPbp(
   const winnerSide = finish?.winner;
 
   const winnerName = winnerSide ? sideName(ctx, winnerSide) : "";
-  const loserName = winnerSide === "east" ? ctx.west.shikona : winnerSide === "west" ? ctx.east.shikona : "";
+  const loserName =
+    winnerSide === "east" ? ctx.west.shikona : winnerSide === "west" ? ctx.east.shikona : "";
 
   const lines: PbpLine[] = [];
 
@@ -338,16 +344,15 @@ export function buildPbpFromBoutResult(
 ): PbpLine[] {
   const facts: PbpFact[] = [];
 
-  // Tachiai
+  // Tachiai (if your engine provides tachiaiWinner + optional log margin)
   facts.push({
     phase: "tachiai",
     beat: 0,
-    tachiaiWinner: (result as any).tachiaiWinner ?? "east",
-    tachiaiQuality: tachiaiQualityFromMargin((result as any)?.log),
+    tachiaiWinner: (result as any).tachiaiWinner ?? ((result as any).log?.find?.((e: any) => e?.phase === "tachiai")?.data?.winner ?? "east"),
+    tachiaiQuality: tachiaiQualityFromLog((result as any).log),
     stance: (result as any).stance
   });
 
-  // Clinch + Momentum from log
   let clinchBeat = 0;
   let momentumBeat = 0;
 
@@ -369,7 +374,7 @@ export function buildPbpFromBoutResult(
         advantage: normalizeAdvantage(entry?.data?.advantage),
         reason: normalizeMomentumReason(entry?.data?.reason),
         edgeEvent: normalizeEdgeEvent(entry?.data?.edgeEvent),
-        position: normalizePosition(entry?.data?.position)
+        position: entry?.data?.position ? normalizePosition(entry?.data?.position) : undefined
       });
     }
   }
@@ -401,7 +406,11 @@ function selectPhraseForFact(
   switch (fact.phase) {
     case "tachiai": {
       const bucket =
-        fact.tachiaiQuality >= 0.75 ? lib.tachiai.decisive : fact.tachiaiQuality >= 0.45 ? lib.tachiai.even : lib.tachiai.slow;
+        fact.tachiaiQuality >= 0.75
+          ? lib.tachiai.decisive
+          : fact.tachiaiQuality >= 0.45
+            ? lib.tachiai.even
+            : lib.tachiai.slow;
 
       const chosen = weightedPick(bucket, rng);
       return { phrase: chosen, tags: mergeTags(chosen.tags, ctx.kenshoCount ? ["kensho"] : []) };
@@ -462,7 +471,7 @@ function phaseOrder(p: BoutPhase): number {
     case "tachiai":
       return 0;
     case "clinch":
-      return 1;
+     	return 1;
     case "momentum":
       return 2;
     case "finish":
@@ -509,7 +518,7 @@ function weightedPick(bucket: PhraseBucket, rng: seedrandom.PRNG): Phrase {
 }
 
 /** =========================
- *  Normalizers (log -> fact)
+ *  Normalizers for BoutLogEntry integration
  *  ========================= */
 
 function normalizeAdvantage(v: any): Advantage {
@@ -518,8 +527,10 @@ function normalizeAdvantage(v: any): Advantage {
 }
 
 function normalizePosition(v: any): Position {
-  if (v === "frontal" || v === "lateral" || v === "rear") return v;
-  return "frontal";
+  // Accept old "frontal" and convert it to "front" for backwards compatibility.
+  if (v === "front" || v === "lateral" || v === "rear") return v;
+  if (v === "frontal") return "front";
+  return "front";
 }
 
 function normalizeMomentumReason(v: any): MomentumShiftReason {
@@ -577,14 +588,12 @@ function normalizeStrikeEvent(v: any): StrikeEvent | undefined {
   return undefined;
 }
 
-/** Estimate tachiai quality deterministically from tachiai log margin if present */
-function tachiaiQualityFromMargin(log: any): number {
+function tachiaiQualityFromLog(log: any): number {
   if (!Array.isArray(log)) return 0.7;
   const t = log.find((e) => e?.phase === "tachiai");
   const margin = Number(t?.data?.margin);
   if (!Number.isFinite(margin)) return 0.7;
 
-  // Map typical margin ranges to 0..1 (gentle)
   if (margin >= 12) return 0.9;
   if (margin >= 8) return 0.75;
   if (margin >= 4) return 0.55;
