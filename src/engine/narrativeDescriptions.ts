@@ -1,17 +1,19 @@
-/**
- * File Name: src/engine/narrativeDescriptions.ts
- * Notes:
- * - COMPLETE OVERHAUL: Implemented robust narrative description system.
- * - Converts numeric values (0-100) into rich prose for attributes, momentum, stamina, etc.
- * - Supports verbose descriptions for profile pages, commentary, Heya, and Oyakata.
- * - Added 'describeRecord' for win/loss tracking.
- * - Added Oyakata and Heya description helpers.
- * - Exports all necessary types and helper functions.
- */
+// narrativeDescriptions.ts
+// =======================================================
+// Static Narrative Descriptions (Banded prose library)
+//
+// Purpose:
+// - Provide flavorful, consistent text for UI panels, tooltips, bios, summaries.
+// - Decoupled from bout simulation + PBP logs.
+// - Deterministic by input (no randomness).
+//
+// Typical consumers:
+// - Rikishi profile screens (stats, style, archetype, career phase)
+// - Training results screens
+// - Medical/fatigue status summaries
+// - Stable / coach descriptions
+// =======================================================
 
-export type AttributeKey = "power" | "speed" | "balance" | "technique";
-export type FacilityType = "training" | "recovery" | "nutrition";
-export type CareerPhase = "youth" | "rising" | "prime" | "declining" | "twilight";
 export type StyleKey = "oshi" | "yotsu" | "hybrid";
 export type ArchetypeKey =
   | "oshi_specialist"
@@ -22,344 +24,344 @@ export type ArchetypeKey =
   | "hybrid_oshi_yotsu"
   | "counter_specialist";
 
-export type OyakataArchetypeKey = 
-  | "traditionalist" 
-  | "scientist" 
-  | "gambler" 
-  | "nurturer" 
-  | "tyrant" 
-  | "strategist";
+export type CareerPhase = "youth" | "rising" | "prime" | "declining" | "twilight";
 
-// ---- small helpers ----
-const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
-const safe = (x: number, fallback: number) => (Number.isFinite(x) ? x : fallback);
+export type AttributeKey = "power" | "speed" | "balance" | "technique" | "strength" | "stamina" | "spirit" | "experience";
 
-// Attribute descriptions (0–100)
-export function describeAttribute(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 90) return "Exceptional";
-  if (v >= 75) return "Outstanding";
-  if (v >= 60) return "Strong";
-  if (v >= 45) return "Capable";
-  if (v >= 30) return "Developing";
-  if (v >= 15) return "Limited";
-  return "Struggling";
+export type FatigueBand = "fresh" | "warm" | "worked" | "gassed" | "spent";
+export type InjuryBand = "healthy" | "banged_up" | "strained" | "injured" | "out";
+
+function clamp(n: number, a: number, b: number) {
+  return Math.max(a, Math.min(b, n));
 }
 
-export function describeAttributeVerbose(attribute: AttributeKey | string, value: number): string {
-  const level = describeAttribute(value);
+function band5(v: number): 0 | 1 | 2 | 3 | 4 {
+  // Expect v in 0..100 (we clamp anyway)
+  const x = clamp(v, 0, 100);
+  if (x < 20) return 0;
+  if (x < 40) return 1;
+  if (x < 60) return 2;
+  if (x < 80) return 3;
+  return 4;
+}
 
-  const descriptors: Record<AttributeKey, Record<string, string>> = {
-    power: {
-      Exceptional: "His raw strength is fearsome—opponents buckle on contact.",
-      Outstanding: "A powerful frame that most cannot withstand.",
-      Strong: "Solid strength, enough to move most men.",
-      Capable: "Adequate power for his level.",
-      Developing: "Still building the muscle needed at this rank.",
-      Limited: "Lacks the power expected of a rikishi.",
-      Struggling: "Physically overmatched in most contests."
-    },
-    speed: {
-      Exceptional: "Lightning quick—his reactions are almost preternatural.",
-      Outstanding: "Fast enough to catch opponents off-guard routinely.",
-      Strong: "Quick on his feet, able to exploit openings.",
-      Capable: "Moves well enough for his style.",
-      Developing: "Could be quicker; timing still maturing.",
-      Limited: "Sluggish compared to peers.",
-      Struggling: "Slow to react, often caught out."
-    },
-    balance: {
-      Exceptional: "His root is legendary—impossible to shift.",
-      Outstanding: "Exceptionally stable; rarely loses footing.",
-      Strong: "Well-grounded, recovers well from pressure.",
-      Capable: "Adequate balance for competitive sumo.",
-      Developing: "Sometimes caught leaning; balance needs work.",
-      Limited: "Unsteady; vulnerable to throws.",
-      Struggling: "Falls too easily—fundamentals lacking."
-    },
-    technique: {
-      Exceptional: "A master technician—every move is precise.",
-      Outstanding: "Highly skilled; knows exactly what to do.",
-      Strong: "Good technical foundation.",
-      Capable: "Sound basics, can execute his preferred moves.",
-      Developing: "Technique improving but inconsistent.",
-      Limited: "Relies on physicality over skill.",
-      Struggling: "Lacks the craft to compete effectively."
+function titleCase(s: string): string {
+  return s.length ? s[0].toUpperCase() + s.slice(1) : s;
+}
+
+/** =========================
+ *  Core stat descriptions
+ *  ========================= */
+
+const STAT_ADJECTIVES: Record<AttributeKey, string[]> = {
+  power: ["light hitter", "solid striker", "heavy-handed", "punishing", "wrecking ball"],
+  speed: ["plodding", "steady", "quick", "explosive", "blink-fast"],
+  balance: ["wobbly", "settable", "stable", "hard to move", "rooted in stone"],
+  technique: ["raw", "learning", "polished", "crafty", "masterful"],
+  strength: ["underpowered", "stout", "strong", "overbearing", "iron-grip strong"],
+  stamina: ["fragile", "limited tank", "workmanlike", "endless motor", "will not fade"],
+  spirit: ["tentative", "composed", "confident", "fearless", "unyielding"],
+  experience: ["green", "learning fast", "seasoned", "veteran", "old hand"]
+};
+
+const STAT_EXPLANATIONS: Record<AttributeKey, string[]> = {
+  power: [
+    "Wins only when the position is perfect.",
+    "Can move opponents with clean contact.",
+    "Regularly drives people back with thrusts or force-outs.",
+    "Can change a bout with one big hit.",
+    "A terrifying force — opponents feel it immediately."
+  ],
+  speed: [
+    "Struggles to create angles.",
+    "Keeps up in straight lines, not in scrambles.",
+    "Quick enough to win exchanges in motion.",
+    "Creates openings with footwork and timing.",
+    "Turns fractions of a second into winning positions."
+  ],
+  balance: [
+    "One shove can ruin the stance.",
+    "Can be tipped if feet get crossed.",
+    "Generally stays under control.",
+    "Absorbs impact and keeps posture.",
+    "Refuses to fall — survives at the tawara more than seems possible."
+  ],
+  technique: [
+    "Relies on effort and strength.",
+    "Has a few reliable patterns.",
+    "Executes basics cleanly.",
+    "Sets traps and wins with details.",
+    "Reads grips, hips, and timing like a book."
+  ],
+  strength: [
+    "Needs leverage to hold ground.",
+    "Can fight chest-to-chest briefly.",
+    "Holds position under normal pressure.",
+    "Wins grips and pries opponents loose.",
+    "When the hands connect, the opponent’s plan starts collapsing."
+  ],
+  stamina: [
+    "Bouts turn dangerous after a few seconds.",
+    "Fades if forced to grind.",
+    "Can work a normal-length bout without collapse.",
+    "Outlasts opponents in long clinches.",
+    "Still dangerous late — pressure never stops."
+  ],
+  spirit: [
+    "Can be shaken by setbacks.",
+    "Settles after early nerves.",
+    "Competes with clear intent.",
+    "Doesn’t flinch under pressure.",
+    "Walks forward like the outcome is inevitable."
+  ],
+  experience: [
+    "Bites on feints and loses position.",
+    "Learns quickly, but still gets caught.",
+    "Knows when to reset and when to risk.",
+    "Rarely panics — chooses good moments.",
+    "Makes opponents fight his bout, not theirs."
+  ]
+};
+
+export function describeAttribute(key: AttributeKey, value: number): { label: string; line: string } {
+  const b = band5(value);
+  return {
+    label: titleCase(STAT_ADJECTIVES[key][b]),
+    line: STAT_EXPLANATIONS[key][b]
+  };
+}
+
+/** =========================
+ *  Style descriptions
+ *  ========================= */
+
+const STYLE_LABELS: Record<StyleKey, string> = {
+  oshi: "Oshi-zumo",
+  yotsu: "Yotsu-zumo",
+  hybrid: "Hybrid"
+};
+
+const STYLE_LINES: Record<StyleKey, string[]> = {
+  oshi: [
+    "Lives on the hands — thrust, shove, and overwhelm.",
+    "Prefers open space and forward pressure.",
+    "If the arms get inside, the bout changes fast."
+  ],
+  yotsu: [
+    "Belt-first sumo — grips, hips, and leverage.",
+    "Wants to slow the chaos and win in close.",
+    "If the mawashi is secured, the tide can turn instantly."
+  ],
+  hybrid: [
+    "Comfortable in either world — hands or belt.",
+    "Adapts to the opponent’s shape of sumo.",
+    "The plan changes mid-bout without warning."
+  ]
+};
+
+export function describeStyle(style: StyleKey): { label: string; lines: string[] } {
+  return { label: STYLE_LABELS[style], lines: STYLE_LINES[style] ?? [] };
+}
+
+/** =========================
+ *  Archetype descriptions
+ *  ========================= */
+
+const ARCHETYPE_LABELS: Record<ArchetypeKey, string> = {
+  oshi_specialist: "Oshi Specialist",
+  yotsu_specialist: "Yotsu Specialist",
+  speedster: "Speedster",
+  trickster: "Trickster",
+  all_rounder: "All-Rounder",
+  hybrid_oshi_yotsu: "Hybrid Enforcer",
+  counter_specialist: "Counter Specialist"
+};
+
+const ARCHETYPE_LINES: Record<ArchetypeKey, string[]> = {
+  oshi_specialist: [
+    "Starts fast and tries to end it fast.",
+    "If the opponent’s feet stop moving, it’s over.",
+    "Most dangerous when he can keep the bout upright and open."
+  ],
+  yotsu_specialist: [
+    "Wants the belt and a steady walk to the edge.",
+    "Wins with patience, pressure, and posture.",
+    "If he settles his hips, the opponent is already late."
+  ],
+  speedster: [
+    "Creates angles, steals position, and makes you chase.",
+    "Most lethal when the fight gets messy.",
+    "A half-step is enough for him."
+  ],
+  trickster: [
+    "Lives on timing — feints, pulls, and sudden turns.",
+    "Baits over-commitment and punishes it.",
+    "Dangerous when the opponent is emotional or rushing."
+  ],
+  all_rounder: [
+    "No obvious weakness, no obvious tells.",
+    "Can win the boring way or the clever way.",
+    "Makes the opponent solve different problems in one bout."
+  ],
+  hybrid_oshi_yotsu: [
+    "Starts with hands, finishes on the belt — or the reverse.",
+    "Switches gears the instant the opponent hesitates.",
+    "Hard to scout: the attack changes with the first contact."
+  ],
+  counter_specialist: [
+    "Invites pressure, then turns it back.",
+    "Most lethal when the opponent thinks they’re winning.",
+    "Wins the critical moment rather than the whole bout."
+  ]
+};
+
+export function describeArchetype(archetype: ArchetypeKey): { label: string; lines: string[] } {
+  return { label: ARCHETYPE_LABELS[archetype], lines: ARCHETYPE_LINES[archetype] ?? [] };
+}
+
+/** =========================
+ *  Career phase model (UI copy)
+ *  ========================= */
+
+const CAREER_LABELS: Record<CareerPhase, string> = {
+  youth: "Youth",
+  rising: "Rising",
+  prime: "Prime",
+  declining: "Declining",
+  twilight: "Twilight"
+};
+
+const CAREER_LINES: Record<CareerPhase, string[]> = {
+  youth: ["Raw but hungry.", "Improving quickly.", "Wins on energy more than polish."],
+  rising: ["Tools are coming together.", "Confidence is growing.", "Harder to push around each month."],
+  prime: ["Knows his sumo.", "Can win in multiple ways.", "The plan is sharp and repeatable."],
+  declining: ["Still dangerous, but the margins are thinner.", "Wins by craft and timing.", "Needs good positions more than before."],
+  twilight: ["A veteran presence.", "Fights with experience and pride.", "Still has moments — but must choose them carefully."]
+};
+
+export function describeCareerPhase(phase: CareerPhase): { label: string; lines: string[] } {
+  return { label: CAREER_LABELS[phase], lines: CAREER_LINES[phase] ?? [] };
+}
+
+/** Optional helper: infer phase from age (if you use age) */
+export function inferCareerPhaseFromAge(age: number): CareerPhase {
+  if (!Number.isFinite(age)) return "prime";
+  if (age <= 20) return "youth";
+  if (age <= 24) return "rising";
+  if (age <= 30) return "prime";
+  if (age <= 35) return "declining";
+  return "twilight";
+}
+
+/** =========================
+ *  Fatigue / injury summaries
+ *  ========================= */
+
+export function fatigueBandFromValue(fatigue: number): FatigueBand {
+  const f = clamp(fatigue, 0, 100);
+  if (f < 15) return "fresh";
+  if (f < 35) return "warm";
+  if (f < 55) return "worked";
+  if (f < 75) return "gassed";
+  return "spent";
+}
+
+export function describeFatigue(fatigue: number): { band: FatigueBand; line: string } {
+  const band = fatigueBandFromValue(fatigue);
+  const lines: Record<FatigueBand, string> = {
+    fresh: "Looks fresh — footwork stays clean.",
+    warm: "Loose and warm — breathing steady.",
+    worked: "Working now — form holds, but effort shows.",
+    gassed: "Breathing hard — mistakes become expensive.",
+    spent: "Running on fumes — balance and timing begin to slip."
+  };
+  return { band, line: lines[band] };
+}
+
+export function injuryBandFromValue(severity: number): InjuryBand {
+  const s = clamp(severity, 0, 100);
+  if (s < 10) return "healthy";
+  if (s < 30) return "banged_up";
+  if (s < 55) return "strained";
+  if (s < 80) return "injured";
+  return "out";
+}
+
+export function describeInjury(severity: number): { band: InjuryBand; line: string } {
+  const band = injuryBandFromValue(severity);
+  const lines: Record<InjuryBand, string> = {
+    healthy: "No visible issues.",
+    banged_up: "Some bruises — nothing unusual in a basho.",
+    strained: "Movement looks guarded — something is bothering him.",
+    injured: "Clearly compromised — every exchange costs more.",
+    out: "Not fit to compete."
+  };
+  return { band, line: lines[band] };
+}
+
+/** =========================
+ *  Record / momentum blurbs
+ *  ========================= */
+
+export function describeRecord(wins: number, losses: number): string {
+  const total = Math.max(1, wins + losses);
+  const pct = wins / total;
+
+  if (wins >= 10) return `Flying at ${wins}-${losses}. Everything is working.`;
+  if (wins >= 8) return `Strong at ${wins}-${losses}. In the mix.`;
+  if (wins === 7) return `Holding at ${wins}-${losses}. One good day changes the story.`;
+  if (wins === 6) return `Teetering at ${wins}-${losses}. Needs a push to secure kachi-koshi.`;
+  if (wins <= 4) return `Struggling at ${wins}-${losses}. The margin is thin now.`;
+
+  if (pct > 0.6) return `Positive shape at ${wins}-${losses}.`;
+  if (pct < 0.4) return `Fighting uphill at ${wins}-${losses}.`;
+  return `Even at ${wins}-${losses}.`;
+}
+
+export function describeMomentumStreak(streak: number): string {
+  if (!Number.isFinite(streak)) return "Momentum unclear.";
+  if (streak >= 5) return "On a roll — confidence radiates.";
+  if (streak >= 3) return "Hot streak — the sumo looks sharp.";
+  if (streak <= -5) return "In a spiral — needs a reset.";
+  if (streak <= -3) return "Cold streak — timing is off.";
+  return "Momentum is neutral.";
+}
+
+/** =========================
+ *  Composite profile blurb
+ *  ========================= */
+
+export function describeRikishiProfile(input: {
+  shikona: string;
+  style?: StyleKey;
+  archetype?: ArchetypeKey;
+  careerPhase?: CareerPhase;
+  highlights?: Partial<Record<AttributeKey, number>>;
+}): string[] {
+  const lines: string[] = [];
+
+  const style = input.style ?? "hybrid";
+  const archetype = input.archetype ?? "all_rounder";
+  const phase = input.careerPhase ?? "prime";
+
+  lines.push(`${input.shikona}: ${describeStyle(style).label} — ${describeArchetype(archetype).label}.`);
+  lines.push(...describeCareerPhase(phase).lines.slice(0, 1));
+
+  const hi = input.highlights ?? {};
+  const keys: AttributeKey[] = Object.keys(hi) as any;
+
+  if (keys.length) {
+    // pick top 2 stats
+    const sorted = keys
+      .map((k) => ({ k, v: hi[k] ?? 0 }))
+      .sort((a, b) => (b.v ?? 0) - (a.v ?? 0))
+      .slice(0, 2);
+
+    for (const s of sorted) {
+      const d = describeAttribute(s.k, s.v ?? 0);
+      lines.push(`${titleCase(s.k)}: ${d.label}. ${d.line}`);
     }
-  };
-
-  const key = attribute as AttributeKey;
-  return descriptors[key]?.[level] ?? `${level} ${String(attribute)}`;
-}
-
-// Aggression (0–100)
-export function describeAggression(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 85) return "Relentless";
-  if (v >= 70) return "Aggressive";
-  if (v >= 55) return "Forward-moving";
-  if (v >= 40) return "Patient";
-  if (v >= 25) return "Defensive";
-  return "Passive";
-}
-
-export function describeAggressionVerbose(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 85) return "Fights with overwhelming forward pressure—never retreats.";
-  if (v >= 70) return "Prefers to attack, constantly pushing the action.";
-  if (v >= 55) return "A forward-moving style that seeks to control the pace.";
-  if (v >= 40) return "Picks his moments carefully, waiting for openings.";
-  if (v >= 25) return "Tends to absorb pressure before countering.";
-  return "Overly cautious; rarely initiates.";
-}
-
-// Experience (0–100)
-export function describeExperience(value: number): string {
-  const v = Math.max(0, Math.floor(safe(value, 0)));
-  if (v >= 80) return "Veteran";
-  if (v >= 60) return "Experienced";
-  if (v >= 40) return "Established";
-  if (v >= 20) return "Developing";
-  if (v >= 10) return "Green";
-  return "Novice";
-}
-
-export function describeExperienceVerbose(value: number): string {
-  const v = Math.max(0, Math.floor(safe(value, 0)));
-  if (v >= 80) return "A seasoned veteran who has seen everything the dohyo offers.";
-  if (v >= 60) return "Years of experience inform his every move.";
-  if (v >= 40) return "Established at this level, comfortable in his routines.";
-  if (v >= 20) return "Still learning, but no longer a newcomer.";
-  if (v >= 10) return "Young and eager, with much still to learn.";
-  return "A fresh face, everything still ahead.";
-}
-
-// Stamina (0–100)
-export function describeStamina(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 85) return "Tireless";
-  if (v >= 70) return "Enduring";
-  if (v >= 55) return "Resilient";
-  if (v >= 40) return "Average";
-  if (v >= 25) return "Flagging";
-  return "Brittle";
-}
-
-export function describeStaminaVerbose(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 85) return "Can go the distance no matter how long the bout.";
-  if (v >= 70) return "Rarely tires; maintains intensity throughout.";
-  if (v >= 55) return "Good conditioning; handles long bouts well.";
-  if (v >= 40) return "Standard stamina for the rank.";
-  if (v >= 25) return "Tends to fade in extended contests.";
-  return "Runs out of gas quickly; prefers short bouts.";
-}
-
-// Momentum
-export function describeMomentum(value: number): string {
-  const vRaw = safe(value, 0);
-  const v = Math.abs(vRaw) > 10 ? (clamp(vRaw, 0, 100) - 50) / 10 : clamp(vRaw, -5, 5);
-
-  if (v >= 3) return "On fire";
-  if (v >= 1) return "Rising";
-  if (v === 0) return "Steady";
-  if (v >= -2) return "Struggling";
-  return "In crisis";
-}
-
-export function describeMomentumVerbose(value: number): string {
-  const vRaw = safe(value, 0);
-  const v = Math.abs(vRaw) > 10 ? (clamp(vRaw, 0, 100) - 50) / 10 : clamp(vRaw, -5, 5);
-
-  if (v >= 3) return "Riding a wave of confidence—everything is clicking.";
-  if (v >= 1) return "Form is improving; belief is building.";
-  if (v === 0) return "Neither hot nor cold; performing as expected.";
-  if (v >= -2) return "Confidence wavers; searching for answers.";
-  return "Deep in a slump; the pressure is visible.";
-}
-
-// Career Phase
-export function describeCareerPhaseVerbose(phase: CareerPhase | string): string {
-  const descriptions: Record<CareerPhase, string> = {
-    youth: "Young and raw, with enormous potential still untapped.",
-    rising: "Growing rapidly, improving with each tournament.",
-    prime: "At the peak of his powers—this is his time.",
-    declining: "Experience compensates for fading physicality.",
-    twilight: "The end approaches, but pride drives him forward."
-  };
-  return descriptions[phase as CareerPhase] ?? "Career status uncertain.";
-}
-
-// Win/Loss trend
-export function describeRecord(wins: number, losses: number): { record: string; assessment: string };
-export function describeRecord(wins: number, losses: number, absences: number): { record: string; assessment: string };
-export function describeRecord(wins: number, losses: number, absences = 0): { record: string; assessment: string } {
-  const w = Math.max(0, Math.floor(safe(wins, 0)));
-  const l = Math.max(0, Math.floor(safe(losses, 0)));
-  const a = Math.max(0, Math.floor(safe(absences, 0)));
-
-  const record = a > 0 ? `${w}-${l}-${a}` : `${w}-${l}`;
-  const total = w + l;
-
-  if (total === 0) return { record, assessment: "No bouts yet" };
-
-  const winRate = w / total;
-  let assessment: string;
-
-  if (winRate >= 0.8) assessment = "Dominant";
-  else if (winRate >= 0.6) assessment = "Strong";
-  else if (winRate >= 0.5) assessment = "Competitive";
-  else if (winRate >= 0.4) assessment = "Struggling";
-  else assessment = "In trouble";
-
-  if (a > 0 && assessment !== "Dominant") {
-    assessment = `${assessment} (hampered by absence)`;
   }
 
-  return { record, assessment };
-}
-
-// Injury status
-export function describeInjuryVerbose(weeksRemaining: number): string {
-  const w = Math.max(0, Math.floor(safe(weeksRemaining, 0)));
-  if (w >= 8) return "Facing a long road to recovery.";
-  if (w >= 4) return "Healing, but still weeks away.";
-  if (w >= 2) return "Progressing well; return in sight.";
-  return "Nearly recovered; could return soon.";
-}
-
-// Fatigue
-export function describeFatigue(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v <= 10) return "Fresh";
-  if (v <= 30) return "Lightly worn";
-  if (v <= 50) return "Tired";
-  if (v <= 70) return "Exhausted";
-  return "Spent";
-}
-
-export function describeFatigueVerbose(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v <= 10) return "Looks fresh, moving freely without reservation.";
-  if (v <= 30) return "Minor signs of wear, but nothing concerning.";
-  if (v <= 50) return "The tournament grind is showing; movements less crisp.";
-  if (v <= 70) return "Visibly fatigued; conserving energy where possible.";
-  return "Running on empty; every bout a struggle.";
-}
-
-// Training effects
-export function describeTrainingEffect(multiplier: number): string {
-  const m = clamp(safe(multiplier, 1), 0, 10);
-  if (m >= 1.5) return "Dramatically increases";
-  if (m >= 1.2) return "Significantly improves";
-  if (m >= 1.05) return "Slightly enhances";
-  if (m >= 0.95) return "Maintains";
-  if (m >= 0.8) return "Slightly reduces";
-  if (m >= 0.5) return "Significantly reduces";
-  return "Dramatically reduces";
-}
-
-// Reputation/Prestige
-export function describeReputation(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 90) return "Legendary";
-  if (v >= 75) return "Prestigious";
-  if (v >= 60) return "Respected";
-  if (v >= 45) return "Established";
-  if (v >= 30) return "Developing";
-  if (v >= 15) return "Modest";
-  return "Unknown";
-}
-
-export function describeReputationVerbose(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 90) return "One of the great institutions of sumo.";
-  if (v >= 75) return "A stable of considerable prestige and history.";
-  if (v >= 60) return "Well-respected in sumo circles.";
-  if (v >= 45) return "An established presence in the sumo world.";
-  if (v >= 30) return "Building a name; the foundation is there.";
-  if (v >= 15) return "A small stable, still seeking recognition.";
-  return "Little known outside dedicated followers.";
-}
-
-// Facility quality
-export function describeFacilityQuality(value: number): string {
-  const v = clamp(safe(value, 0), 0, 100);
-  if (v >= 85) return "State-of-the-art";
-  if (v >= 70) return "Excellent";
-  if (v >= 55) return "Good";
-  if (v >= 40) return "Adequate";
-  if (v >= 25) return "Modest";
-  return "Basic";
-}
-
-export function describeFacilityVerbose(type: FacilityType | string, value: number): string {
-  const level = describeFacilityQuality(value);
-
-  const descriptions: Record<FacilityType, Record<string, string>> = {
-    training: {
-      "State-of-the-art": "The finest training equipment and dohyo—wrestlers develop rapidly here.",
-      Excellent: "Top-quality facilities that give wrestlers every advantage.",
-      Good: "A solid training setup that serves the stable well.",
-      Adequate: "Basic but functional equipment; it gets the job done.",
-      Modest: "Simple facilities; wrestlers must work harder to improve.",
-      Basic: "Minimal equipment; training effectiveness suffers."
-    },
-    recovery: {
-      "State-of-the-art": "A medical-grade recovery center with every modern treatment.",
-      Excellent: "Excellent recovery facilities that speed healing significantly.",
-      Good: "Good recovery options that help wrestlers bounce back.",
-      Adequate: "A standard recovery setup; nothing special.",
-      Modest: "Limited recovery options; injuries linger longer.",
-      Basic: "Minimal recovery support; wrestlers heal slowly."
-    },
-    nutrition: {
-      "State-of-the-art": "An elite chanko and nutrition program; wrestlers thrive.",
-      Excellent: "Excellent kitchen and nutritional support.",
-      Good: "A good food program supporting wrestler health.",
-      Adequate: "Standard stable cuisine; nutritionally sound.",
-      Modest: "Basic fare; nutrition could be improved.",
-      Basic: "Minimal kitchen facilities; nutrition is inconsistent."
-    }
-  };
-
-  const key = type as FacilityType;
-  return descriptions[key]?.[level] ?? `${level} ${String(type)} facilities`;
-}
-
-// Archetype narrative descriptions
-export function describeArchetypeVerbose(archetype: ArchetypeKey | string): string {
-  const descriptions: Record<ArchetypeKey, string> = {
-    oshi_specialist: "A pure pusher-thruster who overwhelms with forward pressure.",
-    yotsu_specialist: "A belt fighter who excels once grips are secured.",
-    speedster: "Lightning quick, relying on timing and angles.",
-    trickster: "A technician with a deep bag of tricks.",
-    all_rounder: "Versatile and adaptable, comfortable in any situation.",
-    hybrid_oshi_yotsu: "Comfortable both pushing and on the belt—shifts plans mid-bout.",
-    counter_specialist: "Patient and reactive—turns an opponent’s attack into their undoing."
-  };
-  return descriptions[archetype as ArchetypeKey] ?? "A distinctive fighting style.";
-}
-
-// Style descriptions
-export function describeStyleVerbose(style: StyleKey | string): string {
-  const descriptions: Record<StyleKey, string> = {
-    oshi: "Prefers pushing and thrusting, keeping opponents at arm’s length.",
-    yotsu: "Seeks the belt, using grips to control and throw.",
-    hybrid: "Comfortable both pushing and on the belt; adapts to each opponent."
-  };
-  return descriptions[style as StyleKey] ?? "Distinctive approach to sumo.";
-}
-
-// Oyakata Personality Descriptions
-export function describeOyakataPersonality(archetype: OyakataArchetypeKey | string): string {
-  const descriptions: Record<OyakataArchetypeKey, string> = {
-    traditionalist: "Values discipline and Kihon above all else. Training is grueling but builds strong character.",
-    scientist: "Analyses data and biomechanics to optimize performance. Open to new methods.",
-    gambler: "Takes risks in training and recruitment. Seeks high-reward talent regardless of quirks.",
-    nurturer: "Prioritizes wrestler health and longevity. Builds a supportive, family-like atmosphere.",
-    tyrant: "Rules with an iron fist. Demands absolute obedience and effort, often at a cost.",
-    strategist: "Focuses on match tactics and analyzing opponents. Masters of the mental game."
-  };
-  return descriptions[archetype as OyakataArchetypeKey] ?? "A leader with their own unique philosophy.";
+  return lines;
 }
