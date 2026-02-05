@@ -11,6 +11,7 @@
 //   to let your real banzuke system apply rank changes (required for canon compliance)
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { WorldState, BashoName, BoutResult } from "./types";
 import { simulateBout } from "./bout";
 import { getNextBasho, BASHO_CALENDAR } from "./calendar";

@@ -10,6 +10,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { Id, WorldState } from "./types";
 import type { InjuryRecord } from "./injuries";
 

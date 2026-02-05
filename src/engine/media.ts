@@ -15,6 +15,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { Id, WorldState, BoutResult, BashoName, Division } from "./types";
 import { buildRivalryDigest, type RivalriesState, getRivalryBoutModifiers } from "./rivalries";
 

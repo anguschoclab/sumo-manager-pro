@@ -16,6 +16,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type {
   WorldState,
   Heya,

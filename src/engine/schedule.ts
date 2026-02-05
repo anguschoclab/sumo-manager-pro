@@ -5,6 +5,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { BashoState, Division, MatchSchedule, Rikishi, WorldState } from "./types";
 import { buildCandidatePairs, DEFAULT_MATCHMAKING_RULES, type MatchPairing, type MatchmakingRules } from "./matchmaking";
 

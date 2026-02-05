@@ -9,6 +9,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { BashoState, Division, Rikishi, Side } from "./types";
 
 export interface MatchPairing {

@@ -13,6 +13,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { WorldState, Heya, Oyakata, StyleBias, TrainingIntensity, TrainingFocus, RecoveryEmphasis, TrainingProfile, Rikishi, Style, Id } from "./types";
 import { appendEvents, createDefaultEventsState, makeSimpleEvent, type EngineEvent } from "./events";
 

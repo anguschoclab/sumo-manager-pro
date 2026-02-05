@@ -14,6 +14,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { WorldState, Id, ConfidenceLevel, ScoutingInvestment } from "./types";
 import { appendEvents, createDefaultEventsState, makeSimpleEvent, type EngineEvent } from "./events";
 

@@ -15,6 +15,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { Side, Stance, Style, TacticalArchetype, BoutResult } from "./types";
 
 /** =========================

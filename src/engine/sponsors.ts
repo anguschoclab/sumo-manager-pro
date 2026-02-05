@@ -16,6 +16,7 @@
 // NOTE: This module stays RNG-driven but deterministic given the provided rng + inputs.
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 
 // === SPONSOR TIER SYSTEM ===
 

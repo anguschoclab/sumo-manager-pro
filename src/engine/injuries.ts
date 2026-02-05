@@ -15,6 +15,7 @@
 // =======================================================
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { Id, Rikishi, WorldState, Heya } from "./types";
 import type { TrainingProfile } from "./training";
 import { computeTrainingMultipliers, getCareerPhase, PHASE_EFFECTS } from "./training";

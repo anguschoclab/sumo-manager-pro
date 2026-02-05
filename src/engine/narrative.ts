@@ -13,6 +13,7 @@
 // - "front" | "lateral" | "rear"
 
 import seedrandom from "seedrandom";
+// TODO: consider migrating to SeededRNG for forkable streams
 import type { BoutResult, BoutLogEntry, Rikishi, BashoName, Stance } from "./types";
 import { BASHO_CALENDAR } from "./calendar";
 import { RANK_HIERARCHY } from "./banzuke";
