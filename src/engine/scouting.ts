@@ -7,9 +7,88 @@
  * - USES: generateRookie from lifecycle.ts for candidate generation.
  */
 
-import { GameState, Rikishi, RikishiStats } from "./types";
+import { GameState, Rikishi, RikishiStats, Rank, Style, TacticalArchetype } from "./types";
 import { describeAttribute, describeAggression, describeExperience } from "./narrativeDescriptions";
 import { generateRookie } from "./lifecycle"; 
+
+// ============================================
+// UI LABELS (shared, stable exports)
+// ============================================
+
+/** Human-readable rank labels (JA + EN). Used by UI components. */
+export const RANK_NAMES: Record<Rank, { ja: string; en: string }> = {
+  yokozuna: { ja: "横綱", en: "Yokozuna" },
+  ozeki: { ja: "大関", en: "Ōzeki" },
+  sekiwake: { ja: "関脇", en: "Sekiwake" },
+  komusubi: { ja: "小結", en: "Komusubi" },
+  maegashira: { ja: "前頭", en: "Maegashira" },
+  juryo: { ja: "十両", en: "Jūryō" },
+  makushita: { ja: "幕下", en: "Makushita" },
+  sandanme: { ja: "三段目", en: "Sandanme" },
+  jonidan: { ja: "序二段", en: "Jonidan" },
+  jonokuchi: { ja: "序ノ口", en: "Jonokuchi" }
+};
+
+/** High-level style labels (JA + EN). */
+export const STYLE_NAMES: Record<Style, { label: string; labelJa: string; description: string }> = {
+  oshi: {
+    label: "Oshi",
+    labelJa: "押し",
+    description: "Pushing/thrusting sumo—drive forward with hands and pressure rather than securing the belt."
+  },
+  yotsu: {
+    label: "Yotsu",
+    labelJa: "四つ",
+    description: "Belt-focused sumo—seek a grip, control the hips, and win with throws or force-outs."
+  },
+  hybrid: {
+    label: "Hybrid",
+    labelJa: "万能",
+    description: "A mixed approach—comfortable switching between pushing and belt fighting depending on the matchup."
+  }
+};
+
+/** Tactical archetype labels. Keep keys aligned to `TacticalArchetype` in types.ts. */
+export const ARCHETYPE_NAMES: Record<
+  TacticalArchetype,
+  { label: string; labelJa: string; description: string }
+> = {
+  oshi_specialist: {
+    label: "Oshi Specialist",
+    labelJa: "押し型",
+    description: "Relentless forward pressure, strong tachiai, prefers pushing/thrusting and force-outs."
+  },
+  yotsu_specialist: {
+    label: "Yotsu Specialist",
+    labelJa: "四つ型",
+    description: "Belt technician—hunts grips, controls the clinch, and finishes with throws or lifts."
+  },
+  speedster: {
+    label: "Speedster",
+    labelJa: "俊敏",
+    description: "Quick feet and angles—wins with movement, trips, and opportunistic attacks."
+  },
+  trickster: {
+    label: "Trickster",
+    labelJa: "奇策",
+    description: "Unorthodox and volatile—pulls, feints, and special techniques to disrupt rhythm."
+  },
+  all_rounder: {
+    label: "All-Rounder",
+    labelJa: "総合",
+    description: "Solid fundamentals everywhere—no single weakness, adapts to the flow of the bout."
+  },
+  hybrid_oshi_yotsu: {
+    label: "Hybrid Oshi/Yotsu",
+    labelJa: "押し四つ",
+    description: "Blends pushing and belt fighting—can start with oshi and transition into yotsu (or vice versa)."
+  },
+  counter_specialist: {
+    label: "Counter Specialist",
+    labelJa: "受け",
+    description: "Reads pressure and punishes mistakes—strong timing, reversals, and reactive finishes."
+  }
+};
 
 // ============================================
 // PART 1: FOG OF WAR & PLAYER KNOWLEDGE
@@ -193,7 +272,8 @@ export function createPublicInfo(r: Rikishi): PublicRikishiInfo {
     weight: r.weight,
     currentBashoWins: r.currentBashoWins || 0,
     currentBashoLosses: r.currentBashoLosses || 0,
-    style: r.archetype, 
+    // Style is its own top-level property (oshi/yotsu/hybrid)
+    style: r.style,
     archetype: r.archetype,
   };
 }
