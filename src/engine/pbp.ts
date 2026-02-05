@@ -1,17 +1,18 @@
-// pbp.ts
+// src/engine/pbp.ts
 // =======================================================
 // Play-by-Play (PBP) System v3.x — Fact Layer -> Flavor Layer
 // Deterministic commentary builder for bouts + time events
 //
-// Design goals (canon-aligned):
-// - Engine produces FACTS (structured signals, no prose).
-// - PBP selects FLAVOR (templated text) deterministically from a phrase library.
-// - No Math.random; all randomness via seedrandom with stable salts.
-// - No UI framework assumptions: returns plain strings + optional tags.
+// Canon goals:
+// - Engine produces FACTS (structured signals, no prose)
+// - PBP selects FLAVOR (templated text) deterministically from a phrase library
+// - No Math.random; all randomness via seedrandom with stable salts
+// - No UI framework assumptions: returns structured lines (text + tags)
 //
-// Integration points:
-// - bout.ts should (optionally) emit PbpFact[] per bout.
-// - narrativeDescriptions.ts remains for static bands; pbp.ts is for dynamic commentary.
+// Integration:
+// - bout.ts emits BoutResult.log with phases: "tachiai" | "clinch" | "momentum" | "finish"
+// - buildPbpFromBoutResult converts log -> facts -> PbpLine[]
+// - narrativeDescriptions.ts remains for static profile prose; pbp.ts is dynamic bout commentary
 // =======================================================
 
 import seedrandom from "seedrandom";
@@ -100,16 +101,15 @@ export interface MomentumFact extends PbpFactBase {
   advantage: Advantage;
   reason: MomentumShiftReason;
   edgeEvent?: EdgeEvent;
+  position?: Position;
 }
 
 export interface FinishFact extends PbpFactBase {
   phase: "finish";
   winner: Side;
-  /** finishing kimarite id/name if known */
   kimariteId?: string;
   kimariteName?: string;
   upset?: boolean;
-  /** close call / mono-ii vibes */
   closeCall?: boolean;
 }
 
@@ -136,17 +136,11 @@ export interface PbpContext {
     rankLabel?: string;
   };
 
-  /** Optional: kensho count for vibes */
   kenshoCount?: number;
-
-  /** Optional: kinboshi possibility */
   isKinboshiBout?: boolean;
-
-  /** Optional: top-of-banzuke stakes */
   isYushoRaceKeyBout?: boolean;
 }
 
-/** Output for UI */
 export interface PbpLine {
   phase: BoutPhase;
   text: string;
@@ -154,7 +148,7 @@ export interface PbpLine {
 }
 
 /** =========================
- *  Phrase Library (Flavor Layer)
+ *  Phrase Library
  *  ========================= */
 
 type Phrase = {
@@ -201,7 +195,6 @@ export interface PbpLibrary {
   };
 }
 
-/** A compact but expandable default library (you can add thousands later). */
 export const DEFAULT_PBP_LIBRARY: PbpLibrary = {
   tachiai: {
     decisive: [
@@ -310,12 +303,11 @@ export function buildPbp(
     return a.beat - b.beat;
   });
 
-  const finish = [...ordered].reverse().find(f => f.phase === "finish");
-  const winnerSide = finish && finish.phase === "finish" ? finish.winner : undefined;
+  const finish = [...ordered].reverse().find((f) => f.phase === "finish") as FinishFact | undefined;
+  const winnerSide = finish?.winner;
 
   const winnerName = winnerSide ? sideName(ctx, winnerSide) : "";
-  const loserName =
-    winnerSide === "east" ? ctx.west.shikona : winnerSide === "west" ? ctx.east.shikona : "";
+  const loserName = winnerSide === "east" ? ctx.west.shikona : winnerSide === "west" ? ctx.east.shikona : "";
 
   const lines: PbpLine[] = [];
 
@@ -346,49 +338,51 @@ export function buildPbpFromBoutResult(
 ): PbpLine[] {
   const facts: PbpFact[] = [];
 
+  // Tachiai
   facts.push({
     phase: "tachiai",
     beat: 0,
-    tachiaiWinner: result.tachiaiWinner,
-    tachiaiQuality: 0.7,
-    stance: result.stance
+    tachiaiWinner: (result as any).tachiaiWinner ?? "east",
+    tachiaiQuality: tachiaiQualityFromMargin((result as any)?.log),
+    stance: (result as any).stance
   });
 
-  // IMPORTANT FIX: clinch beat must increment (avoids repeated salts)
+  // Clinch + Momentum from log
   let clinchBeat = 0;
   let momentumBeat = 0;
 
-  if (Array.isArray(result.log)) {
-    for (const entry of result.log) {
-      if (entry.phase === "clinch") {
-        facts.push({
-          phase: "clinch",
-          beat: ++clinchBeat,
-          position: normalizePosition(entry.data?.position),
-          advantage: normalizeAdvantage(entry.data?.advantage),
-          gripEvent: normalizeGripEvent(entry.data?.gripEvent),
-          strikeEvent: normalizeStrikeEvent(entry.data?.strikeEvent)
-        });
-      } else if (entry.phase === "momentum") {
-        facts.push({
-          phase: "momentum",
-          beat: ++momentumBeat,
-          advantage: normalizeAdvantage(entry.data?.advantage),
-          reason: normalizeMomentumReason(entry.data?.reason),
-          edgeEvent: normalizeEdgeEvent(entry.data?.edgeEvent)
-        });
-      }
+  const log = Array.isArray((result as any).log) ? ((result as any).log as any[]) : [];
+  for (const entry of log) {
+    if (entry?.phase === "clinch") {
+      facts.push({
+        phase: "clinch",
+        beat: ++clinchBeat,
+        position: normalizePosition(entry?.data?.position),
+        advantage: normalizeAdvantage(entry?.data?.advantage),
+        gripEvent: normalizeGripEvent(entry?.data?.gripEvent),
+        strikeEvent: normalizeStrikeEvent(entry?.data?.strikeEvent)
+      });
+    } else if (entry?.phase === "momentum") {
+      facts.push({
+        phase: "momentum",
+        beat: ++momentumBeat,
+        advantage: normalizeAdvantage(entry?.data?.advantage),
+        reason: normalizeMomentumReason(entry?.data?.reason),
+        edgeEvent: normalizeEdgeEvent(entry?.data?.edgeEvent),
+        position: normalizePosition(entry?.data?.position)
+      });
     }
   }
 
+  // Finish
   facts.push({
     phase: "finish",
     beat: 0,
-    winner: result.winner,
-    kimariteId: result.kimarite,
-    kimariteName: result.kimariteName,
-    upset: !!result.upset,
-    closeCall: false
+    winner: (result as any).winner ?? "east",
+    kimariteId: (result as any).kimarite,
+    kimariteName: (result as any).kimariteName,
+    upset: !!(result as any).upset,
+    closeCall: !!(result as any).closeCall
   });
 
   return buildPbp(facts, ctx, lib);
@@ -407,11 +401,7 @@ function selectPhraseForFact(
   switch (fact.phase) {
     case "tachiai": {
       const bucket =
-        fact.tachiaiQuality >= 0.75
-          ? lib.tachiai.decisive
-          : fact.tachiaiQuality >= 0.45
-            ? lib.tachiai.even
-            : lib.tachiai.slow;
+        fact.tachiaiQuality >= 0.75 ? lib.tachiai.decisive : fact.tachiaiQuality >= 0.45 ? lib.tachiai.even : lib.tachiai.slow;
 
       const chosen = weightedPick(bucket, rng);
       return { phrase: chosen, tags: mergeTags(chosen.tags, ctx.kenshoCount ? ["kensho"] : []) };
@@ -519,7 +509,7 @@ function weightedPick(bucket: PhraseBucket, rng: seedrandom.PRNG): Phrase {
 }
 
 /** =========================
- *  Normalizers for BoutLogEntry integration (optional)
+ *  Normalizers (log -> fact)
  *  ========================= */
 
 function normalizeAdvantage(v: any): Advantage {
@@ -540,8 +530,9 @@ function normalizeMomentumReason(v: any): MomentumShiftReason {
     v === "footwork_angle" ||
     v === "fatigue_turn" ||
     v === "mistake"
-  )
+  ) {
     return v;
+  }
   return "mistake";
 }
 
@@ -553,8 +544,9 @@ function normalizeEdgeEvent(v: any): EdgeEvent | undefined {
     v === "dancing_escape" ||
     v === "turns_the_tables" ||
     v === "slips_but_survives"
-  )
+  ) {
     return v;
+  }
   return undefined;
 }
 
@@ -566,8 +558,9 @@ function normalizeGripEvent(v: any): GripEvent | undefined {
     v === "over_under" ||
     v === "no_grip_scramble" ||
     v === "grip_break"
-  )
+  ) {
     return v;
+  }
   return undefined;
 }
 
@@ -578,7 +571,22 @@ function normalizeStrikeEvent(v: any): StrikeEvent | undefined {
     v === "harite_slap" ||
     v === "throat_attack" ||
     v === "shoulder_blast"
-  )
+  ) {
     return v;
+  }
   return undefined;
+}
+
+/** Estimate tachiai quality deterministically from tachiai log margin if present */
+function tachiaiQualityFromMargin(log: any): number {
+  if (!Array.isArray(log)) return 0.7;
+  const t = log.find((e) => e?.phase === "tachiai");
+  const margin = Number(t?.data?.margin);
+  if (!Number.isFinite(margin)) return 0.7;
+
+  // Map typical margin ranges to 0..1 (gentle)
+  if (margin >= 12) return 0.9;
+  if (margin >= 8) return 0.75;
+  if (margin >= 4) return 0.55;
+  return 0.35;
 }
