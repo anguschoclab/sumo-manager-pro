@@ -1,24 +1,33 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Play, FastForward, Trophy, Calendar, ArrowRight } from "lucide-react";
+import { Play, FastForward, Trophy, Calendar, ArrowRight, Repeat } from "lucide-react";
 import { useGame } from "@/contexts/GameContext";
 import { useToast } from "@/components/ui/use-toast";
 
 /**
  * TimeControls
- * - Aligns strictly with GameContext interface (no updateState/saveGame/initializeGame).
- * - Provides quick controls for basho flow and interim progression.
+ * - Drives time through the orchestrator-backed GameContext actions.
+ * - Exposes an explicit weekly tick during interim, so training/economy/governance/etc. evolve.
  */
 export function TimeControls() {
-  const { state, startBasho, advanceDay, simulateAllBouts, endDay, endBasho, setPhase } = useGame();
+  const {
+    state,
+    startBasho,
+    advanceDay,
+    simulateAllBouts,
+    endDay,
+    endBasho,
+    setPhase,
+    advanceInterim,
+  } = useGame();
   const { toast } = useToast();
 
   const world = state.world;
   if (!world) return null;
 
-  const basho = world.currentBasho;
-  const inBasho = !!basho?.isActive;
+  const inBasho = world.cyclePhase === "active_basho" && !!world.currentBasho;
+  const inInterim = world.cyclePhase === "interim";
 
   const handleStartBasho = () => {
     startBasho();
@@ -28,7 +37,7 @@ export function TimeControls() {
   const handleSimDay = () => {
     simulateAllBouts();
     endDay();
-    toast({ title: "Day completed", description: "All bouts simulated and day ended." });
+    toast({ title: "Day completed", description: "All bouts simulated." });
   };
 
   const handleAdvanceDay = () => {
@@ -37,7 +46,12 @@ export function TimeControls() {
 
   const handleEndBasho = () => {
     endBasho();
-    toast({ title: "Basho concluded", description: "Review results and banzuke changes." });
+    toast({ title: "Basho concluded", description: "Results logged and banzuke updated." });
+  };
+
+  const handleAdvanceWeek = () => {
+    advanceInterim(1);
+    toast({ title: "Week advanced", description: "Training, economy, and governance have progressed." });
   };
 
   return (
@@ -45,6 +59,12 @@ export function TimeControls() {
       <CardContent className="p-4 flex flex-wrap gap-2 items-center">
         {!inBasho ? (
           <>
+            {inInterim && (
+              <Button variant="outline" onClick={handleAdvanceWeek} className="gap-2">
+                <Repeat className="h-4 w-4" />
+                Advance Week
+              </Button>
+            )}
             <Button onClick={handleStartBasho} className="gap-2">
               <Play className="h-4 w-4" />
               Start Basho

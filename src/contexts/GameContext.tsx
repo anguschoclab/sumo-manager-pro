@@ -2,11 +2,9 @@
 // Provides world state, basho control, and game actions
 
 import React, { createContext, useContext, useReducer, useCallback, ReactNode } from "react";
-import type { WorldState, BashoState, Rikishi, Heya, BoutResult, BashoName } from "@/engine/types";
-import { generateWorld, initializeBasho, generateDaySchedule } from "@/engine/worldgen";
-import { simulateBout } from "@/engine/bout";
-import { BASHO_CALENDAR, getNextBasho } from "@/engine/calendar";
-import { isKachiKoshi, isMakeKoshi } from "@/engine/banzuke";
+import type { WorldState, Rikishi, Heya, BoutResult } from "@/engine/types";
+import { generateWorld } from "@/engine/worldgen";
+import * as worldEngine from "@/engine/world";
 import { saveGame, loadGame, autosave, hasAutosave, loadAutosave, getSaveSlotInfos, type SaveSlotInfo } from "@/engine/saveload";
 
 // === STATE TYPES ===
@@ -50,6 +48,7 @@ type GameAction =
   | { type: "SIMULATE_ALL_BOUTS" }
   | { type: "END_DAY" }
   | { type: "END_BASHO" }
+  | { type: "ADVANCE_INTERIM"; weeks: number }
   | { type: "SELECT_RIKISHI"; id: string | null }
   | { type: "SELECT_HEYA"; id: string | null }
   | { type: "SET_AUTO_PLAY"; value: boolean }
@@ -114,105 +113,71 @@ function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case "START_BASHO": {
-      if (!state.world || !state.world.currentBashoName) return state;
-      
-      const basho = initializeBasho(state.world, state.world.currentBashoName);
-      generateDaySchedule(state.world, basho, 1, state.world.seed);
-      
+      if (!state.world) return state;
+
+      // Use the orchestrator engine to start the basho (ensures hooks + schedule are consistent).
+      worldEngine.startBasho(state.world, state.world.currentBashoName);
+
       return {
         ...state,
-        world: {
-          ...state.world,
-          currentBasho: basho,
-        },
+        world: { ...state.world },
         phase: "day_preview",
         currentBoutIndex: 0,
+        lastBoutResult: null,
       };
     }
 
     case "ADVANCE_DAY": {
       if (!state.world?.currentBasho) return state;
-      
-      const basho = state.world.currentBasho;
-      const newDay = basho.day + 1;
-      
-      if (newDay > 15) {
-        return { ...state, phase: "basho_results" };
+
+      worldEngine.advanceBashoDay(state.world);
+
+      const day = state.world.currentBasho.day;
+      if (day > 15) {
+        // Tournament is over; UI can route to results.
+        return { ...state, world: { ...state.world }, phase: "basho_results" };
       }
-      
-      const updatedBasho = { ...basho, day: newDay };
-      generateDaySchedule(state.world, updatedBasho, newDay, state.world.seed);
-      
+
       return {
         ...state,
-        world: {
-          ...state.world,
-          currentBasho: updatedBasho,
-        },
+        world: { ...state.world },
         phase: "day_preview",
         currentBoutIndex: 0,
+        lastBoutResult: null,
       };
     }
 
     case "SIMULATE_BOUT": {
       if (!state.world?.currentBasho) return state;
-      
-      const basho = state.world.currentBasho;
-      const dayMatches = basho.matches.filter(m => m.day === basho.day && !m.result);
-      const match = dayMatches[action.boutIndex];
-      
-      if (!match) return state;
-      
-      const east = state.world.rikishi.get(match.eastRikishiId);
-      const west = state.world.rikishi.get(match.westRikishiId);
-      
-      if (!east || !west) return state;
-      
-      const boutSeed = `${state.world.seed}-${basho.bashoName}-d${basho.day}-b${action.boutIndex}`;
-      const result = simulateBout(east, west, boutSeed);
-      
-      // Update match with result
-      match.result = result;
-      
-      // Update rikishi records
-      const winner = result.winner === "east" ? east : west;
-      const loser = result.winner === "east" ? west : east;
-      
-      winner.currentBashoWins++;
-      winner.careerWins++;
-      loser.currentBashoLosses++;
-      loser.careerLosses++;
-      
-      // Update standings
-      const standings = new Map(basho.standings);
-      const winnerStanding = standings.get(winner.id) || { wins: 0, losses: 0 };
-      const loserStanding = standings.get(loser.id) || { wins: 0, losses: 0 };
-      standings.set(winner.id, { wins: winnerStanding.wins + 1, losses: winnerStanding.losses });
-      standings.set(loser.id, { wins: loserStanding.wins, losses: loserStanding.losses + 1 });
-      
+
+      const { result } = worldEngine.simulateBoutForToday(state.world, action.boutIndex);
+
       return {
         ...state,
-        world: {
-          ...state.world,
-          currentBasho: { ...basho, standings },
-        },
-        lastBoutResult: result,
+        world: { ...state.world },
+        lastBoutResult: result ?? state.lastBoutResult,
         currentBoutIndex: action.boutIndex + 1,
       };
     }
 
     case "SIMULATE_ALL_BOUTS": {
       if (!state.world?.currentBasho) return state;
-      
-      let currentState = state;
-      const basho = state.world.currentBasho;
-      const dayMatches = basho.matches.filter(m => m.day === basho.day && !m.result);
-      
-      for (let i = 0; i < dayMatches.length; i++) {
-        currentState = gameReducer(currentState, { type: "SIMULATE_BOUT", boutIndex: i });
+
+      // Keep simulating the first unplayed bout until there are none left today.
+      let lastResult: BoutResult | null = state.lastBoutResult;
+      // Safety cap: max bouts per day is limited (makuuchi ~ 21), but we cap to avoid infinite loops.
+      for (let i = 0; i < 64; i++) {
+        const { result } = worldEngine.simulateBoutForToday(state.world, 0);
+        if (!result) break;
+        lastResult = result;
       }
-      
-      return { ...currentState, phase: "day_results" };
+
+      return {
+        ...state,
+        world: { ...state.world },
+        lastBoutResult: lastResult,
+        phase: "day_results",
+      };
     }
 
     case "END_DAY": {
@@ -221,43 +186,26 @@ function gameReducer(state: GameState, action: GameAction): GameState {
 
     case "END_BASHO": {
       if (!state.world?.currentBasho) return state;
-      
-      // Calculate final standings and awards
-      const basho = state.world.currentBasho;
-      const standings = Array.from(basho.standings.entries())
-        .map(([id, record]) => ({ id, ...record }))
-        .sort((a, b) => b.wins - a.wins);
-      
-      const yushoWinner = standings[0]?.id;
-      const junYusho = standings.filter(s => s.wins === standings[1]?.wins).map(s => s.id);
-      
-      // Create basho result
-      const bashoResult = {
-        year: basho.year,
-        bashoNumber: basho.bashoNumber,
-        bashoName: basho.bashoName,
-        yusho: yushoWinner || "",
-        junYusho,
-        prizes: {
-          yushoAmount: 10_000_000,
-          junYushoAmount: 2_000_000,
-          specialPrizes: 2_000_000,
-        }
-      };
-      
-      // Advance to next basho
-      const nextBasho = getNextBasho(basho.bashoName);
-      const nextYear = nextBasho === "hatsu" ? state.world.year + 1 : state.world.year;
-      
+
+      // Orchestrator handles: basho result, lifecycle, then banzuke update + next basho.
+      worldEngine.endBasho(state.world);
+      worldEngine.publishBanzukeUpdate(state.world);
+
       return {
         ...state,
-        world: {
-          ...state.world,
-          year: nextYear,
-          currentBashoName: nextBasho,
-          currentBasho: undefined,
-          history: [...state.world.history, bashoResult],
-        },
+        world: { ...state.world },
+        phase: "interim",
+        currentBoutIndex: 0,
+        lastBoutResult: null,
+      };
+    }
+
+    case "ADVANCE_INTERIM": {
+      if (!state.world) return state;
+      worldEngine.advanceInterim(state.world, action.weeks);
+      return {
+        ...state,
+        world: { ...state.world },
         phase: "interim",
       };
     }
@@ -320,6 +268,9 @@ interface GameContextValue {
   simulateAllBouts: () => void;
   endDay: () => void;
   endBasho: () => void;
+
+  // Interim control
+  advanceInterim: (weeks?: number) => void;
   
   // Save/Load
   saveToSlot: (slotName: string) => boolean;
@@ -334,6 +285,9 @@ interface GameContextValue {
   getHeya: (id: string) => Heya | undefined;
   getCurrentDayMatches: () => ReturnType<typeof getMatchesForDay>;
   getStandings: () => Array<{ rikishi: Rikishi; wins: number; losses: number }>;
+
+  // Escape hatch for pages that directly edit world objects (e.g., training plan persistence)
+  updateWorld: (world: WorldState) => void;
 }
 
 const GameContext = createContext<GameContextValue | null>(null);
@@ -395,6 +349,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
 
   const endBasho = useCallback(() => {
     dispatch({ type: "END_BASHO" });
+  }, []);
+
+  const advanceInterim = useCallback((weeks: number = 1) => {
+    dispatch({ type: "ADVANCE_INTERIM", weeks });
+  }, []);
+
+  const updateWorld = useCallback((world: WorldState) => {
+    dispatch({ type: "UPDATE_WORLD", world });
   }, []);
 
   const getRikishi = useCallback((id: string) => {
@@ -468,6 +430,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     simulateAllBouts,
     endDay,
     endBasho,
+    advanceInterim,
     saveToSlot,
     loadFromSlot,
     quickSave: quickSaveAction,
@@ -478,6 +441,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
     getHeya,
     getCurrentDayMatches,
     getStandings,
+    updateWorld,
   };
 
   return (

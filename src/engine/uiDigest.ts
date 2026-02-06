@@ -85,12 +85,15 @@ export function buildWeeklyDigest(world: WorldState | null): UIDigest | null {
   // --- Key matchup (during basho) ---
   const matchupItems: DigestItem[] = [];
   const basho = world.currentBasho;
-  if (basho?.isActive) {
-    const day = basho.day ?? basho.currentDay ?? 1;
-    const todays = basho.matches?.[day - 1] ?? basho.schedule?.[day - 1] ?? [];
-    for (const bout of todays.slice(0, 3)) {
-      const eastId = (bout as any).rikishiEastId ?? (bout as any).eastId;
-      const westId = (bout as any).rikishiWestId ?? (bout as any).westId;
+  // In this codebase, the authoritative indicator of basho activity is world.cyclePhase.
+  // The schedule is a flat array of MatchSchedule items with a day field.
+  if (basho && world.cyclePhase === "active_basho") {
+    const day = basho.day ?? (basho as any).currentDay ?? 1;
+    const todays = (basho.matches ?? []).filter((m: any) => m?.day === day);
+
+    for (const match of todays.slice(0, 3)) {
+      const eastId = (match as any).eastRikishiId ?? (match as any).rikishiEastId ?? (match as any).eastId;
+      const westId = (match as any).westRikishiId ?? (match as any).rikishiWestId ?? (match as any).westId;
       if (!eastId || !westId) continue;
 
       const east = world.rikishi.get(eastId);
@@ -119,8 +122,8 @@ export function buildWeeklyDigest(world: WorldState | null): UIDigest | null {
   };
 
   const headline =
-    basho?.isActive
-      ? `Basho Day ${basho.day ?? basho.currentDay ?? 1}: ${matchupItems.length ? "Key matchups highlighted." : "Tournament in progress."}`
+    basho && world.cyclePhase === "active_basho"
+      ? `Basho Day ${basho.day ?? (basho as any).currentDay ?? 1}: ${matchupItems.length ? "Key matchups highlighted." : "Tournament in progress."}`
       : injuryItems.length
         ? `${injuryItems.length} injury update${injuryItems.length === 1 ? "" : "s"} this week.`
         : "No major events recorded this week.";

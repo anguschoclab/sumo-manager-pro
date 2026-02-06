@@ -132,7 +132,7 @@ type StableAchievements = {
 export default function StablePage() {
   const navigate = useNavigate();
   const { id: routeId } = useParams<{ id?: string }>();
-  const { state } = useGame();
+  const { state, updateWorld } = useGame();
   const { world, playerHeyaId } = state;
 
   // Guard: must not navigate during render; render a safe fallback instead.
@@ -241,19 +241,38 @@ export default function StablePage() {
     return existing ?? createDefaultTrainingState(defaultSlots);
   });
 
+  const persistTrainingState = (next: BeyaTrainingState) => {
+    if (!isViewingOwnStable) return;
+    (heya as any).trainingState = next;
+    // Ensure React subscribers re-render and the state can be saved.
+    updateWorld({ ...world });
+  };
+
   const handleIntensityChange = (intensity: TrainingIntensity) => {
     if (!isViewingOwnStable) return;
-    setTrainingState((prev) => ({ ...prev, profile: { ...prev.profile, intensity } }));
+    setTrainingState((prev) => {
+      const next = { ...prev, profile: { ...prev.profile, intensity } };
+      persistTrainingState(next);
+      return next;
+    });
   };
 
   const handleFocusChange = (focus: TrainingFocus) => {
     if (!isViewingOwnStable) return;
-    setTrainingState((prev) => ({ ...prev, profile: { ...prev.profile, focus } }));
+    setTrainingState((prev) => {
+      const next = { ...prev, profile: { ...prev.profile, focus } };
+      persistTrainingState(next);
+      return next;
+    });
   };
 
   const handleRecoveryChange = (recovery: RecoveryEmphasis) => {
     if (!isViewingOwnStable) return;
-    setTrainingState((prev) => ({ ...prev, profile: { ...prev.profile, recovery } }));
+    setTrainingState((prev) => {
+      const next = { ...prev, profile: { ...prev.profile, recovery } };
+      persistTrainingState(next);
+      return next;
+    });
   };
 
   const intensityEffect = INTENSITY_EFFECTS[trainingState.profile.intensity];

@@ -7,18 +7,26 @@ import { Button } from "@/components/ui/button";
 import { TrendingUp, Users, Trophy } from "lucide-react";
 import { WeeklyDigest } from "@/components/game/WeeklyDigest";
 import { TimeControls } from "@/components/game/TimeControls";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 
 export default function Dashboard() {
   const { state, hasAutosave, loadFromAutosave } = useGame();
+  const navigate = useNavigate();
   const world = state.world;
   const isLoaded = !!world;
 
   useEffect(() => {
+    // If a user has an autosave, load it automatically.
     if (!isLoaded && hasAutosave()) {
       loadFromAutosave();
+      return;
     }
-  }, [isLoaded, hasAutosave, loadFromAutosave]);
+
+    // If no world exists yet (fresh install / first run), route to the real entry flow.
+    if (!isLoaded && !hasAutosave()) {
+      navigate("/main-menu", { replace: true });
+    }
+  }, [isLoaded, hasAutosave, loadFromAutosave, navigate]);
 
   if (!isLoaded || !world) {
     return (
