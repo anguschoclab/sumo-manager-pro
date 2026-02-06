@@ -2,16 +2,74 @@
  * File Name: src/engine/types.ts
  * Notes:
  * - COMPLETE OVERHAUL to match high-fidelity simulation standards defined in the Constitution.
- * - Added detailed Combat/Style types (TacticalArchetype, KimariteFamily).
- * - Added detailed Banzuke types (RankPosition, BanzukeAssignment).
- * - Integrated H2H and Lifecycle fields into the robust Rikishi interface.
- * - Added Oyakata and Governance structures.
- * - MERGED: History System (System 6) definitions.
+ * - MERGED: Event Bus System (Audit Fix) + Rich Domain Models (Constitution).
+ * - Primary Event Log: `events: EventsState` (formerly historyLog).
  */
 
 export type Id = string;
 export type IdMap<T> = Record<Id, T>;
 export type IdMapRuntime<T> = Map<Id, T>;
+
+// === EVENTS SYSTEM TYPES (The Keystone System) ===
+
+export type EventScope = "world" | "heya" | "rikishi";
+export type EventPhase = "weekly" | "monthly" | "basho_day" | "basho_wrap" | "manual";
+export type EventCategory =
+  | "training"
+  | "scouting"
+  | "injury"
+  | "economy"
+  | "sponsor"
+  | "media"
+  | "rivalry"
+  | "promotion"
+  | "discipline"
+  | "facility"
+  | "milestone"
+  | "match"       // Added for match results
+  | "basho"       // Added for basho lifecycle
+  | "misc";
+
+export type EventImportance = "minor" | "notable" | "major" | "headline";
+
+export interface EngineEvent {
+  id: Id;
+  type: string;   // Discriminator (e.g., "BASHO_STARTED", "INJURY_OCCURRED")
+  
+  // Causality
+  causalEventId?: Id; // The event that caused this one (The "Why")
+
+  // Temporal
+  year: number;
+  week: number;
+  month?: number;
+  bashoNumber?: 1 | 2 | 3 | 4 | 5 | 6;
+  day?: number;
+
+  phase: EventPhase;
+  category: EventCategory;
+  importance: EventImportance;
+
+  scope: EventScope;
+  heyaId?: Id;
+  rikishiId?: Id;
+
+  // Content
+  title: string;
+  summary: string;
+  
+  // Data Payload
+  data: Record<string, string | number | boolean | null | undefined>;
+
+  truthLevel: "public" | "limited" | "private";
+  tags?: string[];
+}
+
+export interface EventsState {
+  version: "1.0.0";
+  log: EngineEvent[];
+  dedupe: Record<string, true>;
+}
 
 /** =========================
  * Combat / Style
@@ -592,79 +650,8 @@ export interface BashoResult {
 }
 
 /** =========================
- * History & Event Sourcing (System 6)
+ * WORLD STATE
  * ========================= */
-
-// 1. UI Classification Types
-export type EventScope = "world" | "heya" | "rikishi";
-export type EventPhase = "weekly" | "monthly" | "basho_day" | "basho_wrap" | "manual";
-export type EventCategory =
-  | "training"
-  | "scouting"
-  | "injury"
-  | "economy"
-  | "sponsor"
-  | "media"
-  | "rivalry"
-  | "promotion"
-  | "discipline"
-  | "facility"
-  | "milestone"
-  | "match"
-  | "misc";
-
-export type EventImportance = "minor" | "notable" | "major" | "headline";
-
-// 2. Canonical Event Types (System Logic)
-export type HistoryEventType = 
-  | "BOUT_RESULT"
-  | "RANK_CHANGE"
-  | "INJURY"
-  | "RECRUITMENT"
-  | "SCANDAL"
-  | "GOVERNANCE_RULING"
-  | "SPONSOR_UPDATE"
-  | "RIVALRY_UPDATE"
-  | "MEDIA_STORY"
-  | "GENERIC_NOTE";
-
-// 3. The Unified Event Envelope
-export interface HistoryEvent {
-  id: string;              // Immutable UUID (Hash-based)
-  
-  // Timing
-  tick: {                  
-    year: number;
-    month: number;
-    week: number;
-    day?: number;
-    bashoId?: string;
-  };
-  phase: EventPhase;       // When it happened in the cycle
-
-  // Classification
-  type: HistoryEventType;  // System discriminator
-  category: EventCategory; // UI discriminator
-  scope: EventScope;
-  importance: EventImportance;
-
-  // Search & Indexing
-  entities: {              
-    primaryId: Id;         
-    secondaryIds?: Id[];   
-    beyaId?: Id;           
-  };
-  tags?: string[];         // For UI filtering
-
-  // Content
-  title: string;           // Human-readable header
-  summary: string;         // Short description
-  payload: Record<string, any>; // Machine data
-  
-  // Mechanics
-  truthLevel: "public" | "limited" | "private"; // Fog of War
-  causedByEventId?: string;
-}
 
 export type CyclePhase = "active_basho" | "post_basho" | "interim";
 
@@ -684,8 +671,9 @@ export interface WorldState {
   currentBasho?: BashoState;
   history: BashoResult[];
   
-  // NEW: The Immutable History Log
-  historyLog: HistoryEvent[];
+  // THE NEW KE_YSTONE SYSTEM (Events Bus)
+  // Replaces the static historyLog array with the robust EventsState system
+  events: EventsState;
 
   governanceLog?: GovernanceRuling[];
 
@@ -742,7 +730,9 @@ export interface SerializedWorldState {
 
   currentBasho?: SerializedBashoState;
   history: BashoResult[];
-  historyLog: HistoryEvent[];
+  
+  // Serialized Event Log
+  events: EventsState;
 
   ftue: FTUEState;
   playerHeyaId?: Id;
