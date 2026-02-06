@@ -1,4 +1,4 @@
-import { Rikishi, Heya, GameState, Rank } from "./types";
+import { Rikishi, Heya, WorldState, Rank } from "./types";
 
 export interface RikishiUIModel {
   id: string;
@@ -15,7 +15,8 @@ export interface RikishiUIModel {
     weight: number;
     stamina: number;
     mental: number;
-    adaptability: number; // New field
+    adaptability: number;
+    balance: number;
   };
   // New Lifecycle & Narrative Fields
   age: number;
@@ -30,8 +31,8 @@ export interface RikishiUIModel {
   rivalries: { opponentId: string; opponentName: string; record: string }[]; 
 }
 
-export function toRikishiUIModel(rikishi: Rikishi, state: GameState): RikishiUIModel {
-  const heya = state.heyas.find(h => h.id === rikishi.heyaId);
+export function toRikishiUIModel(rikishi: Rikishi, world: WorldState): RikishiUIModel {
+  const heya = world.heyas.get(rikishi.heyaId);
   
   // Format record
   const wins = rikishi.currentBashoRecord?.wins || 0;
@@ -45,9 +46,11 @@ export function toRikishiUIModel(rikishi: Rikishi, state: GameState): RikishiUIM
 
   // Injury Text
   let injuryText = "None";
-  if (rikishi.injuryStatus.isInjured) {
-    if (rikishi.injuryStatus.severity < 30) injuryText = "Minor";
-    else if (rikishi.injuryStatus.severity < 70) injuryText = "Major";
+  const severity = rikishi.injuryStatus?.severity;
+  const severityNum = typeof severity === "number" ? severity : 0;
+  if (rikishi.injuryStatus?.isInjured) {
+    if (severityNum < 30) injuryText = "Minor";
+    else if (severityNum < 70) injuryText = "Major";
     else injuryText = "Critical";
   }
 
@@ -56,47 +59,47 @@ export function toRikishiUIModel(rikishi: Rikishi, state: GameState): RikishiUIM
   const h2hMap = rikishi.h2h || {};
   const rivalries = Object.entries(h2hMap)
     .map(([oppId, rec]) => {
-      const opp = state.rikishi.find(r => r.id === oppId);
+      const opp = world.rikishi.get(oppId);
       return {
         opponentId: oppId,
-        opponentName: opp ? opp.shikona : "Retired Rikishi",
-        totalBouts: rec.wins + rec.losses,
+        opponentName: opp?.shikona || "Unknown",
         record: `${rec.wins}-${rec.losses}`,
+        total: rec.wins + rec.losses
       };
     })
-    .sort((a, b) => b.totalBouts - a.totalBouts)
+    .sort((a, b) => b.total - a.total)
     .slice(0, 3)
-    .map(r => ({
-      opponentId: r.opponentId,
-      opponentName: r.opponentName,
-      record: r.record
-    }));
+    .map(({ opponentId, opponentName, record }) => ({ opponentId, opponentName, record }));
+
+  const currentYear = world.year;
+  const age = currentYear - (rikishi.birthYear || currentYear - 25);
 
   return {
     id: rikishi.id,
-    name: rikishi.name,
+    name: rikishi.name || rikishi.shikona,
     shikona: rikishi.shikona,
-    heya: heya ? heya.name : "Unknown Heya",
+    heya: heya?.name || "Unknown",
     rank: rikishi.rank,
     record: recordStr,
     careerRecord: careerStr,
     stats: {
-      strength: rikishi.stats.strength,
-      technique: rikishi.stats.technique,
-      speed: rikishi.stats.speed,
-      weight: rikishi.stats.weight,
-      stamina: rikishi.stats.stamina,
-      mental: rikishi.stats.mental,
-      adaptability: rikishi.stats.adaptability || 50, // Default if missing
+      strength: rikishi.stats?.strength || rikishi.power || 50,
+      technique: rikishi.stats?.technique || rikishi.technique || 50,
+      speed: rikishi.stats?.speed || rikishi.speed || 50,
+      weight: rikishi.stats?.weight || rikishi.weight || 140,
+      stamina: rikishi.stats?.stamina || rikishi.stamina || 50,
+      mental: rikishi.stats?.mental || rikishi.aggression || 50,
+      adaptability: rikishi.stats?.adaptability || rikishi.adaptability || 50,
+      balance: rikishi.stats?.balance || rikishi.balance || 50,
     },
-    age: (state.currentBasho?.year || 2024) - rikishi.birthYear,
-    origin: rikishi.origin || "Unknown",
-    archetype: rikishi.archetype || "Balanced",
-    condition: rikishi.condition,
+    age,
+    origin: rikishi.origin || rikishi.nationality || "Unknown",
+    archetype: rikishi.archetype || "all_rounder",
+    condition: rikishi.condition || 100,
     injuryStatus: {
-      isInjured: rikishi.injuryStatus.isInjured,
-      severity: injuryText,
+      isInjured: rikishi.injured || rikishi.injuryStatus?.isInjured || false,
+      severity: injuryText
     },
-    rivalries,
+    rivalries
   };
 }

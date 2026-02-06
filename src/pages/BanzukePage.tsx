@@ -3,42 +3,43 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { useGame } from "@/contexts/GameContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatRank, getRankTitleJa } from "@/engine/banzuke";
+import { formatRank } from "@/engine/banzuke";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ClickableName } from "@/components/ClickableName";
+import type { Rikishi, Rank } from "@/engine/types";
 
 export default function BanzukePage() {
-  const { state, isLoaded } = useGame();
+  const { state } = useGame();
+  const world = state.world;
 
-  if (!isLoaded || !state) return null;
+  if (!world) return null;
 
   // We group rikishi by division and sort them
-  const rikishiList = Array.from(state.rikishi.values());
+  const rikishiList = Array.from(world.rikishi.values());
   
   // Sort by rank value (we need a helper, but for now we can rely on division + rank string sort approx)
   // Ideally use `positionKey` from banzuke.ts logic, but here we can just filter.
   
+  const tier = (r: Rank) => {
+    if (r === "yokozuna") return 1;
+    if (r === "ozeki") return 2;
+    if (r === "sekiwake") return 3;
+    if (r === "komusubi") return 4;
+    return 5;
+  };
+
+  const sortRikishi = (a: Rikishi, b: Rikishi) => {
+    const ta = tier(a.rank);
+    const tb = tier(b.rank);
+    if (ta !== tb) return ta - tb;
+    if (a.rankNumber !== b.rankNumber) return (a.rankNumber || 0) - (b.rankNumber || 0);
+    return a.side === "east" ? -1 : 1;
+  };
+  
   const makuuchi = rikishiList
     .filter(r => r.division === "makuuchi")
-    .sort((a, b) => {
-        // Simplified sort for UI: 
-        // 1. Rank Tier (Y, O, S, K, M)
-        // 2. Rank Number
-        // 3. Side (East < West)
-        const tier = (r: string) => {
-            if (r === "yokozuna") return 1;
-            if (r === "ozeki") return 2;
-            if (r === "sekiwake") return 3;
-            if (r === "komusubi") return 4;
-            return 5;
-        };
-        const ta = tier(a.rank);
-        const tb = tier(b.rank);
-        if (ta !== tb) return ta - tb;
-        if (a.rankNumber !== b.rankNumber) return (a.rankNumber || 0) - (b.rankNumber || 0);
-        return a.side === "east" ? -1 : 1;
-    });
+    .sort(sortRikishi);
 
   const divisions = ["makuuchi", "juryo", "makushita", "sandanme", "jonidan", "jonokuchi"];
 
@@ -49,7 +50,7 @@ export default function BanzukePage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Official Banzuke</h1>
             <p className="text-muted-foreground">
-              {state.year} {state.currentBashoName?.toUpperCase() || "UPCOMING"} Rankings
+              {world.year} {world.currentBashoName?.toUpperCase() || "UPCOMING"} Rankings
             </p>
           </div>
         </div>
@@ -62,21 +63,7 @@ export default function BanzukePage() {
           </TabsList>
           
           {divisions.map(div => {
-              const list = rikishiList.filter(r => r.division === div).sort((a, b) => {
-                  // Re-use simple sort logic
-                   const tier = (r: string) => {
-                        if (r === "yokozuna") return 1;
-                        if (r === "ozeki") return 2;
-                        if (r === "sekiwake") return 3;
-                        if (r === "komusubi") return 4;
-                        return 5;
-                    };
-                    const ta = tier(a.rank);
-                    const tb = tier(b.rank);
-                    if (ta !== tb) return ta - tb;
-                    if (a.rankNumber !== b.rankNumber) return (a.rankNumber || 0) - (b.rankNumber || 0);
-                    return a.side === "east" ? -1 : 1;
-              });
+              const list = rikishiList.filter(r => r.division === div).sort(sortRikishi);
 
               return (
                 <TabsContent key={div} value={div}>
@@ -101,7 +88,7 @@ export default function BanzukePage() {
                                                 <td className="p-3" colSpan={2}>
                                                     <div className="flex items-center gap-3">
                                                         <ClickableName id={r.id} name={r.shikona} type="rikishi" className="font-bold text-base" />
-                                                        <span className="text-xs text-muted-foreground">{state.heyas.get(r.heyaId)?.name}</span>
+                                                        <span className="text-xs text-muted-foreground">{world.heyas.get(r.heyaId)?.name}</span>
                                                         {r.rank === "ozeki" && (
                                                             <Badge variant="outline" className="ml-auto text-[10px] border-yellow-500 text-yellow-600">OZEKI</Badge>
                                                         )}

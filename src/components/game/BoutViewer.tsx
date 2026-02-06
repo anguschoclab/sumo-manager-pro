@@ -86,7 +86,11 @@ export function BoutViewer({ className, seed = "demo" }: BoutViewerProps) {
 
       {result && (
         <div className="space-y-3">
-          <BoutResultDisplay result={result} />
+          <BoutResultDisplay 
+            result={result} 
+            eastRikishi={pair.east} 
+            westRikishi={pair.west} 
+          />
           {Array.isArray((result as any).log) && (result as any).log.length > 0 && (
             <BoutLog log={(result as any).log} />
           )}

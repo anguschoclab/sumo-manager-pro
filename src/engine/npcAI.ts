@@ -1,18 +1,18 @@
 import { rngFromSeed, rngForWorld } from "./rng";
-import type { WorldState, FightingStyle } from "./types";
+import type { WorldState, Style } from "./types";
 import { SeededRNG } from "./utils/SeededRNG";
 
-export function determineNPCStyleBias(world: WorldState, stableId: string): FightingStyle | "neutral" {
-  const stable = world.heya[stableId];
+export function determineNPCStyleBias(world: WorldState, stableId: string): Style | "neutral" {
+  const stable = world.heyas.get(stableId);
   if (!stable) return "neutral";
 
-  const rng = rngForWorld(world, "npcAI::${stableId}".split("::")[0], "npcAI::${stableId}".split("::").slice(1).join("::"));
+  const rng = rngForWorld(world, "npcAI", stableId);
 
   let oshi = 0;
   let yotsu = 0;
 
-  for (const r of stable.rikishiIds) {
-    const rikishi = world.rikishi[r];
+  for (const rId of stable.rikishiIds) {
+    const rikishi = world.rikishi.get(rId);
     if (!rikishi) continue;
     if (rikishi.style === "oshi") oshi += 1;
     if (rikishi.style === "yotsu") yotsu += 1;

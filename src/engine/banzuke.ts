@@ -4,7 +4,7 @@
 // UPDATES Phase 2:
 // - Added `determineSpecialPrizes` logic (Shukun-sho, Kanto-sho, Gino-sho) based on Canon V1.1
 
-import type { Rank, Division, RankPosition, Rikishi, BoutResult, BashoMatch } from "./types";
+import type { Rank, Division, RankPosition, Rikishi, BoutResult, MatchSchedule } from "./types";
 import { KIMARITE_REGISTRY } from "./kimarite";
 
 // === RANK HIERARCHY ===

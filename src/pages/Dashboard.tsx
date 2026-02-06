@@ -4,22 +4,23 @@ import { useGame } from "@/contexts/GameContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { AlertCircle, TrendingUp, Users, Trophy } from "lucide-react";
+import { TrendingUp, Users, Trophy } from "lucide-react";
 import { WeeklyDigest } from "@/components/game/WeeklyDigest";
-import { TimeControls } from "@/components/game/TimeControls"; // NEW
+import { TimeControls } from "@/components/game/TimeControls";
 import { NavLink } from "react-router-dom";
 
 export default function Dashboard() {
   const { state, hasAutosave, loadFromAutosave } = useGame();
-  const isLoaded = !!state.world;
+  const world = state.world;
+  const isLoaded = !!world;
 
   useEffect(() => {
-    if (isLoaded && !state) {
-      ();
+    if (!isLoaded && hasAutosave()) {
+      loadFromAutosave();
     }
-  }, [isLoaded, state, ]);
+  }, [isLoaded, hasAutosave, loadFromAutosave]);
 
-  if (!isLoaded || !state) {
+  if (!isLoaded || !world) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-full">Loading...</div>
@@ -27,8 +28,8 @@ export default function Dashboard() {
     );
   }
 
-  const playerHeya = state.playerHeyaId ? state.heyas.get(state.playerHeyaId) : null;
-  const phase = state.cyclePhase || "active_basho";
+  const playerHeya = world.playerHeyaId ? world.heyas.get(world.playerHeyaId) : null;
+  const phase = world.cyclePhase || "active_basho";
 
   return (
     <AppLayout>
@@ -38,7 +39,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Oyakata Dashboard</h1>
             <p className="text-muted-foreground">
-              {state.year} {state.currentBashoName?.toUpperCase() || "PRE-SEASON"} | {playerHeya?.name || "No Stable"}
+              {world.year} {world.currentBashoName?.toUpperCase() || "PRE-SEASON"} | {playerHeya?.name || "No Stable"}
             </p>
           </div>
           {/* Phase Badge */}
@@ -64,7 +65,7 @@ export default function Dashboard() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                     {playerHeya?.riskIndicators.financial 
-                    ? <span className="text-red-500 font-bold">High Insolvency Risk</span> 
+                    ? <span className="text-destructive font-bold">High Insolvency Risk</span> 
                     : "Runway Secure"}
                 </p>
                 </CardContent>
@@ -79,7 +80,7 @@ export default function Dashboard() {
                 <CardContent>
                 <div className="text-2xl font-bold">{playerHeya?.rikishiIds.length || 0} Rikishi</div>
                 <p className="text-xs text-muted-foreground">
-                    Avg Age: 24.5 | Injuries: {state.heyas.get(state.playerHeyaId!)?.rikishiIds.filter(id => state.rikishi.get(id)?.injured).length || 0}
+                    Avg Age: 24.5 | Injuries: {world.playerHeyaId ? (world.heyas.get(world.playerHeyaId)?.rikishiIds.filter(id => world.rikishi.get(id)?.injured).length || 0) : 0}
                 </p>
                 </CardContent>
             </Card>
@@ -92,10 +93,10 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent>
                 <div className="text-2xl font-bold">
-                    {state.currentBasho ? `Day ${state.currentBasho.day}` : "Off-Season"}
+                    {world.currentBasho ? `Day ${world.currentBasho.day}` : "Off-Season"}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    Leaders: {state.currentBasho?.standings ? "Data Avail" : "No Data"}
+                    Leaders: {world.currentBasho?.standings ? "Data Avail" : "No Data"}
                 </p>
                 </CardContent>
             </Card>

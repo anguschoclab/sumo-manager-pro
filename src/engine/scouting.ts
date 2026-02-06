@@ -8,7 +8,7 @@
  */
 
 import { rngFromSeed, rngForWorld } from "./rng";
-import { GameState, Rikishi, RikishiStats, Rank, Style, TacticalArchetype } from "./types";
+import { WorldState, Rikishi, RikishiStats, Rank, Style, TacticalArchetype } from "./types";
 import { describeAttribute, describeAggression, describeExperience } from "./narrativeDescriptions";
 import { generateRookie } from "./lifecycle"; 
 
