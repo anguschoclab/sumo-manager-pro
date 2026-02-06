@@ -24,8 +24,7 @@ import type {
   SaveGame,
   SerializedWorldState,
   SerializedBashoState,
-  CyclePhase,
-  HistoryEvent
+  CyclePhase
 } from "./types";
 import { CURRENT_SAVE_VERSION } from "./types";
 
@@ -101,7 +100,7 @@ export function serializeWorld(world: WorldState): SerializedWorldState {
     oyakata: mapToObject(world.oyakata),
     currentBasho: world.currentBasho ? serializeBashoState(world.currentBasho) : undefined,
     history: world.history,
-    historyLog: world.historyLog || [],
+    events: world.events,
     ftue: world.ftue,
     playerHeyaId: world.playerHeyaId,
     currentBanzuke: world.currentBanzuke,
@@ -161,7 +160,7 @@ export function deserializeWorld(serialized: SerializedWorldState): WorldState {
     oyakata: objectToMap(oyakataObj),
     currentBasho: serialized.currentBasho ? deserializeBashoState(serialized.currentBasho) : undefined,
     history: serialized.history,
-    historyLog: serialized.historyLog || [],
+    events: (serialized as any).events || { version: "1.0.0", log: [], dedupe: {} },
     ftue: serialized.ftue,
     playerHeyaId: serialized.playerHeyaId,
     currentBanzuke: serialized.currentBanzuke,

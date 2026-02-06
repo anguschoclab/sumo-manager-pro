@@ -130,6 +130,7 @@ export function generateWorld(seed: string | { seed: string } = "initial-seed"):
       
       scandalScore: 0,
       governanceStatus: "good_standing",
+      welfareState: { welfareRisk: 10, complianceState: "compliant", weeksInState: 0, lastReviewedWeek: 0 },
       
       facilities: {
         training: 50,
@@ -260,7 +261,7 @@ export function generateWorld(seed: string | { seed: string } = "initial-seed"):
     oyakataArray: Array.from(oyakataMap.values()),
 
     history: [],
-    historyLog: [],
+    events: { version: "1.0.0", log: [], dedupe: {} },
     ftue: { isActive: false, bashoCompleted: 0, suppressedEvents: [] },
     playerHeyaId: heyaList[0].id,
     

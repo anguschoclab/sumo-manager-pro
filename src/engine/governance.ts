@@ -4,6 +4,7 @@
 // Aligned with Governance V1.3 Spec.
 
 import type { WorldState, Heya, GovernanceStatus, GovernanceRuling } from "./types";
+import { logEngineEvent } from "./events";
 
 // === CONSTANTS ===
 
@@ -63,6 +64,17 @@ function processHeyaGovernance(heya: Heya, world: WorldState): void {
     };
     
     logRuling(heya, world, ruling);
+
+    logEngineEvent(world, {
+      type: "GOVERNANCE_STATUS_CHANGED",
+      category: "discipline",
+      importance: newStatus === "sanctioned" ? "headline" : newStatus === "probation" ? "major" : "notable",
+      scope: "heya",
+      heyaId: heya.id,
+      title: `Governance status: ${getStatusLabel(newStatus)}`,
+      summary: ruling.reason,
+      data: { governanceStatus: newStatus, scandalScore: Math.floor(heya.scandalScore) }
+    });
   }
 
   // 4. Update Risk Indicator
@@ -119,6 +131,17 @@ export function reportScandal(
   };
 
   logRuling(heya, world, ruling);
+
+  logEngineEvent(world, {
+    type: "SCANDAL_REPORTED",
+    category: "media",
+    importance: severity === "critical" ? "headline" : severity === "major" ? "major" : "notable",
+    scope: "heya",
+    heyaId: heya.id,
+    title: `Scandal: ${reason}`,
+    summary: `Scandal reported (${severity}) — fine ¥${fine.toLocaleString()}.`,
+    data: { severity, fineAmount: fine, scandalScoreDelta: points }
+  });
   
   // Force immediate re-evaluation of status
   processHeyaGovernance(heya, world);

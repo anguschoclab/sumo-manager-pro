@@ -712,6 +712,13 @@ function npcOfferTick(world: WorldState): void {
   const stablesThisWeek = Math.min(6, heyaIds.length);
   for (let s = 0; s < stablesThisWeek; s++) {
     const heyaId = heyaIds[rng.int(0, heyaIds.length - 1)];
+    const heya = world.heyas.get(heyaId);
+    const freezeWeeks = (heya as any)?.welfareState?.sanctions?.recruitmentFreezeWeeks ?? 0;
+    if (freezeWeeks > 0) {
+      // Under sanction: cannot recruit
+      continue;
+    }
+
     const traits = getTraitsForHeya(world, heyaId);
     const recruitProb = clamp(0.06 + traits.ambition / 600 + (traits.risk / 1200), 0.04, 0.26);
     if (!rng.bool(recruitProb)) continue;

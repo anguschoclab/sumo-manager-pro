@@ -358,6 +358,34 @@ export interface RikishiEconomics {
 // Governance Types
 export type GovernanceStatus = "good_standing" | "warning" | "probation" | "sanctioned";
 
+// Welfare / Compliance (Institutional)
+export type ComplianceState = "compliant" | "watch" | "investigation" | "sanctioned";
+
+export interface WelfareState {
+  /** 0..100: Higher is worse */
+  welfareRisk: number;
+  complianceState: ComplianceState;
+  /** Weeks spent in current complianceState */
+  weeksInState: number;
+  /** Investigation metadata (if any) */
+  investigation?: {
+    openedWeek: number;
+    severity: "low" | "medium" | "high";
+    triggers: string[];
+    /** 0..100: how close they are to clearing the investigation */
+    progress: number;
+  };
+  /** Active sanctions affecting operations */
+  sanctions?: {
+    recruitmentFreezeWeeks?: number;
+    trainingIntensityCap?: "low" | "medium" | "high";
+    fineYen?: number;
+    note?: string;
+  };
+  lastReviewedWeek?: number;
+}
+
+
 export interface GovernanceRuling {
   id: string;
   date: string;
@@ -465,6 +493,15 @@ export interface Oyakata {
   yearsInCharge: number;
   stats?: { scouting: number; training: number; politics: number }; // Legacy compat
   personality?: string; // Legacy compat
+
+  // Manager Persona Extensions (Canon)
+  quirks?: string[];
+  managerFlags?: {
+    welfareHawk?: boolean;
+    disciplineHawk?: boolean;
+    publicityHawk?: boolean;
+    nepotist?: boolean;
+  };
 }
 
 /** =========================
@@ -606,6 +643,9 @@ export interface Heya {
   governanceStatus: GovernanceStatus;
   governanceHistory?: GovernanceRuling[];
 
+  // Welfare / Compliance (Medical Responsibility Chain)
+  welfareState?: WelfareState;
+
   facilities: {
     training: number;
     recovery: number;
@@ -616,6 +656,7 @@ export interface Heya {
     financial: boolean;
     governance: boolean;
     rivalry: boolean;
+    welfare?: boolean;
   };
 
   trainingState?: BeyaTrainingState; // Legacy pointer?

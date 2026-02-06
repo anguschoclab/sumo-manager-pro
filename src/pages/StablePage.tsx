@@ -63,6 +63,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { OyakataName } from "@/components/ClickableName";
+import { InstitutionPanel } from "@/components/game/InstitutionPanel";
 
 // Narrative band displays (no raw numbers)
 const STATURE_DISPLAY: Record<StatureBand, { label: string; labelJa: string; color: string }> = {
@@ -394,7 +395,8 @@ export default function StablePage() {
             <TabsTrigger value="training">Training</TabsTrigger>
             <TabsTrigger value="facilities">Facilities</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
-          </TabsList>
+                    <TabsTrigger value="institution" className="gap-2"><Shield className="h-4 w-4" />Institution</TabsTrigger>
+</TabsList>
 
           {/* Roster Tab */}
           <TabsContent value="roster" className="space-y-4">
@@ -882,7 +884,12 @@ export default function StablePage() {
               </CardContent>
             </Card>
           </TabsContent>
-        </Tabs>
+        
+        <TabsContent value="institution" className="mt-6 space-y-4">
+          <InstitutionPanel world={world} heya={heya} />
+        </TabsContent>
+
+</Tabs>
 
         {/* Optional: a small return button for flow */}
         <div className="pt-2 flex items-center justify-between">

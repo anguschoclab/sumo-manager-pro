@@ -33,6 +33,7 @@ export {
 
 // Events
 export * from "./events";
+export * from "./welfare";
 
 // Training - export selectively
 export { 

@@ -20,6 +20,7 @@ import * as injuries from "./injuries";
 import * as rivalries from "./rivalries";
 import * as economics from "./economics";
 import * as governance from "./governance";
+import * as welfare from "./welfare";
 import * as npcAI from "./npcAI";
 import * as scoutingStore from "./scoutingStore";
 import * as historyIndex from "./historyIndex";
@@ -318,6 +319,7 @@ export function advanceInterim(world: WorldState, weeks: number = 1): WorldState
     safeCall(() => (training as any).tickWeek?.(world));
     safeCall(() => (economics as any).tickWeek?.(world));
     safeCall(() => (injuries as any).tickWeek?.(world));
+    safeCall(() => (welfare as any).tickWeek?.(world));
     safeCall(() => (governance as any).tickWeek?.(world));
     safeCall(() => (rivalries as any).tickWeek?.(world));
     safeCall(() => (events as any).tickWeek?.(world));

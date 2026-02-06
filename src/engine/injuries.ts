@@ -18,6 +18,7 @@ import { SeededRNG } from "./utils/SeededRNG";
 import type { Id, Rikishi, WorldState, Heya } from "./types";
 import type { TrainingProfile } from "./training";
 import { computeTrainingMultipliers, getCareerPhase, PHASE_EFFECTS } from "./training";
+import { logEngineEvent } from "./events";
 
 /** =========================
  *  Types
@@ -386,6 +387,120 @@ export function toInjuryEvent(injury: InjuryRecord): InjuryEvent {
     weeksOut: injury.expectedWeeksOut,
     description: injury.description
   };
+}
+
+
+/** =========================
+ *  Weekly Integration (WorldState)
+ *  ========================= */
+
+function ensureWorldInjuriesState(world: WorldState): InjuriesState {
+  const anyW = world as any;
+  if (anyW.injuriesState && anyW.injuriesState.version === "1.0.0") return anyW.injuriesState as InjuriesState;
+  anyW.injuriesState = createDefaultInjuriesState();
+  return anyW.injuriesState as InjuriesState;
+}
+
+function getHeyaByRikishiId(world: WorldState, rikishiId: Id): Heya | undefined {
+  const r = world.rikishi.get(rikishiId);
+  if (!r) return undefined;
+  return world.heyas.get(r.heyaId);
+}
+
+function getTrainingProfileByHeyaId(world: WorldState, heyaId: Id): TrainingProfile | undefined {
+  // training.ts ensures per-heya training state in world.trainingState
+  const anyW = world as any;
+  const ts = anyW.trainingState?.[heyaId] || world.heyas.get(heyaId)?.trainingState;
+  return ts?.activeProfile as TrainingProfile | undefined;
+}
+
+function getIndividualMode(world: WorldState, rikishiId: Id): "develop" | "push" | "protect" | "rebuild" | null {
+  const r = world.rikishi.get(rikishiId);
+  if (!r) return null;
+  const anyW = world as any;
+  const ts = anyW.trainingState?.[r.heyaId] || world.heyas.get(r.heyaId)?.trainingState;
+  const slots = ts?.focusSlots as any[] | undefined;
+  const slot = slots?.find(s => s?.rikishiId === rikishiId);
+  return slot?.mode ?? null;
+}
+
+export function tickWeek(world: WorldState): { recoveredCount: number; newCount: number } {
+  let state = ensureWorldInjuriesState(world);
+
+  // Hydrate from legacy flags if any
+  state = hydrateFromRikishiFlags({ state, world });
+
+  // 1) Recovery
+  const rec = processWeeklyRecovery({
+    state,
+    world,
+    getHeyaByRikishiId: (rid) => getHeyaByRikishiId(world, rid),
+    getTrainingProfileByHeyaId: (hid) => getTrainingProfileByHeyaId(world, hid)
+  });
+  state = rec.state;
+
+  // 2) New injuries
+  let newCount = 0;
+  for (const r of world.rikishi.values()) {
+    const active = state.activeByRikishi[r.id];
+    if (active) continue;
+
+    const heya = world.heyas.get(r.heyaId);
+    const profile = getTrainingProfileByHeyaId(world, r.heyaId);
+    if (!profile) continue;
+
+    const { durability } = getOrInitDurability({ state, worldSeed: world.seed, rikishiId: r.id });
+    // ensure durability persisted
+    state = { ...state, durability: { ...state.durability, [r.id]: durability } };
+
+    const rng = rngForWorld(world, "injuries", `week${world.week}::${r.id}`);
+    const injury = rollWeeklyInjury({
+      rng,
+      world,
+      rikishi: r,
+      heya,
+      profile,
+      individualMode: getIndividualMode(world, r.id),
+      fatigue: typeof r.fatigue === "number" ? r.fatigue : 30,
+      durability,
+      causedBy: "training",
+      currentWeek: world.week ?? 0
+    });
+
+    if (!injury) continue;
+
+    state = applyInjuryRecord(state, injury);
+    newCount += 1;
+
+    // Lightweight event emission (avoids import cycles by dynamic import via require pattern)
+    logEngineEvent(world, {
+        type: "INJURY_OCCURRED",
+        category: "injury",
+        importance: injury.severity === "serious" ? "headline" : injury.severity === "moderate" ? "major" : "notable",
+        scope: "rikishi",
+        rikishiId: r.id,
+        heyaId: r.heyaId,
+        title: injury.title,
+        summary: injury.description,
+        data: { severity: injury.severity, weeksOut: injury.expectedWeeksOut, area: injury.area, kind: injury.type }
+      });
+  }
+
+  // 3) Sync into rikishi flags + UI-friendly injuryStatus
+  for (const r of world.rikishi.values()) {
+    const inj = state.activeByRikishi[r.id];
+    (r as any).injured = Boolean(inj);
+    (r as any).injuryWeeksRemaining = inj ? inj.remainingWeeks : 0;
+    (r as any).injuryStatus = inj
+      ? { type: inj.type, isInjured: true, severity: inj.severity, location: inj.area, weeksRemaining: inj.remainingWeeks }
+      : { type: "none", isInjured: false, severity: "none", weeksRemaining: 0 };
+    // Some UI code looks at r.injury
+    (r as any).injury = (r as any).injuryStatus;
+  }
+
+  (world as any).injuriesState = state;
+
+  return { recoveredCount: rec.recovered.length, newCount };
 }
 
 /** =========================

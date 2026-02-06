@@ -55,7 +55,7 @@ export default function GovernancePage() {
           </Badge>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
+        <div className="grid gap-6 md:grid-cols-4">
           {/* Scandal Score */}
           <Card>
             <CardHeader className="pb-2">
@@ -73,6 +73,44 @@ export default function GovernancePage() {
               <p className="text-xs text-muted-foreground mt-2">
                 {scandal < 25 ? "Clean record" : scandal < 50 ? "Minor concerns" : scandal < 75 ? "Significant issues" : "Critical situation"}
               </p>
+            </CardContent>
+          </Card>
+
+          
+          {/* Welfare / Compliance */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <ShieldAlert className="h-4 w-4" />
+                Welfare & Compliance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {(() => {
+                const welfare = (heya as any).welfareState;
+                const risk = Math.max(0, Math.min(100, Number(welfare?.welfareRisk ?? 10)));
+                const state = String(welfare?.complianceState ?? "compliant");
+                return (
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="text-2xl font-bold">{risk}</div>
+                      <Badge variant={state === "compliant" ? "outline" : state === "watch" ? "secondary" : "destructive"} className="text-xs">
+                        {state.toUpperCase()}
+                      </Badge>
+                    </div>
+                    <Progress value={risk} className="mt-2" />
+                    <p className="text-xs text-muted-foreground mt-2">
+                      {state === "compliant"
+                        ? "No active concerns."
+                        : state === "watch"
+                        ? "Under monitoring for welfare risk."
+                        : state === "investigation"
+                        ? "Investigation open — remediation required."
+                        : "Sanctions active — recruitment/training may be restricted."}
+                    </p>
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 

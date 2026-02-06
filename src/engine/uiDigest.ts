@@ -7,7 +7,8 @@
 //   and Array.from(...) to avoid Map iterator pitfalls in UI code.
 // =======================================================
 
-import type { WorldState, Rikishi, Heya } from "./types";
+import type { WorldState } from "./types";
+import { queryEvents } from "./events";
 import { generateH2HCommentary } from "./h2h";
 
 export type DigestKind =
@@ -113,12 +114,43 @@ export function buildWeeklyDigest(world: WorldState | null): UIDigest | null {
     }
   }
 
+  // --- Engine Events (Event Bus) ---
+  const recentEvents = world.events?.log ? queryEvents(world, { limit: 120 }) : [];
+  const thisWeek = (world.week ?? 0);
+  const weekEvents = recentEvents.filter(e => e.week === thisWeek);
+
+  const econItems: DigestItem[] = [];
+  const scoutItems: DigestItem[] = [];
+  const govItems: DigestItem[] = [];
+  const welfareItems: DigestItem[] = [];
+
+  for (const e of weekEvents) {
+    const item: DigestItem = {
+      id: e.id,
+      kind: e.category === "scouting" ? "scouting" : e.category === "economy" || e.category === "sponsor" ? "economy" : e.category === "discipline" ? "generic" : "generic",
+      title: e.title,
+      detail: e.summary,
+      rikishiId: e.rikishiId,
+      heyaId: e.heyaId
+    };
+
+    if (e.category === "economy" || e.category === "sponsor") econItems.push({ ...item, kind: "economy" });
+    else if (e.category === "scouting") scoutItems.push({ ...item, kind: "scouting" });
+    else if (e.type.startsWith("GOVERNANCE") || e.type.includes("SCANDAL")) govItems.push({ ...item, kind: "generic" });
+    else if (e.type.startsWith("COMPLIANCE") || e.type.startsWith("WELFARE")) welfareItems.push({ ...item, kind: "generic" });
+  }
+
+  if (welfareItems.length) sections.push({ id: "welfare", title: "Welfare & Compliance", items: welfareItems });
+  if (govItems.length) sections.push({ id: "governance", title: "Governance", items: govItems });
+  if (scoutItems.length) sections.push({ id: "scouting", title: "Scouting", items: scoutItems });
+  if (econItems.length) sections.push({ id: "economy", title: "Economy", items: econItems });
+
   const counts = {
-    trainingEvents: 0,
+    trainingEvents: weekEvents.filter(e=>e.category==="training").length,
     injuries: injuryItems.length,
     recoveries: 0,
-    economy: 0,
-    scouting: 0,
+    economy: econItems.length,
+    scouting: scoutItems.length,
   };
 
   const headline =

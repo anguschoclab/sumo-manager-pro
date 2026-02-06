@@ -12,6 +12,7 @@ import type { WorldState } from "./types";
 import * as scouting from "./scouting";
 import * as training from "./training";
 import * as injuries from "./injuries";
+import * as welfare from "./welfare";
 import * as economics from "./economics";
 import * as governance from "./governance";
 import * as events from "./events";
@@ -22,6 +23,7 @@ export interface BoundaryTickReport {
   scoutingEvents: number;
   injuriesRecovered: number;
   injuriesNew: number;
+  welfareEvents: number;
   economyEvents: number;
   governanceRulings: number;
   narrativeEvents: number;
@@ -62,16 +64,19 @@ export function tickWeek(world: WorldState): BoundaryTickReport {
   const injuriesRecovered = typeof injReport?.recoveredCount === "number" ? injReport.recoveredCount : 0;
   const injuriesNew = typeof injReport?.newCount === "number" ? injReport.newCount : 0;
 
-  // 4) Economy
+  // 4) Welfare / Compliance
+  const welfareEvents = (welfare as any).tickWeek?.(world) ?? 0;
+
+  // 5) Economy
   const econEvents = (economics as any).tickWeek?.(world) ?? 0;
 
-  // 5) Governance
+  // 6) Governance
   const govEvents = (governance as any).tickWeek?.(world) ?? 0;
 
-  // 6) Narrative events
+  // 7) Narrative events
   const narrativeEvents = (events as any).tickWeek?.(world) ?? 0;
 
-  // 7) Rivalries
+  // 8) Rivalries
   const rivalryEvents = (rivalries as any).tickWeek?.(world) ?? 0;
 
   return {
@@ -79,6 +84,7 @@ export function tickWeek(world: WorldState): BoundaryTickReport {
     scoutingEvents: Number(scoutingEvents) || 0,
     injuriesRecovered,
     injuriesNew,
+    welfareEvents: Number(welfareEvents) || 0,
     economyEvents: Number(econEvents) || 0,
     governanceRulings: Number(govEvents) || 0,
     narrativeEvents: Number(narrativeEvents) || 0,
