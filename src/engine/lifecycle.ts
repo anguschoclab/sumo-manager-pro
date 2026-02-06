@@ -6,20 +6,25 @@
  * - Uses high-fidelity types for recruit generation.
  */
 
+import { rngFromSeed } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
-import { Rikishi, Rank, RikishiStats, TacticalArchetype } from "./types";
+import { Rikishi, Rank, RikishiStats, TacticalArchetype, WorldState } from "./types";
 import { generateRikishiName } from "./shikona";
 
 // --- RETIREMENT LOGIC ---
 
-export function checkRetirement(rikishi: Rikishi, currentYear: number): string | null {
+export function checkRetirement(rikishi: Rikishi, currentYear: number, seed: string): string | null {
+  const rng = rngFromSeed(seed, "lifecycle", `retirement::${rikishi.id}`);
   const age = currentYear - rikishi.birthYear;
   
   // 1. Mandatory Retirement
   if (age >= 45) return "Mandatory Age Retirement";
 
   // 2. Injury Forced Retirement
-  if (rikishi.injuryStatus.isInjured && rikishi.injuryStatus.severity > 90) {
+  const severity = typeof rikishi.injuryStatus?.severity === "number" 
+    ? rikishi.injuryStatus.severity 
+    : 0;
+  if (rikishi.injuryStatus?.isInjured && severity > 90) {
     return "Career-Ending Injury";
   }
 
@@ -57,7 +62,10 @@ const ARCHETYPES: TacticalArchetype[] = [
   "trickster", "all_rounder", "hybrid_oshi_yotsu", "counter_specialist"
 ];
 
-export function generateRookie(currentYear: number, targetRank: Rank = "jonokuchi"): Rikishi {
+export function generateRookie(world: WorldState, currentYear: number, targetRank: Rank = "jonokuchi"): Rikishi {
+  const rookieId = crypto.randomUUID();
+  const rng = rngFromSeed(world.seed, "lifecycle", `rookie::${rookieId}`);
+  
   const origin = ORIGINS[rng.int(0, ORIGINS.length - 1)];
   const archetype = ARCHETYPES[rng.int(0, ARCHETYPES.length - 1)];
   
@@ -68,14 +76,16 @@ export function generateRookie(currentYear: number, targetRank: Rank = "jonokuch
   const variance = 15;
 
   // Raw Stats
+  const baseWeight = 100 + rng.next() * 60;
   const stats: RikishiStats = {
     strength: baseStat + rng.next() * variance,
     technique: baseStat + rng.next() * variance,
     speed: baseStat + rng.next() * variance,
-    weight: 100 + rng.next() * 60,
+    weight: baseWeight,
     stamina: baseStat + rng.next() * variance,
     mental: baseStat + rng.next() * variance,
     adaptability: baseStat + rng.next() * variance,
+    balance: baseStat + rng.next() * variance,
   };
 
   // Apply Origin Modifiers
@@ -84,12 +94,16 @@ export function generateRookie(currentYear: number, targetRank: Rank = "jonokuch
   if ((origin as any).speedMod) stats.speed *= (origin as any).speedMod;
   if ((origin as any).weightMod) stats.weight *= (origin as any).weightMod;
 
+  const shikona = generateRikishiName(`${world.seed}::rookie::${rookieId}`);
+
   return {
-    id: crypto.randomUUID(),
-    name: "Unknown", 
-    shikona: generateRikishiName(`${world.seed}::rookie::${rookie.id}`),
+    id: rookieId,
+    name: shikona, 
+    shikona: shikona,
     heyaId: "scout_pool",
-    nationality: origin.name,
+    nationality: origin.name.includes("University") ? "Japan" : origin.name,
+    birthYear: currentYear - age,
+    origin: origin.name,
     
     // Rank
     rank: isElite ? "makushita" : targetRank,
@@ -101,20 +115,18 @@ export function generateRookie(currentYear: number, targetRank: Rank = "jonokuch
     stats: stats,
     power: stats.strength,
     speed: stats.speed,
-    balance: stats.stamina,
+    balance: stats.balance,
     technique: stats.technique,
     aggression: stats.mental,
     experience: isElite ? 20 : 0,
     adaptability: stats.adaptability,
+    fatigue: 0,
     
     height: 175 + rng.next() * 20,
     weight: stats.weight,
     
     momentum: 50,
     stamina: stats.stamina,
-    
-    birthYear: currentYear - age,
-    origin: origin.name,
     
     // Style
     style: archetype.includes("oshi") ? "oshi" : archetype.includes("yotsu") ? "yotsu" : "hybrid",
@@ -130,7 +142,14 @@ export function generateRookie(currentYear: number, targetRank: Rank = "jonokuch
     history: [],
     h2h: {},
     
-    injuryStatus: { isInjured: false, severity: 0, location: "", weeksToHeal: 0 },
+    injuryStatus: { 
+      type: "none",
+      isInjured: false, 
+      severity: 0, 
+      location: "", 
+      weeksRemaining: 0,
+      weeksToHeal: 0 
+    },
     injured: false,
     injuryWeeksRemaining: 0,
     

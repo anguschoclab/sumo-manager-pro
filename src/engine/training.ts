@@ -10,7 +10,7 @@
  * - Attribute Evolution (Buffered -> Consolidated)
  */
 
-import { 
+import type { 
   Rikishi, 
   WorldState, 
   Id, 
@@ -26,33 +26,43 @@ import {
 } from './types';
 import { SeededRNG } from './utils/SeededRNG';
 
+// Re-export types for UI consumption
+export type { TrainingIntensity, TrainingFocus, RecoveryEmphasis, BeyaTrainingState, TrainingProfile } from './types';
+
 // ============================================================================
 // CONSTANTS (From Canon v1.3 - Rikishi Development)
 // ============================================================================
 
 // 1. INTENSITY EFFECTS
-const INTENSITY_MULTIPLIERS: Record<TrainingIntensity, { growth: number; fatigue: number; injuryRisk: number }> = {
+export const INTENSITY_MULTIPLIERS: Record<TrainingIntensity, { growth: number; fatigue: number; injuryRisk: number }> = {
   conservative: { growth: 0.85, fatigue: 0.75, injuryRisk: 0.80 },
   balanced:     { growth: 1.00, fatigue: 1.00, injuryRisk: 1.00 },
   intensive:    { growth: 1.20, fatigue: 1.25, injuryRisk: 1.15 },
   punishing:    { growth: 1.35, fatigue: 1.50, injuryRisk: 1.35 },
 };
 
+// Aliases for UI
+export const INTENSITY_EFFECTS = INTENSITY_MULTIPLIERS;
+
 // 2. RECOVERY EMPHASIS EFFECTS
-const RECOVERY_MULTIPLIERS: Record<RecoveryEmphasis, { fatigueDecay: number; injuryRecovery: number }> = {
+export const RECOVERY_MULTIPLIERS: Record<RecoveryEmphasis, { fatigueDecay: number; injuryRecovery: number }> = {
   low:    { fatigueDecay: 0.80, injuryRecovery: 0.85 },
   normal: { fatigueDecay: 1.00, injuryRecovery: 1.00 },
   high:   { fatigueDecay: 1.25, injuryRecovery: 1.20 },
 };
 
+export const RECOVERY_EFFECTS = RECOVERY_MULTIPLIERS;
+
 // 3. FOCUS BIAS MATRIX (From Canon Table 4.3)
-const FOCUS_BIAS_MATRIX: Record<TrainingFocus, Record<keyof RikishiStats, number>> = {
+export const FOCUS_BIAS_MATRIX: Record<TrainingFocus, Record<keyof RikishiStats, number>> = {
   power:     { strength: 1.30, speed: 0.85, technique: 0.95, balance: 0.95, weight: 1.0, stamina: 1.0, mental: 1.0, adaptability: 1.0 },
   speed:     { strength: 0.85, speed: 1.30, technique: 0.95, balance: 0.95, weight: 1.0, stamina: 1.0, mental: 1.0, adaptability: 1.0 },
   technique: { strength: 0.90, speed: 0.90, technique: 1.35, balance: 1.10, weight: 1.0, stamina: 1.0, mental: 1.0, adaptability: 1.0 },
   balance:   { strength: 0.90, speed: 0.95, technique: 1.10, balance: 1.35, weight: 1.0, stamina: 1.0, mental: 1.0, adaptability: 1.0 },
   neutral:   { strength: 1.00, speed: 1.00, technique: 1.00, balance: 1.00, weight: 1.0, stamina: 1.0, mental: 1.0, adaptability: 1.0 },
 };
+
+export const FOCUS_EFFECTS = FOCUS_BIAS_MATRIX;
 
 // 4. INDIVIDUAL FOCUS MODES (From Canon Table 5.2)
 const INDIVIDUAL_FOCUS_MODES: Record<IndividualFocusType, { growth: number; fatigue: number; injuryRisk: number }> = {
@@ -229,6 +239,60 @@ export function applyWeeklyTraining(world: WorldState): WorldState {
   });
 
   return world;
+}
+
+// UI Helper functions
+export function getIntensityLabel(intensity: TrainingIntensity): string {
+  const labels: Record<TrainingIntensity, string> = {
+    conservative: "Conservative",
+    balanced: "Balanced",
+    intensive: "Intensive",
+    punishing: "Punishing"
+  };
+  return labels[intensity] || intensity;
+}
+
+export function getFocusLabel(focus: TrainingFocus): string {
+  const labels: Record<TrainingFocus, string> = {
+    power: "Power",
+    speed: "Speed",
+    technique: "Technique",
+    balance: "Balance",
+    neutral: "Neutral"
+  };
+  return labels[focus] || focus;
+}
+
+export function getRecoveryLabel(recovery: RecoveryEmphasis): string {
+  const labels: Record<RecoveryEmphasis, string> = {
+    low: "Low",
+    normal: "Normal",
+    high: "High"
+  };
+  return labels[recovery] || recovery;
+}
+
+export function getFocusModeLabel(mode: string): string {
+  const labels: Record<string, string> = {
+    develop: "Develop",
+    push: "Push",
+    protect: "Protect",
+    rebuild: "Rebuild"
+  };
+  return labels[mode] || mode;
+}
+
+export function createDefaultTrainingState(beyaId: Id): BeyaTrainingState {
+  return {
+    beyaId,
+    activeProfile: {
+      intensity: 'balanced',
+      focus: 'neutral',
+      styleBias: 'neutral',
+      recovery: 'normal'
+    },
+    focusSlots: []
+  };
 }
 
 // Wrapper for world.ts

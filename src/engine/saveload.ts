@@ -16,13 +16,16 @@ import type {
   WorldState,
   Heya,
   Rikishi,
+  Oyakata,
   BashoState,
   SaveVersion,
   BashoName,
   Id,
   SaveGame,
   SerializedWorldState,
-  SerializedBashoState
+  SerializedBashoState,
+  CyclePhase,
+  HistoryEvent
 } from "./types";
 import { CURRENT_SAVE_VERSION } from "./types";
 
@@ -79,7 +82,8 @@ function deserializeBashoState(basho: SerializedBashoState): BashoState {
     bashoName: basho.bashoName,
     day: basho.day,
     matches: basho.matches,
-    standings: objectToMap(basho.standings)
+    standings: objectToMap(basho.standings),
+    isActive: true
   };
 }
 
@@ -90,11 +94,14 @@ export function serializeWorld(world: WorldState): SerializedWorldState {
     seed: world.seed,
     year: world.year,
     week: world.week,
+    cyclePhase: world.cyclePhase,
     currentBashoName: world.currentBashoName,
     heyas: mapToObject(world.heyas),
     rikishi: mapToObject(world.rikishi),
+    oyakata: mapToObject(world.oyakata),
     currentBasho: world.currentBasho ? serializeBashoState(world.currentBasho) : undefined,
     history: world.history,
+    historyLog: world.historyLog || [],
     ftue: world.ftue,
     playerHeyaId: world.playerHeyaId,
     currentBanzuke: world.currentBanzuke
@@ -136,22 +143,33 @@ export function deserializeWorld(serialized: SerializedWorldState): WorldState {
   // Sanitize objects as we materialize them into Maps (non-lossy)
   const heyasObj: Record<string, Heya> = (serialized as any).heyas || {};
   const rikishiObj: Record<string, Rikishi> = (serialized as any).rikishi || {};
+  const oyakataObj: Record<string, Oyakata> = (serialized as any).oyakata || {};
 
   for (const k of Object.keys(heyasObj)) sanitizeHeya(heyasObj[k]);
   for (const k of Object.keys(rikishiObj)) sanitizeRikishi(rikishiObj[k]);
 
   return {
+    id: crypto.randomUUID(),
     seed: serialized.seed,
     year: serialized.year,
     week: serialized.week,
+    cyclePhase: serialized.cyclePhase || "interim",
     currentBashoName: serialized.currentBashoName,
     heyas: objectToMap(heyasObj),
     rikishi: objectToMap(rikishiObj),
+    oyakata: objectToMap(oyakataObj),
     currentBasho: serialized.currentBasho ? deserializeBashoState(serialized.currentBasho) : undefined,
     history: serialized.history,
+    historyLog: serialized.historyLog || [],
     ftue: serialized.ftue,
     playerHeyaId: serialized.playerHeyaId,
-    currentBanzuke: serialized.currentBanzuke
+    currentBanzuke: serialized.currentBanzuke,
+    calendar: {
+      year: serialized.year,
+      month: 1,
+      currentWeek: serialized.week || 1,
+      currentDay: 1
+    }
   };
 }
 

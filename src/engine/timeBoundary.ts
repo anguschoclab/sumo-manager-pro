@@ -28,6 +28,15 @@ export interface BoundaryTickReport {
   rivalryEvents: number;
 }
 
+export interface TimeState {
+  year: number;
+  month: number;
+  week: number;
+  dayIndexGlobal: number;
+  weekIndexGlobal: number;
+  phase: "basho" | "interbasho" | "prebasho";
+}
+
 /**
  * tickWeek(world)
  * Explicit interim ordering (v1):
@@ -75,4 +84,32 @@ export function tickWeek(world: WorldState): BoundaryTickReport {
     narrativeEvents: Number(narrativeEvents) || 0,
     rivalryEvents: Number(rivalryEvents) || 0,
   };
+}
+
+/**
+ * advanceWeeks - Advance world state by N weeks
+ */
+export function advanceWeeks(world: WorldState, weeks: number): BoundaryTickReport[] {
+  const reports: BoundaryTickReport[] = [];
+  for (let i = 0; i < weeks; i++) {
+    world.week = (world.week ?? 0) + 1;
+    const report = tickWeek(world);
+    reports.push(report);
+  }
+  return reports;
+}
+
+/**
+ * processWeeklyBoundary - Called at week boundaries
+ */
+export function processWeeklyBoundary(world: WorldState, timeState: TimeState): BoundaryTickReport {
+  return tickWeek(world);
+}
+
+/**
+ * processMonthlyBoundary - Called at month boundaries (optional additional processing)
+ */
+export function processMonthlyBoundary(world: WorldState, timeState: TimeState): void {
+  // Monthly processing hooks - currently a pass-through
+  // Can be extended for monthly reports, financial summaries, etc.
 }

@@ -7,7 +7,7 @@
  * - Provides 'generateH2HCommentary' for Pre-Bout and UI display.
  */
 
-import { rngFromSeed, rngForWorld } from "./rng";
+import { rngFromSeed } from "./rng";
 import { SeededRNG } from "./utils/SeededRNG";
 import { Rikishi, H2HRecord, BoutResult } from "./types";
 
@@ -66,20 +66,25 @@ function createEmptyH2H(): H2HRecord {
   };
 }
 
+function getRandomFromArray(rng: SeededRNG, arr: string[]): string {
+  return arr[rng.int(0, arr.length - 1)];
+}
+
 /**
  * Generates a rich, context-aware narrative intro based on H2H history.
  */
 export function generateH2HCommentary(r1: Rikishi, r2: Rikishi): string {
-    const recordSeed = `${r1.id}::${r2.id}::${(r1.h2h?.[r2.id]?.wins ?? 0)}::${(r1.h2h?.[r2.id]?.losses ?? 0)}`;
+  const recordSeed = `${r1.id}::${r2.id}::${(r1.h2h?.[r2.id]?.wins ?? 0)}::${(r1.h2h?.[r2.id]?.losses ?? 0)}`;
   const rng = rngFromSeed("h2h", "h2h", recordSeed);
-// Guard clause if h2h is undefined
+  
+  // Guard clause if h2h is undefined
   if (!r1.h2h) r1.h2h = {};
   
   const record = r1.h2h[r2.id];
 
   // Case 0: First meeting
   if (!record || (record.wins === 0 && record.losses === 0)) {
-    return getRandom([
+    return getRandomFromArray(rng, [
       "These two are meeting for the very first time in the ring.",
       "A fresh matchup today; no prior history between these two.",
       "The crowd leans forward for this first-ever encounter.",
@@ -94,7 +99,7 @@ export function generateH2HCommentary(r1: Rikishi, r2: Rikishi): string {
   
   // Case 1: Lopsided Domination (Win rate > 75% with 4+ matches)
   if (total >= 4 && record.wins / total > 0.75) {
-    return getRandom([
+    return getRandomFromArray(rng, [
       `${p1Name} has absolutely dominated this matchup, leading the series ${record.wins}-${record.losses}.`,
       `${p2Name} has struggled historically here, winning only ${record.losses} of their ${total} meetings.`,
       `History is heavily on ${p1Name}'s side today with a commanding ${record.wins}-${record.losses} record.`,
@@ -102,7 +107,7 @@ export function generateH2HCommentary(r1: Rikishi, r2: Rikishi): string {
     ]);
   }
   if (total >= 4 && record.losses / total > 0.75) {
-    return getRandom([
+    return getRandomFromArray(rng, [
       `${p1Name} has a mountain to climb today, trailing ${record.wins}-${record.losses} in head-to-head bouts.`,
       `${p2Name} seems to have ${p1Name}'s number, winning nearly every time they meet.`,
       `Can ${p1Name} finally turn the tide? They are ${record.wins}-${record.losses} lifetime against ${p2Name}.`,
@@ -111,7 +116,7 @@ export function generateH2HCommentary(r1: Rikishi, r2: Rikishi): string {
 
   // Case 2: Deadlock (Exact tie or off by 1)
   if (Math.abs(record.wins - record.losses) <= 1 && total > 2) {
-    return getRandom([
+    return getRandomFromArray(rng, [
       `This is as close as it gets—a ${record.wins}-${record.losses} career split between them.`,
       `A true rivalry! The record stands at ${record.wins} wins to ${record.losses}.`,
       `Neither man has been able to gain a decisive edge in this series, currently standing at ${record.wins}-${record.losses}.`,
@@ -138,13 +143,9 @@ export function generateH2HCommentary(r1: Rikishi, r2: Rikishi): string {
       `Fans remember their last bout well—a crushing ${last.kimarite} victory for ${winnerName}.`,
     ];
     
-    return getRandom(rng, templates);
+    return getRandomFromArray(rng, templates);
   }
 
   // Fallback generic
   return `${p1Name} leads the series ${record.wins} to ${record.losses}.`;
-}
-
-function getRandom(rng: SeededRNG, arr: string[]): string {
-  return arr[rng.int(0, arr.length - 1)];
 }

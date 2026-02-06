@@ -11,20 +11,21 @@ import type { Oyakata } from "@/engine/types";
 import { Brain, Heart, Briefcase, Zap, Scale } from "lucide-react";
 
 export default function OyakataPage() {
-  const { state, isLoaded } = useGame();
+  const { state } = useGame();
+  const world = state.world;
   const [selectedOyakata, setSelectedOyakata] = useState<Oyakata | null>(null);
 
   useEffect(() => {
-    if (isLoaded && state.playerHeyaId) {
-      const playerHeya = state.heyas.get(state.playerHeyaId);
+    if (world && world.playerHeyaId) {
+      const playerHeya = world.heyas.get(world.playerHeyaId);
       if (playerHeya && playerHeya.oyakataId) {
-        const o = state.oyakata.get(playerHeya.oyakataId);
+        const o = world.oyakata.get(playerHeya.oyakataId);
         if (o) setSelectedOyakata(o);
       }
     }
-  }, [isLoaded, state]);
+  }, [world]);
 
-  if (!isLoaded || !selectedOyakata) {
+  if (!world || !selectedOyakata) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-full">Loading Oyakata...</div>
@@ -33,6 +34,14 @@ export default function OyakataPage() {
   }
 
   const traits = selectedOyakata.traits;
+
+  const traitItems = [
+    { key: "ambition", label: "Ambition", icon: Zap, value: traits.ambition },
+    { key: "patience", label: "Patience", icon: Brain, value: traits.patience },
+    { key: "risk", label: "Risk Tolerance", icon: Scale, value: traits.risk },
+    { key: "tradition", label: "Tradition", icon: Briefcase, value: traits.tradition },
+    { key: "compassion", label: "Compassion", icon: Heart, value: traits.compassion },
+  ];
 
   return (
     <AppLayout>
@@ -47,101 +56,81 @@ export default function OyakataPage() {
           
           <div className="flex-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-4xl font-bold">{selectedOyakata.name} Oyakata</h1>
-              <Badge variant="secondary" className="text-lg">Age {selectedOyakata.age}</Badge>
+              <h1 className="text-4xl font-bold">{selectedOyakata.name}</h1>
+              <Badge variant="outline" className="text-lg capitalize">
+                {selectedOyakata.archetype?.replace("_", " ")}
+              </Badge>
             </div>
-            <div className="text-muted-foreground mt-1 flex gap-4">
-              <span>Former: <strong>{selectedOyakata.formerShikona}</strong></span>
-              <span>•</span>
-              <span>Highest Rank: <strong>{selectedOyakata.highestRank}</strong></span>
-              <span>•</span>
-              <span>Tenure: <strong>{selectedOyakata.yearsInCharge} Years</strong></span>
-            </div>
-            
-            <div className="mt-4 flex gap-2">
-                <Badge className="bg-blue-600 hover:bg-blue-700 capitalize text-sm px-3 py-1">
-                    {selectedOyakata.archetype}
-                </Badge>
-                <div className="text-sm text-muted-foreground italic flex items-center">
-                    "{getArchetypeDescription(selectedOyakata.archetype)}"
-                </div>
+            <p className="text-muted-foreground mt-2">
+              {getArchetypeDescription(selectedOyakata.archetype)}
+            </p>
+            <div className="flex gap-4 mt-4 text-sm text-muted-foreground">
+              <span>Age: {selectedOyakata.age}</span>
+              <span>Years in Charge: {selectedOyakata.yearsInCharge}</span>
             </div>
           </div>
         </div>
 
-        {/* TRAITS DASHBOARD */}
-        <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Brain className="h-5 w-5" />
-                        Managerial Personality
-                    </CardTitle>
-                    <CardDescription>
-                        Biases that drive decision making and stable culture.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    <TraitRow icon={Briefcase} label="Ambition" value={traits.ambition} 
-                        desc="Desire for promotion vs stability." color="bg-amber-500" />
-                    <TraitRow icon={Scale} label="Patience" value={traits.patience} 
-                        desc="Long-term development vs immediate results." color="bg-blue-500" />
-                    <TraitRow icon={Zap} label="Risk Tolerance" value={traits.risk} 
-                        desc="Willingness to push through injury." color="bg-red-500" />
-                    <TraitRow icon={Brain} label="Tradition" value={traits.tradition} 
-                        desc="Adherence to old training methods." color="bg-slate-600" />
-                    <TraitRow icon={Heart} label="Compassion" value={traits.compassion} 
-                        desc="Care for rikishi welfare." color="bg-green-500" />
-                </CardContent>
-            </Card>
+        {/* TRAITS */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Personality Traits</CardTitle>
+            <CardDescription>These traits influence training, scouting, and management decisions.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {traitItems.map(trait => (
+                <div key={trait.key} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <trait.icon className="h-4 w-4 text-muted-foreground" />
+                    <span className="font-medium">{trait.label}</span>
+                    <span className="ml-auto text-sm text-muted-foreground">{Math.round(trait.value)}</span>
+                  </div>
+                  <Progress value={trait.value} className="h-2" />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
 
-            <Card>
-                <CardHeader>
-                    <CardTitle>Other Masters</CardTitle>
-                    <CardDescription>View profiles of rival Oyakata.</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="space-y-2">
-                        {Array.from(state.oyakata.values())
-                            .filter(o => o.id !== selectedOyakata.id)
-                            .map(o => {
-                                const h = state.heyas.get(o.heyaId);
-                                return (
-                                    <div 
-                                        key={o.id} 
-                                        className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted cursor-pointer transition-colors"
-                                        onClick={() => setSelectedOyakata(o)}
-                                    >
-                                        <div>
-                                            <div className="font-bold">{o.name}</div>
-                                            <div className="text-xs text-muted-foreground">{h?.name}</div>
-                                        </div>
-                                        <Badge variant="outline" className="capitalize">{o.archetype}</Badge>
-                                    </div>
-                                );
-                            })
-                        }
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
+        {/* ALL OYAKATA */}
+        <Card>
+          <CardHeader>
+            <CardTitle>All Oyakata</CardTitle>
+            <CardDescription>Browse all stable masters in the sumo world.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from(world.oyakata.values()).map((o) => {
+                const heya = world.heyas.get(o.heyaId);
+                const isSelected = o.id === selectedOyakata.id;
+                return (
+                  <Card 
+                    key={o.id} 
+                    className={`cursor-pointer transition-colors ${isSelected ? 'ring-2 ring-primary' : 'hover:bg-muted/50'}`}
+                    onClick={() => setSelectedOyakata(o)}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-3">
+                        <Avatar>
+                          <AvatarFallback>{o.name[0]}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium">{o.name}</p>
+                          <p className="text-sm text-muted-foreground">{heya?.name || "Unknown Stable"}</p>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="mt-2 capitalize text-xs">
+                        {o.archetype?.replace("_", " ")}
+                      </Badge>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </AppLayout>
   );
-}
-
-function TraitRow({ icon: Icon, label, value, desc, color }: any) {
-    return (
-        <div className="space-y-1">
-            <div className="flex justify-between items-end">
-                <div className="flex items-center gap-2 font-medium">
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                    {label}
-                </div>
-                <span className="text-xs font-mono">{value}/100</span>
-            </div>
-            <Progress value={value} indicatorClassName={color} className="h-2" />
-            <p className="text-[10px] text-muted-foreground">{desc}</p>
-        </div>
-    );
 }

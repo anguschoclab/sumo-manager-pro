@@ -24,7 +24,6 @@ import {
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useGame } from "@/contexts/GameContext";
-import { formatCurrency } from "@/lib/utils";
 
 // Menu items.
 const items = [
@@ -80,12 +79,22 @@ const items = [
   },
 ];
 
+function formatCurrency(amount: number): string {
+  if (amount >= 1_000_000) {
+    return `¥${(amount / 1_000_000).toFixed(1)}M`;
+  }
+  if (amount >= 1_000) {
+    return `¥${(amount / 1_000).toFixed(0)}K`;
+  }
+  return `¥${amount}`;
+}
+
 export function AppSidebar() {
   const { state } = useGame();
   
   const isLoaded = !!state.world;
   const playerHeya = isLoaded && state.world?.playerHeyaId
-    ? state.heyas.get(state.world?.playerHeyaId) 
+    ? state.world.heyas.get(state.world.playerHeyaId) 
     : null;
 
   return (

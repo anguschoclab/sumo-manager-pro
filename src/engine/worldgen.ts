@@ -8,12 +8,12 @@
  * - Returns a WorldState populated with Maps as per new types.
  */
 
-import { rngFromSeed, rngForWorld } from "./rng";
+import { rngFromSeed } from "./rng";
 import {
   WorldState, Rikishi, Heya, Oyakata, 
   Rank, TacticalArchetype, StatureBand, PrestigeBand, 
   FacilitiesBand, KoenkaiBandType, OyakataArchetype, 
-  BashoName, Division, RikishiStats, Side
+  BashoName, Division, RikishiStats, Side, BashoState
 } from "./types";
 import { generateRikishiName } from "./shikona";
 import { SeededRNG } from "./utils/SeededRNG";
@@ -44,7 +44,7 @@ function generateRikishiStats(rng: SeededRNG, rank: Rank, archetype: TacticalArc
                rank === "sekiwake" || rank === "komusubi" ? 65 :
                rank === "maegashira" ? 55 : 40;
   
-  const variance = (rng: SeededRNG) => (rng.next() * 20) - 10;
+  const variance = () => (rng.next() * 20) - 10;
 
   // Multipliers based on archetype
   let strMod = 1, techMod = 1, spdMod = 1, wgtMod = 1, menMod = 1;
@@ -62,18 +62,22 @@ function generateRikishiStats(rng: SeededRNG, rank: Rank, archetype: TacticalArc
   const clamp = (val: number) => Math.min(100, Math.max(10, Math.round(val)));
 
   return {
-    strength: clamp((base + variance(rng)) * strMod),
-    technique: clamp((base + variance(rng)) * techMod),
-    speed: clamp((base + variance(rng)) * spdMod),
-    weight: Math.round(Math.min(250, Math.max(90, (140 + variance(rng) * 2) * wgtMod))),
-    stamina: clamp(base + variance(rng)),
-    mental: clamp((base + variance(rng)) * menMod),
-    adaptability: clamp((base + variance(rng)) * (techMod > 1 ? 1.1 : 1.0)),
+    strength: clamp((base + variance()) * strMod),
+    technique: clamp((base + variance()) * techMod),
+    speed: clamp((base + variance()) * spdMod),
+    weight: Math.round(Math.min(250, Math.max(90, (140 + variance() * 2) * wgtMod))),
+    stamina: clamp(base + variance()),
+    mental: clamp((base + variance()) * menMod),
+    adaptability: clamp((base + variance()) * (techMod > 1 ? 1.1 : 1.0)),
+    balance: clamp(base + variance()),
   };
 }
 
-export function generateWorld(seed: string = "initial-seed"): WorldState {
-  const rng = rngFromSeed(seed, "worldgen", "world");
+export function generateWorld(seed: string | { seed: string } = "initial-seed"): WorldState {
+  // Handle both string and object seed formats
+  const actualSeed = typeof seed === "string" ? seed : seed.seed;
+  
+  const rng = rngFromSeed(actualSeed, "worldgen", "world");
   const heyaMap = new Map<string, Heya>();
   const rikishiMap = new Map<string, Rikishi>();
   const oyakataMap = new Map<string, Oyakata>();
@@ -154,18 +158,19 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
   const heyaList = Array.from(heyaMap.values());
 
   ranks.forEach((rank, idx) => {
+    const rid = `rikishi_${rikishiCounter++}`;
+    const rrng = rngFromSeed(actualSeed, "worldgen", `rikishi::${rid}`);
+    
     const heya = getRandom(rrng, heyaList);
     const archetype = getRandom(rrng, ARCHETYPES);
     const origin = getRandom(rrng, ORIGINS);
     const birthYear = currentYear - (20 + rrng.int(0, 11));
     
-    const rrng = rngFromSeed(seed, "worldgen", `rikishi::${rid}`);
     const stats = generateRikishiStats(rrng, rank, archetype);
-    const rid = `rikishi_${rikishiCounter++}`;
 
     const newRikishi: Rikishi = {
       id: rid,
-      shikona: generateRikishiName(`${seed}::worldgen::rikishi::${rid}`),
+      shikona: generateRikishiName(`${actualSeed}::worldgen::rikishi::${rid}`),
       name: `Rikishi ${rid}`,
       heyaId: heya.id,
       nationality: origin === "Mongolia" ? "Mongolia" : "Japan",
@@ -173,31 +178,36 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
       birthYear: birthYear,
       
       // Physicals
-      height: 170 + rng.next() * 25,
+      height: 170 + rrng.next() * 25,
       weight: stats.weight,
       
       // Attributes (Stats)
       stats: stats,
       power: stats.strength,
       speed: stats.speed,
-      balance: stats.stamina,
+      balance: stats.balance,
       technique: stats.technique,
       aggression: stats.mental,
-      experience: rng.int(0, 99),
+      experience: rrng.int(0, 99),
       adaptability: stats.adaptability,
+      fatigue: 0,
       
       momentum: 50,
       stamina: stats.stamina,
       
       // Status
       injuryStatus: {
+        type: "none",
         isInjured: false,
         severity: 0,
         location: "",
+        weeksRemaining: 0,
         weeksToHeal: 0
       },
-      condition: 90 + rng.next() * 10,
-      motivation: 50 + rng.next() * 50,
+      injured: false,
+      injuryWeeksRemaining: 0,
+      condition: 90 + rrng.next() * 10,
+      motivation: 50 + rrng.next() * 50,
       
       // Style
       style: archetype.includes("oshi") ? "oshi" : archetype.includes("yotsu") ? "yotsu" : "hybrid",
@@ -232,7 +242,8 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
   const initialBashoName: BashoName = "hatsu";
 
   return {
-    seed: seed,
+    id: crypto.randomUUID(),
+    seed: actualSeed,
     year: currentYear,
     week: 1,
     cyclePhase: "interim",
@@ -248,18 +259,26 @@ export function generateWorld(seed: string = "initial-seed"): WorldState {
     oyakataArray: Array.from(oyakataMap.values()),
 
     history: [],
+    historyLog: [],
     ftue: { isActive: false, bashoCompleted: 0, suppressedEvents: [] },
     playerHeyaId: heyaList[0].id,
+    
+    calendar: {
+      year: currentYear,
+      month: 1,
+      currentWeek: 1,
+      currentDay: 1
+    },
     
     currentDate: new Date(2024, 0, 1)
   };
 }
 
-export function initializeBasho(world: WorldState, bashoName: string) {
+export function initializeBasho(world: WorldState, bashoName: string): BashoState {
     const bName = bashoName.toLowerCase() as BashoName;
     return {
         year: world.year,
-        bashoNumber: 1, // simplified
+        bashoNumber: 1 as 1 | 2 | 3 | 4 | 5 | 6, // Type-safe basho number
         bashoName: bName,
         day: 1,
         matches: [],
