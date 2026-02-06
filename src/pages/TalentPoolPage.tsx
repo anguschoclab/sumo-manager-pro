@@ -54,6 +54,10 @@ export default function TalentPoolPage() {
 
   const playerHeyaId = world?.playerHeyaId;
   const playerHeya = world && playerHeyaId ? world.heyas.get(playerHeyaId) : null;
+  const foreignCount = useMemo(() => {
+    if (!world || !playerHeyaId) return 0;
+    return talentpool.getForeignCountInHeya(world, playerHeyaId);
+  }, [world, playerHeyaId]);
 
   const candidates = useMemo(() => {
     if (!world) return [] as TalentCandidate[];
@@ -126,7 +130,10 @@ export default function TalentPoolPage() {
                 <div className="text-sm text-muted-foreground">My Stable</div>
                 <div className="font-semibold">{playerHeya.name}</div>
               </div>
-              <div className="text-sm text-muted-foreground">Funds: ¥{(playerHeya.funds ?? 0).toLocaleString()}</div>
+              <div className="text-sm text-muted-foreground flex flex-col items-end">
+                <div>Funds: ¥{(playerHeya.funds ?? 0).toLocaleString()}</div>
+                <div className="text-xs">Foreigners: {foreignCount}/{talentpool.FOREIGN_RIKISHI_LIMIT_PER_HEYA}</div>
+              </div>
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">
@@ -181,6 +188,7 @@ export default function TalentPoolPage() {
                             <CardDescription>{sub}</CardDescription>
                           </div>
                           {c.tags.includes("amateur_star") && <Badge>Star</Badge>}
+                          {(c.nationality ?? "Japan") !== "Japan" && <Badge variant="secondary">Foreign</Badge>}
                         </div>
                       </CardHeader>
                       <CardContent className="space-y-3">
@@ -227,6 +235,20 @@ export default function TalentPoolPage() {
                         {c.availabilityState === "in_talks" && (
                           <div className="text-xs text-muted-foreground">
                             In talks with {c.competingSuitors.length} stable{c.competingSuitors.length === 1 ? "" : "s"}.
+                            {intel >= 35 && c.competingSuitors.length > 0 && (
+                              <div className="mt-1 space-y-0.5">
+                                {c.competingSuitors.slice(0, 4).map((s) => {
+                                  const h = world.heyas.get(s.heyaId);
+                                  const oy = h ? world.oyakata.get(h.oyakataId) : null;
+                                  return (
+                                    <div key={s.heyaId} className="flex justify-between">
+                                      <span>{h?.name ?? s.heyaId}</span>
+                                      <span className="opacity-80">{oy?.archetype ?? "oyakata"}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         )}
                       </CardContent>

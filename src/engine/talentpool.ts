@@ -21,13 +21,19 @@ import type {
   Rikishi,
   TacticalArchetype,
   Style,
+  OyakataTraits,
   Id
 } from "./types";
 
 import { rngFromSeed, rngForWorld } from "./rng";
 import { generateRikishiName } from "./shikona";
+import { determineNPCStyleBias } from "./npcAI";
 
 const VERSION: TalentPoolWorldState["version"] = "1.0.0";
+
+// Sumo typically enforces a one-foreign-born-per-heya rule.
+// Centralize the rule here so both UI gating and NPC AI stay consistent.
+export const FOREIGN_RIKISHI_LIMIT_PER_HEYA = 1;
 
 const POOL_TYPES: TalentPoolType[] = ["high_school", "university", "foreign"];
 
@@ -193,13 +199,25 @@ function createCandidate(world: WorldState, poolType: TalentPoolType, year: numb
   };
 }
 
-function getForeignCountInHeya(world: WorldState, heyaId: Id): number {
+export function getForeignCountInHeya(world: WorldState, heyaId: Id): number {
   let count = 0;
   for (const r of world.rikishi.values()) {
     if (r.heyaId !== heyaId) continue;
     if ((r.nationality || "Japan") !== "Japan") count += 1;
   }
   return count;
+}
+
+function getForeignCommitmentsInTalks(world: WorldState, heyaId: Id): number {
+  const tp = ensureWorldPool(world);
+  let n = 0;
+  for (const c of Object.values(tp.candidates)) {
+    if (!c) continue;
+    if (c.availabilityState !== "in_talks") continue;
+    if (!countsAsForeign(c)) continue;
+    if (c.competingSuitors.some((s) => s.heyaId === heyaId)) n += 1;
+  }
+  return n;
 }
 
 export function ensureTalentPools(world: WorldState): TalentPoolWorldState {
@@ -337,6 +355,18 @@ function countsAsForeign(candidate: TalentCandidate): boolean {
   return (candidate.nationality || "Japan") !== "Japan";
 }
 
+function getForeignCommitmentsInTalks(world: WorldState, heyaId: Id): number {
+  const tp = ensureWorldPool(world);
+  let count = 0;
+  for (const c of Object.values(tp.candidates)) {
+    if (!c) continue;
+    if (c.availabilityState !== "in_talks") continue;
+    if (!countsAsForeign(c)) continue;
+    if (c.competingSuitors?.some((s) => s.heyaId === heyaId)) count += 1;
+  }
+  return count;
+}
+
 export function canSignCandidate(world: WorldState, heyaId: Id, candidate: TalentCandidate): { ok: boolean; reason?: string } {
   if (candidate.availabilityState !== "available" && candidate.availabilityState !== "in_talks") {
     return { ok: false, reason: `Candidate is ${candidate.availabilityState.replace(/_/g, " ")}.` };
@@ -344,9 +374,10 @@ export function canSignCandidate(world: WorldState, heyaId: Id, candidate: Talen
   if (!world.heyas.get(heyaId)) return { ok: false, reason: "Unknown stable." };
 
   if (countsAsForeign(candidate)) {
-    const maxForeign = 1; // default rule (can be wired to governance later)
     const current = getForeignCountInHeya(world, heyaId);
-    if (current >= maxForeign) return { ok: false, reason: "Foreigner quota reached for this stable." };
+    const committed = getForeignCommitmentsInTalks(world, heyaId);
+    const maxForeign = FOREIGN_RIKISHI_LIMIT_PER_HEYA;
+    if (current + committed >= maxForeign) return { ok: false, reason: "Foreigner quota reached for this stable." };
   }
 
   return { ok: true };
@@ -481,6 +512,137 @@ function heyaUtility(world: WorldState, heyaId: Id): number {
   return clamp(Math.round(prestige * 0.6 + Math.log10(Math.max(1, funds)) * 10), 0, 120);
 }
 
+function defaultTraits(): OyakataTraits {
+  return { ambition: 55, patience: 55, risk: 45, tradition: 50, compassion: 50 };
+}
+
+function getTraitsForHeya(world: WorldState, heyaId: Id): OyakataTraits {
+  const heya = world.heyas.get(heyaId);
+  if (!heya) return defaultTraits();
+  const oyakata = world.oyakata.get(heya.oyakataId);
+  return oyakata?.traits ?? defaultTraits();
+}
+
+function getArchetypeForHeya(world: WorldState, heyaId: Id): string {
+  const heya = world.heyas.get(heyaId);
+  if (!heya) return "traditionalist";
+  const oyakata = world.oyakata.get(heya.oyakataId);
+  return oyakata?.archetype ?? "traditionalist";
+}
+
+function poolTypeOfCandidate(world: WorldState, c: TalentCandidate): TalentPoolType {
+  if (countsAsForeign(c)) return "foreign";
+  // Heuristic: university-aged (20+) are treated as university pool outputs.
+  const age = world.year - c.birthYear;
+  return age >= 20 ? "university" : "high_school";
+}
+
+function scoreCandidateForHeya(world: WorldState, heyaId: Id, c: TalentCandidate): number {
+  const traits = getTraitsForHeya(world, heyaId);
+  const arch = getArchetypeForHeya(world, heyaId);
+  const styleBias = determineNPCStyleBias(world, heyaId);
+
+  const age = world.year - c.birthYear;
+  const poolType = poolTypeOfCandidate(world, c);
+
+  let score = 0;
+
+  // Raw ceiling / readiness
+  const ambitionWeight = 0.35 + traits.ambition / 250; // 0.35..0.75
+  score += c.talentSeed * ambitionWeight;
+  if (c.isAmateurStar) score += 10 + traits.ambition * 0.05;
+  if (c.tags.includes("high_ceiling")) score += 6 + traits.risk * 0.04;
+
+  // Age / timeline
+  if (traits.patience >= 65) {
+    if (poolType === "high_school") score += 8;
+    if (age <= 18) score += 4;
+  } else {
+    if (poolType === "university") score += 6;
+    if (poolType === "foreign") score += 4;
+  }
+
+  // Tradition vs foreign openness
+  if (poolType === "foreign") {
+    score += (100 - traits.tradition) * 0.16; // openness
+    score -= traits.tradition * 0.08;
+  } else {
+    score += traits.tradition * 0.06;
+  }
+
+  // Style fit (NPC meta / roster bias)
+  if (styleBias !== "neutral") {
+    if (c.style === styleBias) score += 10;
+    else if (c.style === "hybrid") score += 3;
+    else score -= 6;
+  }
+  if (traits.tradition >= 70 && c.style === "yotsu") score += 4;
+  if (traits.tradition <= 30 && c.style === "oshi") score += 3;
+
+  // Temperament alignment
+  const disciplineDelta = (c.temperament.discipline - 50) / 50; // -1..1
+  const volatilityDelta = (c.temperament.volatility - 50) / 50;
+  score += disciplineDelta * (traits.tradition * 0.12 + traits.compassion * 0.06);
+  score += volatilityDelta * (traits.risk * 0.14 - traits.compassion * 0.10);
+  if (c.tags.includes("disciplined")) score += 4 + traits.tradition * 0.03;
+  if (c.tags.includes("volatile")) score += traits.risk * 0.05 - traits.compassion * 0.06;
+
+  // Archetype-specific tastes
+  if (arch === "gambler") {
+    if (c.tags.includes("volatile")) score += 8;
+    if (c.archetype === "trickster" || c.archetype === "speedster") score += 6;
+  }
+  if (arch === "nurturer") {
+    score += c.temperament.discipline * 0.05;
+    score -= c.temperament.volatility * 0.05;
+  }
+  if (arch === "scientist") {
+    score += c.temperament.discipline * 0.03;
+    score += c.talentSeed * 0.06;
+  }
+  if (arch === "tyrant") {
+    score += traits.ambition * 0.10;
+    score -= traits.compassion * 0.05;
+    if (c.isAmateurStar) score += 6;
+  }
+  if (arch === "strategist") {
+    // Strategy: align with roster bias and take flexible archetypes
+    if (c.style === "hybrid") score += 5;
+    if (c.archetype === "all_rounder" || c.archetype === "hybrid_oshi_yotsu") score += 6;
+  }
+
+  // Soft penalty for very low-visibility recruits unless patient
+  if (c.visibilityBand === "hidden" || c.visibilityBand === "obscure") {
+    score -= traits.patience >= 60 ? 0 : 4;
+  }
+
+  return score;
+}
+
+function chooseOfferProfile(world: WorldState, heyaId: Id, c: TalentCandidate): { offerType: SuitorOfferType; interest: SuitorInterestBand } {
+  const traits = getTraitsForHeya(world, heyaId);
+  const arch = getArchetypeForHeya(world, heyaId);
+
+  const star = c.isAmateurStar || c.talentSeed >= 80;
+  const ambitious = traits.ambition >= 75;
+
+  let interest: SuitorInterestBand = "medium";
+  if (star && ambitious) interest = "all_in";
+  else if (star || traits.ambition >= 60) interest = "high";
+
+  let offerType: SuitorOfferType = "standard";
+  if (arch === "gambler" || arch === "tyrant") offerType = "aggressive";
+  if (arch === "strategist" && star) offerType = "prestige_pitch";
+  if (arch === "scientist" && !star) offerType = "covert";
+  if (traits.risk <= 25 && offerType === "aggressive") offerType = "standard";
+
+  // Foreign recruits often need a pitch; traditional stables keep it quieter.
+  if (countsAsForeign(c) && traits.tradition <= 35) offerType = "prestige_pitch";
+  if (countsAsForeign(c) && traits.tradition >= 70) offerType = "covert";
+
+  return { offerType, interest };
+}
+
 function resolveCandidateSigning(world: WorldState, candidateId: Id): { signed: boolean; signedHeyaId?: Id; rikishiId?: Id } {
   const tp = ensureTalentPools(world);
   const c = tp.candidates[candidateId];
@@ -534,30 +696,59 @@ function npcOfferTick(world: WorldState): void {
   const tp = ensureTalentPools(world);
   const now = getWeek(world);
 
-  const heyaIds = Array.from(world.heyas.keys());
+  const playerHeyaId = (world as any).playerHeyaId as string | undefined;
+
+  const heyaIds = Array.from(world.heyas.keys()).filter((id) => !playerHeyaId || id !== playerHeyaId);
   if (heyaIds.length === 0) return;
 
   const rng = rngForWorld(world, "talentpool", `npc_offers::w${now}`);
 
-  // Pick a few candidates across pools.
-  const pickFrom: Id[] = [];
-  for (const pt of POOL_TYPES) pickFrom.push(...tp.pools[pt].candidatesVisible);
-  const sampleCount = Math.min(6, pickFrom.length);
+  // Build candidate pool: visible + a small hidden slice (simulates NPC scouting reach).
+  const visible: Id[] = [];
+  for (const pt of POOL_TYPES) visible.push(...tp.pools[pt].candidatesVisible);
+  if (visible.length === 0) return;
 
-  for (let i = 0; i < sampleCount; i++) {
-    const cid = pickFrom[rng.int(0, pickFrom.length - 1)];
-    const c = tp.candidates[cid];
-    if (!c || c.availabilityState !== "available") continue;
+  // Evaluate a small subset of stables each week to avoid O(N*M).
+  const stablesThisWeek = Math.min(6, heyaIds.length);
+  for (let s = 0; s < stablesThisWeek; s++) {
+    const heyaId = heyaIds[rng.int(0, heyaIds.length - 1)];
+    const traits = getTraitsForHeya(world, heyaId);
+    const recruitProb = clamp(0.06 + traits.ambition / 600 + (traits.risk / 1200), 0.04, 0.26);
+    if (!rng.bool(recruitProb)) continue;
 
-    if (rng.bool(c.isAmateurStar ? 0.55 : 0.25)) {
-      const heyaId = heyaIds[rng.int(0, heyaIds.length - 1)];
-      // Avoid player heya being auto-handled here; player uses UI.
-      if ((world as any).playerHeyaId && heyaId === (world as any).playerHeyaId) continue;
-
-      const interest: SuitorInterestBand = c.isAmateurStar ? "all_in" : rng.bool(0.4) ? "high" : "medium";
-      const offerType: SuitorOfferType = c.isAmateurStar ? "prestige_pitch" : rng.bool(0.25) ? "aggressive" : "standard";
-      offerCandidate(world, cid, heyaId, offerType, interest);
+    // Assemble an evaluation list per-heya: visible + some hidden (more for "scientist/strategist").
+    const arch = getArchetypeForHeya(world, heyaId);
+    const hiddenReach = clamp(Math.round(2 + traits.patience / 30 + (arch === "scientist" || arch === "strategist" ? 2 : 0)), 1, 8);
+    const evalList: Id[] = [...visible];
+    for (const pt of POOL_TYPES) {
+      // Don't tempt foreign if quota is already used.
+      if (pt === "foreign") {
+        const quotaOk = getForeignCountInHeya(world, heyaId) + getForeignCommitmentsInTalks(world, heyaId) < FOREIGN_RIKISHI_LIMIT_PER_HEYA;
+        if (!quotaOk) continue;
+      }
+      evalList.push(...tp.pools[pt].candidatesHidden.slice(0, hiddenReach));
     }
+
+    // Pick best candidate from a random sample.
+    let best: { cid: Id; score: number } | null = null;
+    const tries = Math.min(28, evalList.length);
+    for (let i = 0; i < tries; i++) {
+      const cid = evalList[rng.int(0, evalList.length - 1)];
+      const c = tp.candidates[cid];
+      if (!c || c.availabilityState !== "available") continue;
+      const can = canSignCandidate(world, heyaId, c);
+      if (!can.ok) continue;
+      // Add small noise so identical stables don't all pick the same prospect.
+      const noise = (rng.next() - 0.5) * 6;
+      const score = scoreCandidateForHeya(world, heyaId, c) + noise;
+      if (!best || score > best.score) best = { cid, score };
+    }
+    if (!best) continue;
+
+    const chosen = tp.candidates[best.cid];
+    if (!chosen) continue;
+    const { offerType, interest } = chooseOfferProfile(world, heyaId, chosen);
+    offerCandidate(world, best.cid, heyaId, offerType, interest);
   }
 }
 
@@ -590,37 +781,54 @@ export function fillVacanciesForNPC(world: WorldState, vacanciesByHeyaId: Record
 
   const tp = ensureWorldPool(world);
   const now = getWeek(world);
-  const candidateIds: Id[] = [];
-  for (const pt of POOL_TYPES) {
-    candidateIds.push(...tp.pools[pt].candidatesVisible);
-    // Include hidden reserves for NPCs (AI symmetry: they can scout-reach; we treat as chance)
-    if (pt !== "foreign") candidateIds.push(...tp.pools[pt].candidatesHidden.slice(0, 8));
-  }
 
   const rng = rngForWorld(world, "talentpool", `fill_vacancies::w${now}`);
   const playerHeyaId = (world as any).playerHeyaId as string | undefined;
+
+  // Base candidate pool includes visible across pools.
+  const visible: Id[] = [];
+  for (const pt of POOL_TYPES) visible.push(...tp.pools[pt].candidatesVisible);
 
   for (const [heyaId, need] of Object.entries(vacanciesByHeyaId)) {
     if (!need || need <= 0) continue;
     if (playerHeyaId && heyaId === playerHeyaId) continue;
 
+    const traits = getTraitsForHeya(world, heyaId);
+    const arch = getArchetypeForHeya(world, heyaId);
+    const hiddenReach = clamp(Math.round(4 + traits.patience / 25 + (arch === "scientist" || arch === "strategist" ? 3 : 0)), 2, 12);
+
+    // Build evaluation list: visible + hidden slices.
+    const evalList: Id[] = [...visible];
+    for (const pt of POOL_TYPES) {
+      if (pt === "foreign") {
+        const quotaOk = getForeignCountInHeya(world, heyaId) + getForeignCommitmentsInTalks(world, heyaId) < FOREIGN_RIKISHI_LIMIT_PER_HEYA;
+        if (!quotaOk) continue;
+      }
+      evalList.push(...tp.pools[pt].candidatesHidden.slice(0, hiddenReach));
+    }
+
     for (let i = 0; i < need; i++) {
-      // Find an available candidate the heya can sign.
-      let chosen: TalentCandidate | null = null;
-      for (let tries = 0; tries < 24; tries++) {
-        if (candidateIds.length === 0) break;
-        const cid = candidateIds[rng.int(0, candidateIds.length - 1)];
+      // Choose the best available candidate for this stable.
+      let best: { cid: Id; score: number } | null = null;
+      const tries = Math.min(40, evalList.length);
+      for (let t = 0; t < tries; t++) {
+        if (evalList.length === 0) break;
+        const cid = evalList[rng.int(0, evalList.length - 1)];
         const c = tp.candidates[cid];
         if (!c || c.availabilityState !== "available") continue;
         const can = canSignCandidate(world, heyaId, c);
-        if (can.ok) {
-          chosen = c;
-          break;
-        }
+        if (!can.ok) continue;
+        const noise = (rng.next() - 0.5) * 4;
+        const score = scoreCandidateForHeya(world, heyaId, c) + noise;
+        if (!best || score > best.score) best = { cid, score };
       }
+
+      if (!best) break;
+      const chosen = tp.candidates[best.cid];
       if (!chosen) break;
-      // NPC makes an aggressive offer and we fast-forward deadline.
-      offerCandidate(world, chosen.candidateId, heyaId, "standard", "high");
+
+      const { offerType, interest } = chooseOfferProfile(world, heyaId, chosen);
+      offerCandidate(world, chosen.candidateId, heyaId, offerType, interest);
       const s = chosen.competingSuitors.find((x) => x.heyaId === heyaId);
       if (s) s.deadlineWeek = now; // resolve immediately
       resolveCandidateSigning(world, chosen.candidateId);
