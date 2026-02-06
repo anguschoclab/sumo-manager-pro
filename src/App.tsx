@@ -29,7 +29,14 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<Index />} />
+            {/*
+              IMPORTANT:
+              / previously routed to <Index /> which runs a standalone demo bout sim (engine/bout.ts)
+              and bypasses the world orchestration (engine/world.ts) used by the actual game.
+              Keep the demo accessible at /demo, but make / the real game entry.
+            */}
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/demo" element={<Index />} />
             <Route path="/main-menu" element={<MainMenu />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/stable" element={<StablePage />} />
