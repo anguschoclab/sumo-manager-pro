@@ -685,6 +685,9 @@ export interface WorldState {
   // Training State Store (HeyaId -> State)
   trainingState?: Record<Id, BeyaTrainingState>;
 
+  // Talent Pools (Persistent pipelines of recruits)
+  talentPool?: TalentPoolWorldState;
+
   // Legacy / UI Helpers
   currentDate?: Date;
   heyasArray?: Heya[]; // Optional helper for array-based UI mapping
@@ -702,6 +705,80 @@ export interface WorldState {
   activeBasho?: {
     id: string;
   };
+}
+
+/** =========================
+ * Talent Pools & Pipelines
+ * ========================= */
+
+export type TalentPoolType = "high_school" | "university" | "foreign";
+
+export type VisibilityBand = "public" | "rumored" | "obscure" | "hidden";
+
+export type CandidateAvailabilityState =
+  | "available"
+  | "in_talks"
+  | "signed"
+  | "locked"
+  | "withdrawn";
+
+export type SuitorInterestBand = "low" | "medium" | "high" | "all_in";
+export type SuitorOfferType = "standard" | "aggressive" | "prestige_pitch" | "covert";
+
+export interface SuitorRef {
+  heyaId: Id;
+  interestBand: SuitorInterestBand;
+  offerType: SuitorOfferType;
+  deadlineWeek: number;
+}
+
+export interface TalentCandidate {
+  candidateId: Id;
+  personId: Id; // stable identity (becomes rikishi id if signed)
+  name: string;
+  birthYear: number;
+  originRegion: string;
+  nationality: string;
+  visibilityBand: VisibilityBand;
+  reputationSeed: number; // latent potential
+  tags: string[];
+  availabilityState: CandidateAvailabilityState;
+  competingSuitors: SuitorRef[];
+
+  // Rikishi-facing latent profile
+  archetype: TacticalArchetype;
+  style: Style;
+  heightPotentialCm: number;
+  weightPotentialKg: number;
+  talentSeed: number; // 0-100
+  temperament: {
+    discipline: number; // 0-100
+    volatility: number; // 0-100
+  };
+  isAmateurStar?: boolean;
+}
+
+export interface TalentPoolState {
+  poolId: Id;
+  poolType: TalentPoolType;
+  refreshCadence: "weekly" | "monthly" | "basho" | "yearly";
+  populationCap: number;
+  hiddenReserveCap: number;
+  candidatesVisible: Id[];
+  candidatesHidden: Id[];
+  lastRefreshWeek: number;
+  scarcityBand: "plentiful" | "normal" | "tight" | "scarce" | "crisis";
+  qualityBand: "low" | "normal" | "high" | "golden_age";
+}
+
+export interface TalentPoolWorldState {
+  version: "1.0.0";
+  lastYearlyRefreshYear: number;
+  candidates: Record<Id, TalentCandidate>;
+  pools: Record<TalentPoolType, TalentPoolState>;
+
+  // Player knowledge about prospects (separate from rikishi scouting)
+  playerScouting?: Record<Id, { scoutingLevel: number; lastScoutedWeek: number }>;
 }
 
 /** =========================
@@ -738,6 +815,9 @@ export interface SerializedWorldState {
   playerHeyaId?: Id;
 
   currentBanzuke?: BanzukeSnapshot;
+
+  // Talent pool persistence
+  talentPool?: TalentPoolWorldState;
 }
 
 /** =========================

@@ -104,7 +104,8 @@ export function serializeWorld(world: WorldState): SerializedWorldState {
     historyLog: world.historyLog || [],
     ftue: world.ftue,
     playerHeyaId: world.playerHeyaId,
-    currentBanzuke: world.currentBanzuke
+    currentBanzuke: world.currentBanzuke,
+    talentPool: (world as any).talentPool
   };
 }
 
@@ -164,6 +165,7 @@ export function deserializeWorld(serialized: SerializedWorldState): WorldState {
     ftue: serialized.ftue,
     playerHeyaId: serialized.playerHeyaId,
     currentBanzuke: serialized.currentBanzuke,
+    talentPool: (serialized as any).talentPool,
     calendar: {
       year: serialized.year,
       month: 1,

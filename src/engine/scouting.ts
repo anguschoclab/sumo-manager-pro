@@ -442,11 +442,13 @@ export interface ScoutCandidate {
   potential: number; // 0-100 hidden stat
 }
 
-export function generateScoutCandidates(count: number, currentYear: number): ScoutCandidate[] {
+// Legacy helper: generate a small list of candidates for UI prototypes.
+// Prefer the persistent Talent Pool system (engine/talentpool.ts) for actual gameplay.
+export function generateScoutCandidates(world: WorldState, count: number, currentYear: number): ScoutCandidate[] {
   const candidates: ScoutCandidate[] = [];
 
   for (let i = 0; i < count; i++) {
-    const rookie = generateRookie(currentYear, "jonokuchi");
+    const rookie = generateRookie(world, currentYear, "jonokuchi");
     
     // Calculate a signing cost based on stats
     const statSum = Object.values(rookie.stats).reduce((a, b) => a + b, 0);
@@ -460,7 +462,7 @@ export function generateScoutCandidates(count: number, currentYear: number): Sco
       archetype: rookie.archetype,
       stats: rookie.stats,
       cost: cost,
-      potential: 50 + rngForWorld(world, "scouting".split("::")[0], "scouting".split("::").slice(1).join("::")).next() * 50
+      potential: 50 + rngFromSeed(world.seed, "scouting", `potential::${rookie.id}`).next() * 50
     });
   }
 

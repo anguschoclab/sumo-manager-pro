@@ -24,8 +24,9 @@ import * as npcAI from "./npcAI";
 import * as scoutingStore from "./scoutingStore";
 import * as historyIndex from "./historyIndex";
 import * as training from "./training"; 
+import * as talentpool from "./talentpool";
 import { determineSpecialPrizes, updateBanzuke } from "./banzuke"; 
-import { checkRetirement, generateRookie } from "./lifecycle";
+import { checkRetirement } from "./lifecycle";
 
 // Type guard or helper to access current basho
 function getCurrentBasho(world: WorldState): BashoState | undefined {
@@ -216,12 +217,16 @@ export function endBasho(world: WorldState): WorldState {
   // --- LIFECYCLE MANAGEMENT ---
   console.log("Processing End of Basho Lifecycle...");
   const retiredRikishiIds: string[] = [];
+  const vacanciesByHeyaId: Record<string, number> = {};
 
   for (const [id, r] of world.rikishi) {
-    const reason = checkRetirement(r as any, world.year);
+    const reason = checkRetirement(r as any, world.year, world.seed);
     if (reason) {
         console.log(`${r.shikona} has retired due to: ${reason}`);
         retiredRikishiIds.push(id);
+
+        if (r.heyaId) vacanciesByHeyaId[r.heyaId] = (vacanciesByHeyaId[r.heyaId] || 0) + 1;
+
         world.rikishi.delete(id);
         // Clean up from heya
         const heya = world.heyas.get(r.heyaId);
@@ -231,24 +236,8 @@ export function endBasho(world: WorldState): WorldState {
     }
   }
 
-  // Replenish Roster
-  const numToReplace = retiredRikishiIds.length;
-  const heyaIds = Array.from(world.heyas.keys());
-  
-  for (let i = 0; i < numToReplace; i++) {
-      const rookie = generateRookie(world.year, "jonokuchi");
-      
-      if (heyaIds.length > 0) {
-          const rng = rngForWorld(world, "assignRookie::${rookie.id}".split("::")[0], "assignRookie::${rookie.id}".split("::").slice(1).join("::"));
-          const randomHeyaId = heyaIds[rng.int(0, heyaIds.length - 1)];
-          rookie.heyaId = randomHeyaId;
-          const heya = world.heyas.get(randomHeyaId);
-          if (heya) heya.rikishiIds.push(rookie.id);
-      }
-      
-      world.rikishi.set(rookie.id, rookie as any);
-      console.log(`New Recruit: ${rookie.shikona} from ${rookie.origin} (${rookie.archetype})`);
-  }
+  // Persistent Talent Pools: NPC stables fill their own vacancies from the shared pool.
+  safeCall(() => (talentpool as any).fillVacanciesForNPC?.(world, vacanciesByHeyaId));
 
   return world;
 }
@@ -333,6 +322,10 @@ export function advanceInterim(world: WorldState, weeks: number = 1): WorldState
     safeCall(() => (rivalries as any).tickWeek?.(world));
     safeCall(() => (events as any).tickWeek?.(world));
     safeCall(() => (scoutingStore as any).tickWeek?.(world));
+    safeCall(() => (talentpool as any).tickWeek?.(world));
+
+    // Talent pools tick: refresh cohorts, NPC recruitment, offer resolution
+    safeCall(() => (talentpool as any).tickWeek?.(world));
 
     safeCall(() => {
       // eslint-disable-next-line @typescript-eslint/no-var-requires

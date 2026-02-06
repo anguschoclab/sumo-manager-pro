@@ -17,6 +17,7 @@ import {
 } from "./types";
 import { generateRikishiName } from "./shikona";
 import { SeededRNG } from "./utils/SeededRNG";
+import { ensureTalentPools } from "./talentpool";
 
 
 // Constants
@@ -241,7 +242,7 @@ export function generateWorld(seed: string | { seed: string } = "initial-seed"):
 
   const initialBashoName: BashoName = "hatsu";
 
-  return {
+  const world: any = {
     id: crypto.randomUUID(),
     seed: actualSeed,
     year: currentYear,
@@ -272,6 +273,15 @@ export function generateWorld(seed: string | { seed: string } = "initial-seed"):
     
     currentDate: new Date(2024, 0, 1)
   };
+
+  // Persistent Talent Pools (created immediately so scouting has targets)
+  try {
+    ensureTalentPools(world as WorldState);
+  } catch {
+    // swallow
+  }
+
+  return world as WorldState;
 }
 
 export function initializeBasho(world: WorldState, bashoName: string): BashoState {
