@@ -1,0 +1,1 @@
+import React from 'react'; export default function CharacterPage(){return <div className='p-4'>Character Page (delta)</div>};
